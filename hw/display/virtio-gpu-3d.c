@@ -570,6 +570,21 @@ static void virtio_gpu_print_stats(void *opaque)
     timer_mod(g->print_stats, qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 1000);
 }
 
+#define WAIT_MIN 3
+#define WAIT_MAX 11
+static int32_t g_wait = 10;
+static int32_t g_hit = 0;
+static int32_t g_pass = 0;
+
+static inline int32_t virtio_gpu_wait_time(int inflight) {
+    if (g_hit + g_pass > 250 ) {
+        g_wait = (g_pass < 5 && inflight > 5) ? WAIT_MAX : WAIT_MIN;
+        g_hit = 0;
+        g_pass = 0;
+    }
+	return g_wait;
+}
+
 static void virtio_gpu_fence_poll(void *opaque)
 {
     VirtIOGPU *g = opaque;
@@ -577,7 +592,10 @@ static void virtio_gpu_fence_poll(void *opaque)
     virgl_renderer_poll();
     virtio_gpu_process_cmdq(g);
     if (!QTAILQ_EMPTY(&g->cmdq) || !QTAILQ_EMPTY(&g->fenceq)) {
-        timer_mod(g->fence_poll, qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 10);
+        g_hit++;
+        timer_mod(g->fence_poll, qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + virtio_gpu_wait_time(g->inflight));
+    } else {
+        g_pass++;
     }
 }
 
