@@ -942,6 +942,11 @@ if 'CONFIG_TASN1' in config_host
 endif
 keyutils = dependency('libkeyutils', required: false,
                       method: 'pkg-config', kwargs: static_kwargs)
+mfx = not_found
+if 'CONFIG_MFX' in config_host
+  mfx = declare_dependency(compile_args: config_host['MFX_CFLAGS'].split(),
+                              link_args: config_host['MFX_LIBS'].split())
+endif
 
 has_gettid = cc.has_function('gettid')
 
@@ -2157,6 +2162,9 @@ foreach target : target_dirs
     t = target_softmmu_arch[arch].apply(config_target, strict: false)
     arch_srcs += t.sources()
     arch_deps += t.dependencies()
+    if 'CONFIG_MFX' in config_target
+      arch_deps += mfx
+    endif
 
     hw_dir = target_name == 'sparc64' ? 'sparc64' : arch
     hw = hw_arch[hw_dir].apply(config_target, strict: false)
@@ -2714,6 +2722,7 @@ summary_info += {'libpmem support':   config_host.has_key('CONFIG_LIBPMEM')}
 summary_info += {'libdaxctl support': config_host.has_key('CONFIG_LIBDAXCTL')}
 summary_info += {'libudev':           libudev.found()}
 summary_info += {'FUSE lseek':        fuse_lseek.found()}
+summary_info += {'mfx':               config_host.has_key('CONFIG_MFX')}
 summary(summary_info, bool_yn: true, section: 'Dependencies')
 
 if not supported_cpus.contains(cpu)

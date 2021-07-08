@@ -467,6 +467,8 @@ multiprocess="auto"
 malloc_trim="auto"
 gio="$default_feature"
 
+mfx="yes"
+
 # parse CC options second
 for opt do
   optarg=$(expr "x$opt" : 'x[^=]*=\(.*\)')
@@ -1564,6 +1566,10 @@ for opt do
   --enable-gio) gio=yes
   ;;
   --disable-gio) gio=no
+  ;;
+  --enable-mfx) mfx=yes
+  ;;
+  --disable-mfx) mfx=no
   ;;
   *)
       echo "ERROR: unknown option $opt"
@@ -3296,6 +3302,24 @@ for drv in $audio_drv_list; do
     ;;
     esac
 done
+
+##########################################
+# MediaSDK support probe
+CWD="`realpath \"$0\"`"
+CWD="`dirname \"${CWD}\"`"
+export PKG_CONFIG_PATH="${CWD}/media/output/lib/pkgconfig":${PKG_CONFIG_PATH}
+if test "$mfx" != "no" ; then
+    if $pkg_config --exact-version=1.35 mfx; then
+        mfx="yes"
+        mfx_cflags=$($pkg_config --cflags mfx)
+        mfx_libs=$($pkg_config --libs mfx)
+    else
+        if test "$mfx" = "yes"; then
+            feature_not_found "mfx" "Update MediaSDK submodule to 1.35"
+        fi
+        mfx="no"
+    fi
+fi
 
 ##########################################
 # glib support probe
@@ -6236,6 +6260,12 @@ fi
 
 if test "$safe_stack" = "yes"; then
   echo "CONFIG_SAFESTACK=y" >> $config_host_mak
+fi
+
+if test "$mfx" = "yes" ; then
+  echo "CONFIG_MFX=y" >> $config_host_mak
+  echo "MFX_CFLAGS=$mfx_cflags" >> $config_host_mak
+  echo "MFX_LIBS=$mfx_libs" >> $config_host_mak
 fi
 
 # If we're using a separate build tree, set it up now.
