@@ -948,6 +948,12 @@ if 'CONFIG_MFX' in config_host
                               link_args: config_host['MFX_LIBS'].split())
 endif
 
+vaapi = not_found
+if 'CONFIG_VAAPI' in config_host
+  vaapi = declare_dependency(compile_args: config_host['VAAPI_CFLAGS'].split(),
+                               link_args: config_host['VAAPI_LIBS'].split())
+endif
+
 has_gettid = cc.has_function('gettid')
 
 # Malloc tests
@@ -2165,6 +2171,9 @@ foreach target : target_dirs
     if 'CONFIG_MFX' in config_target
       arch_deps += mfx
     endif
+    if 'CONFIG_VAAPI' in config_target
+      arch_deps += vaapi
+    endif
 
     hw_dir = target_name == 'sparc64' ? 'sparc64' : arch
     hw = hw_arch[hw_dir].apply(config_target, strict: false)
@@ -2723,6 +2732,7 @@ summary_info += {'libdaxctl support': config_host.has_key('CONFIG_LIBDAXCTL')}
 summary_info += {'libudev':           libudev.found()}
 summary_info += {'FUSE lseek':        fuse_lseek.found()}
 summary_info += {'mfx':               config_host.has_key('CONFIG_MFX')}
+summary_info += {'vaapi':             config_host.has_key('CONFIG_VAAPI')}
 summary(summary_info, bool_yn: true, section: 'Dependencies')
 
 if not supported_cpus.contains(cpu)

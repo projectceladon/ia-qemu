@@ -468,6 +468,7 @@ malloc_trim="auto"
 gio="$default_feature"
 
 mfx="yes"
+vaapi="yes"
 
 # parse CC options second
 for opt do
@@ -1570,6 +1571,10 @@ for opt do
   --enable-mfx) mfx=yes
   ;;
   --disable-mfx) mfx=no
+  ;;
+  --enable-vaapi) vaapi=yes
+  ;;
+  --disable-vaapi) vaapi=no
   ;;
   *)
       echo "ERROR: unknown option $opt"
@@ -3318,6 +3323,24 @@ if test "$mfx" != "no" ; then
             feature_not_found "mfx" "Update MediaSDK submodule to 1.35"
         fi
         mfx="no"
+    fi
+fi
+
+##########################################
+# VAAPI support probe
+CWD="`realpath \"$0\"`"
+CWD="`dirname \"${CWD}\"`"
+export PKG_CONFIG_PATH="${CWD}/media/output/lib/pkgconfig":${PKG_CONFIG_PATH}
+if test "$vaapi" != "no" ; then
+    if $pkg_config --exact-version=1.12.0 libva; then
+        vaapi="yes"
+        vaapi_cflags=$($pkg_config --cflags libva-drm)
+        vaapi_libs=$($pkg_config --libs libva-drm)
+    else
+        if test "$vaapi" = "yes"; then
+            feature_not_found "libva" "Update MediaSDK submodule to 1.12.0"
+        fi
+        vaapi="no"
     fi
 fi
 
@@ -6266,6 +6289,12 @@ if test "$mfx" = "yes" ; then
   echo "CONFIG_MFX=y" >> $config_host_mak
   echo "MFX_CFLAGS=$mfx_cflags" >> $config_host_mak
   echo "MFX_LIBS=$mfx_libs" >> $config_host_mak
+fi
+
+if test "$vaapi" = "yes" ; then
+  echo "CONFIG_VAAPI=y" >> $config_host_mak
+  echo "VAAPI_CFLAGS=$vaapi_cflags" >> $config_host_mak
+  echo "VAAPI_LIBS=$vaapi_libs" >> $config_host_mak
 fi
 
 # If we're using a separate build tree, set it up now.
