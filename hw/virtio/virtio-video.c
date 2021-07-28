@@ -53,6 +53,7 @@ static VirtIOVideoBackend virtio_video_backends[] = {
     {VIRTIO_VIDEO_BACKEND_VAAPI, "vaapi"},
     {VIRTIO_VIDEO_BACKEND_FFMPEG, "ffmpeg"},
     {VIRTIO_VIDEO_BACKEND_GSTREAMER, "gstreamer"},
+    {VIRTIO_VIDEO_BACKEND_MEDIA_SDK, "media-sdk"},
 };
 
 static size_t virtio_video_process_cmd_query_capability(VirtIODevice *vdev,
@@ -397,9 +398,17 @@ static void virtio_video_init_framework(VirtIODevice *vdev, Error **errp)
     }
     VIRTVID_DEBUG("model %d(%s), backend %d(%s)", vid->model, vid->property.model, vid->backend, vid->property.backend);
 
+    vid->caps_in.size = sizeof(virtio_video_query_capability_resp);
+    vid->caps_in.ptr = g_malloc0(vid->caps_in.size);
+    vid->caps_out.size = sizeof(virtio_video_query_capability_resp);
+    vid->caps_out.ptr = g_malloc0(vid->caps_out.size);
+
     switch (vid->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         virtio_init(vdev, "virtio-video", VIRTIO_ID_VIDEO_DEC, sizeof(virtio_video_config));
+        if (virtio_video_decode_init(vdev)) {
+            error_setg(errp, "Fail to initialize %s:%s", vid->property.model, vid->property.backend);
+        }
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
         virtio_init(vdev, "virtio-video", VIRTIO_ID_VIDEO_ENC, sizeof(virtio_video_config));
@@ -421,6 +430,28 @@ static void virtio_video_init_framework(VirtIODevice *vdev, Error **errp)
 
 static void virtio_video_destroy_framework(VirtIODevice *vdev)
 {
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+
+    vid->caps_in.size = 0;
+    if (vid->caps_in.ptr) {
+        g_free(vid->caps_in.ptr);
+    }
+
+    vid->caps_out.size = 0;
+    if (vid->caps_out.ptr) {
+        g_free(vid->caps_out.ptr);
+    }
+
+
+    switch (vid->model) {
+    case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
+        virtio_video_decode_destroy(vdev);
+        break;
+    case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
+        break;
+    default:
+        return;
+    }
     virtio_del_queue(vdev, 0);
     virtio_del_queue(vdev, 1);
     virtio_cleanup(vdev);

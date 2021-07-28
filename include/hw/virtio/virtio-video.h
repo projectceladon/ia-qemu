@@ -507,6 +507,8 @@ typedef struct virtio_video_event {
 #define TYPE_VIRTIO_VIDEO_PCI_NON_TRANS "virtio-video-pci-non-transitional"
 #define TYPE_VIRTIO_VIDEO "virtio-video-device"
 
+#define VIRTIO_VIDEO_DRM_DEVICE "/dev/dri/by-path/pci-0000:00:02.0-render"
+
 #define VIRTIO_VIDEO_VM_VERSION 1
 #define VIRTIO_VIDEO_VQ_SIZE 256
 
@@ -531,7 +533,8 @@ typedef enum virtio_video_backend {
     VIRTIO_VIDEO_BACKEND_VAAPI = VIRTIO_VIDEO_BACKEND_MIN,
     VIRTIO_VIDEO_BACKEND_FFMPEG,
     VIRTIO_VIDEO_BACKEND_GSTREAMER,
-    VIRTIO_VIDEO_BACKEND_MAX = VIRTIO_VIDEO_BACKEND_FFMPEG,
+	VIRTIO_VIDEO_BACKEND_MEDIA_SDK,
+    VIRTIO_VIDEO_BACKEND_MAX = VIRTIO_VIDEO_BACKEND_MEDIA_SDK,
 } virtio_video_backend;
 
 typedef struct VirtIOVideoModel {
@@ -544,6 +547,11 @@ typedef struct VirtIOVideoBackend {
     const char* name;
 } VirtIOVideoBackend;
 
+typedef struct VirtIOVideoCaps {
+    void *ptr;
+    uint32_t size;
+} VirtIOVideoCaps;
+
 typedef struct VirtIOVideo {
     VirtIODevice parent_obj;
     struct {
@@ -555,6 +563,13 @@ typedef struct VirtIOVideo {
     virtio_video_config config;
     VirtQueue *cmd_vq, *event_vq;
     uint32_t stream_id;
+    int drm_fd;
+    void *va_disp_handle;
+    void *mfx_session;
+    uint16_t mfx_version_major;
+    uint16_t mfx_version_minor;
+    VirtIOVideoCaps caps_in;
+    VirtIOVideoCaps caps_out;
 } VirtIOVideo;
 
 typedef struct VirtIOVideoPCI {

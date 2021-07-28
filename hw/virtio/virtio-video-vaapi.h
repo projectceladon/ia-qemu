@@ -1,6 +1,6 @@
 /*
  * VirtIO-Video Backend Driver
- * VirtIO-Video Backend Decoder Defines
+ * VirtIO-Video Backend LIBVA
  *
  * Copyright (C) 2021, Intel Corporation. All rights reserved.
  *
@@ -22,20 +22,13 @@
  * Author: Colin Xu <Colin.Xu@intel.com>
  *
  */
-#ifndef QEMU_VIRTIO_VIDEO_DEC_H
-#define QEMU_VIRTIO_VIDEO_DEC_H
+#ifndef QEMU_VIRTIO_VIDEO_VAAPI_H
+#define QEMU_VIRTIO_VIDEO_VAAPI_H
 
 #include "hw/virtio/virtio-video.h"
-#include "virtio-video-msdk.h"
 
-size_t virtio_video_dec_cmd_query_capability(VirtIODevice *vdev,
-    virtio_video_query_capability *req, virtio_video_query_capability_resp **resp);
-size_t virtio_video_dec_cmd_get_params(VirtIODevice *vdev,
-    virtio_video_get_params *req, virtio_video_get_params_resp *resp);
-size_t virtio_video_dec_event(VirtIODevice *vdev, virtio_video_event *ev);
+int virtio_video_create_va_env_drm(VirtIODevice *vdev);
+void virtio_video_destroy_va_env_drm(VirtIODevice *vdev);
+void virtio_video_vaapi_query_caps(virtio_video_format fmt);
 
-// Media-SDK wrapper
-int virtio_video_decode_init(VirtIODevice *vdev);
-void virtio_video_decode_destroy(VirtIODevice *vdev);
-
-#endif /* QEMU_VIRTIO_VIDEO_DEC_H */
+#endif /* QEMU_VIRTIO_VIDEO_VAAPI_H */

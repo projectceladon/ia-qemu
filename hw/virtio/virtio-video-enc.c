@@ -25,64 +25,10 @@
 #include "qemu/osdep.h"
 #include "virtio-video-enc.h"
 
-/* Static caps, should fetch from underlay media framework */
-static struct {
-    struct virtio_video_query_capability_resp resp;
-    /* Nested caps: desc->frame->range */
-    struct virtio_video_format_desc desc0;
-        struct virtio_video_format_frame frame0_0;
-            struct virtio_video_format_range range0_0_0;
-} video_encode_capability_input = {
-        .resp.hdr.type = VIRTIO_VIDEO_CMD_QUERY_CAPABILITY,
-        .resp.hdr.stream_id = 0xffff,
-        .resp.num_descs = 1,
-        .desc0.mask = 0,
-        .desc0.format = VIRTIO_VIDEO_FORMAT_ARGB8888,
-        .desc0.planes_layout = VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER,
-        .desc0.plane_align = 0,
-        .desc0.num_frames = 1,
-            .frame0_0.width.min = 0,
-            .frame0_0.width.max = 640,
-            .frame0_0.width.step = 64,
-            .frame0_0.height.min = 0,
-            .frame0_0.height.max = 480,
-            .frame0_0.height.step = 48,
-            .frame0_0.num_rates = 1,
-                .range0_0_0.min = 60,
-                .range0_0_0.max = 60,
-                .range0_0_0.step = 1,
-    };
-
-static struct {
-    struct virtio_video_query_capability_resp resp;
-    /* Nested caps: desc->frame->range */
-    struct virtio_video_format_desc desc0;
-        struct virtio_video_format_frame frame0_0;
-            struct virtio_video_format_range range0_0_0;
-} video_encode_capability_output = {
-        .resp.hdr.type = VIRTIO_VIDEO_CMD_QUERY_CAPABILITY,
-        .resp.hdr.stream_id = 0xffff,
-        .resp.num_descs = 1,
-        .desc0.mask = 0,
-        .desc0.format = VIRTIO_VIDEO_FORMAT_HEVC,
-        .desc0.planes_layout = VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER,
-        .desc0.plane_align = 0,
-        .desc0.num_frames = 1,
-            .frame0_0.width.min = 0,
-            .frame0_0.width.max = 640,
-            .frame0_0.width.step = 64,
-            .frame0_0.height.min = 0,
-            .frame0_0.height.max = 480,
-            .frame0_0.height.step = 48,
-            .frame0_0.num_rates = 1,
-                .range0_0_0.min = 60,
-                .range0_0_0.max = 60,
-                .range0_0_0.step = 1,
-    };
-
 size_t virtio_video_enc_cmd_query_capability(VirtIODevice *vdev,
     virtio_video_query_capability *req, virtio_video_query_capability_resp **resp)
 {
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
     size_t len = 0;
     void *src;
     VIRTVID_DEBUG("    %s: stream 0x%x, queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
@@ -90,21 +36,21 @@ size_t virtio_video_enc_cmd_query_capability(VirtIODevice *vdev,
     if (req != NULL && *resp == NULL) {
         switch (req->queue_type) {
         case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
-            len = sizeof(video_encode_capability_input);
-            src = &video_encode_capability_input;
+            len = vid->caps_in.size;
+            src = vid->caps_in.ptr;
             break;
         case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
-            len = sizeof(video_encode_capability_output);
-            src = &video_encode_capability_output;
+            len = vid->caps_out.size;
+            src = vid->caps_out.ptr;
             break;
         default:
             break;
         }
 
-        *resp = g_malloc(len);
+        *resp = g_malloc0(len);
         if (*resp != NULL) {
             memcpy(*resp, src, len);
-            (*resp)->hdr.type = req->hdr.type;
+            (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_QUERY_CAPABILITY;
             (*resp)->hdr.stream_id = req->hdr.stream_id;
         } else {
             len = 0;
