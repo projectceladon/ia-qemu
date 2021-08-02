@@ -74,6 +74,36 @@ static size_t virtio_video_process_cmd_query_capability(VirtIODevice *vdev,
     }
 }
 
+static size_t virtio_video_process_cmd_stream_create(VirtIODevice *vdev,
+    virtio_video_stream_create *req, virtio_video_cmd_hdr *resp)
+{
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+
+    switch (vid->model) {
+    case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
+        return virtio_video_dec_cmd_stream_create(vdev, req, resp);
+        break;
+    default:
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
+        return 0;
+    }
+}
+
+static size_t virtio_video_process_cmd_stream_destroy(VirtIODevice *vdev,
+    virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp)
+{
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+
+    switch (vid->model) {
+    case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
+        return virtio_video_dec_cmd_stream_destroy(vdev, req, resp);
+        break;
+    default:
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
+        return 0;
+    }
+}
+
 static size_t virtio_video_process_cmd_get_params(VirtIODevice *vdev,
     virtio_video_get_params *req, virtio_video_get_params_resp *resp)
 {
@@ -168,9 +198,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
                 return -1;
             }
 
-            resp.type = hdr.type;
-            resp.stream_id = hdr.stream_id;
-            len = sizeof(resp);
+            len = virtio_video_process_cmd_stream_create(vdev, &req, &resp);
             if (unlikely(iov_from_buf(in_buf, in_num, 0, &resp, len) != len)) {
                 virtio_error(vdev, "virtio-gpio insufficient buffer for iov_from_buf in cmd_vq\n");
                 return -1;
@@ -180,6 +208,29 @@ static int virtio_video_process_command(VirtIODevice *vdev,
             break;
         }
         case VIRTIO_VIDEO_CMD_STREAM_DESTROY:
+        {
+            virtio_video_stream_destroy req = {0};
+            virtio_video_cmd_hdr resp = {0};
+
+            if (unlikely(iov_to_buf(out_buf, out_num, 0, &req, sizeof(req)) != sizeof(req))) {
+                virtio_error(vdev, "virtio-video insufficient buffer for iov_to_buf in cmd_vq\n");
+                return -1;
+            }
+
+            if (in_buf == NULL || in_num != 1) {
+                VIRTVID_ERROR("    invalid in_buf(%p), in_num(%x) in cmd_vq", in_buf, in_num);
+                return -1;
+            }
+
+            len = virtio_video_process_cmd_stream_destroy(vdev, &req, &resp);
+            if (unlikely(iov_from_buf(in_buf, in_num, 0, &resp, len) != len)) {
+                virtio_error(vdev, "virtio-gpio insufficient buffer for iov_from_buf in cmd_vq\n");
+                return -1;
+            }
+            VIRTVID_DEBUG("    resp_size 0x%lx", len);
+            *size = len;
+            break;
+        }
         case VIRTIO_VIDEO_CMD_STREAM_DRAIN:
         case VIRTIO_VIDEO_CMD_RESOURCE_CREATE:
         case VIRTIO_VIDEO_CMD_RESOURCE_QUEUE:
@@ -464,7 +515,7 @@ static void virtio_video_init_internal(VirtIODevice *vdev, Error **errp)
     vid->config.version = VIRTIO_VIDEO_VERSION;
     vid->config.max_caps_length = VIRTIO_VIDEO_CAPS_LENGTH_MAX;
     vid->config.max_resp_length = VIRTIO_VIDEO_RESPONSE_LENGTH_MAX;
-    vid->stream_id = 0;
+    QLIST_INIT(&vid->stream_list);
 }
 
 static void virtio_video_destroy_internal(VirtIODevice *vdev)

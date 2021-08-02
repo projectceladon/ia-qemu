@@ -547,6 +547,16 @@ typedef struct VirtIOVideoBackend {
     const char* name;
 } VirtIOVideoBackend;
 
+typedef struct VirtIOVideoStream {
+    void *mfx_session;
+    uint32_t stream_id;
+    virtio_video_mem_type in_mem_type;
+    virtio_video_mem_type out_mem_type;
+    virtio_video_format in_format;
+    char tag[64];
+    QLIST_ENTRY(VirtIOVideoStream) next;
+} VirtIOVideoStream;
+
 typedef struct VirtIOVideoCaps {
     void *ptr;
     uint32_t size;
@@ -562,7 +572,7 @@ typedef struct VirtIOVideo {
     virtio_video_backend backend;
     virtio_video_config config;
     VirtQueue *cmd_vq, *event_vq;
-    uint32_t stream_id;
+    QLIST_HEAD(, VirtIOVideoStream) stream_list;
     int drm_fd;
     void *va_disp_handle;
     int32_t mfx_impl;

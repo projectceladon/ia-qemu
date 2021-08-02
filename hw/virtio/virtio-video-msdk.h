@@ -54,6 +54,7 @@ typedef struct VirtIOVideoMediaSdk {
 
 void virtio_video_msdk_fill_video_params(virtio_video_format format, mfxVideoParam *param);
 void virtio_video_msdk_fill_format_desc(virtio_video_format format, virtio_video_format_desc *format_desc);
+bool virtio_video_msdk_find_format(VirtIOVideoCaps *caps, virtio_video_format format);
 bool virtio_video_msdk_find_format_desc(VirtIOVideoCaps *caps, virtio_video_format_desc *format_desc);
 int virtio_video_msdk_get_plugin(virtio_video_format format, bool encode, mfxPluginUID *plugin);
 void virtio_video_msdk_load_plugin(VirtIODevice *vdev, mfxSession mfx_session, virtio_video_format format, bool encode, bool unload);

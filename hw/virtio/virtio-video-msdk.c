@@ -78,6 +78,48 @@ void virtio_video_msdk_fill_format_desc(virtio_video_format format, virtio_video
     format_desc->plane_align = 0;
 }
 
+bool virtio_video_msdk_find_format(VirtIOVideoCaps *caps, virtio_video_format format)
+{
+    bool found = false;
+    uint32_t idx_format, idx_frame, idx_rate, num_format, num_frame, num_rate;
+    void *src;
+
+    if (caps == NULL) {
+        return found;
+    }
+
+    num_format = ((virtio_video_query_capability_resp*)caps->ptr)->num_descs;
+    src = caps->ptr + sizeof(virtio_video_query_capability_resp);
+    for (idx_format = 0; idx_format < num_format; idx_format++) {
+        // Compare the virtio_video_format_desc part
+        found = false;
+        if (((virtio_video_format_desc*)src)->format == format) {
+            found = true;
+            idx_format = num_format;
+            VIRTVID_VERBOSE("format %x found at %d", format, idx_format);
+        } else {
+            VIRTVID_VERBOSE("format %x NOT equal at %d", format, idx_format);
+            num_frame = ((virtio_video_format_desc*)src)->num_frames;
+            // Skip current format_desc
+            src += sizeof(virtio_video_format_desc);
+            if (num_frame != 0) {
+                // Skip remaining format_frame
+                for (idx_frame = 0; idx_frame < num_frame; idx_frame++) {
+                    num_rate = ((virtio_video_format_frame*)src)->num_rates;
+                    src += sizeof(virtio_video_format_frame);
+                    if (num_rate != 0) {
+                        for (idx_rate = 0; idx_rate < num_rate; idx_rate++) {
+                            src += sizeof(virtio_video_format_range);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return found;
+}
+
 bool virtio_video_msdk_find_format_desc(VirtIOVideoCaps *caps, virtio_video_format_desc *format_desc)
 {
     bool found = false;
@@ -227,6 +269,10 @@ void virtio_video_msdk_load_plugin(VirtIODevice *vdev, mfxSession mfx_session, v
     VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
     mfxStatus sts = MFX_ERR_NONE;
     mfxPluginUID pluginUID = {0};
+
+    if (mfx_session == NULL) {
+        return;
+    }
 
     if (virtio_video_msdk_get_plugin(format, encode, &pluginUID) == 0) {
         if (unload) {

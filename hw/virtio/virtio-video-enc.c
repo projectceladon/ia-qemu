@@ -78,11 +78,11 @@ size_t virtio_video_enc_cmd_get_params(VirtIODevice *vdev,
 
 size_t virtio_video_enc_event(VirtIODevice *vdev, virtio_video_event *ev)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    //VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
     size_t len = 0;
 
     if (ev) {
-        ev->stream_id = ++vid->stream_id;
+        //ev->stream_id = ++vid->stream_id;
         len = sizeof(*ev);
         VIRTVID_DEBUG("    %s: event_type 0x%x, stream_id 0x%x", __FUNCTION__, ev->event_type, ev->stream_id);
     } else {

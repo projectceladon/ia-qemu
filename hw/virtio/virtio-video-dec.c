@@ -62,6 +62,75 @@ size_t virtio_video_dec_cmd_query_capability(VirtIODevice *vdev,
     return len;
 }
 
+size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
+    virtio_video_stream_create *req, virtio_video_cmd_hdr *resp)
+{
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    size_t len = 0;
+
+    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
+    if (virtio_video_msdk_find_format(&(vid->caps_in), req->coded_format)) {
+        mfxStatus sts = MFX_ERR_NONE;
+        VirtIOVideoStream *node = NULL;
+        mfxInitParam par = {
+            .Implementation = vid->mfx_impl,
+            .Version.Major = vid->mfx_version_major,
+            .Version.Minor = vid->mfx_version_minor,
+        };
+
+        node = g_malloc0(sizeof(VirtIOVideoStream));
+        if (node) {
+            node->stream_id = ~0L;
+            sts = MFXInitEx(par, (mfxSession*)&node->mfx_session);
+            if (sts == MFX_ERR_NONE) {
+                node->stream_id = req->hdr.stream_id;
+                node->in_mem_type = req->in_mem_type;
+                node->out_mem_type = req->out_mem_type;
+                node->in_format = req->coded_format;
+                memcpy(node->tag, req->tag, strlen((char*)req->tag));
+                QLIST_INSERT_HEAD(&vid->stream_list, node, next);
+                resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
+                VIRTVID_DEBUG("    %s: stream 0x%x created", __FUNCTION__, req->hdr.stream_id);
+            } else {
+                VIRTVID_ERROR("    %s: MFXInitEx returns %d for stream 0x%x", __FUNCTION__, sts, req->hdr.stream_id);
+                g_free(node);
+            }
+        }
+    } else {
+        VIRTVID_ERROR("    %s: stream 0x%x, unsupported format 0x%x", __FUNCTION__, req->hdr.stream_id, req->coded_format);
+    }
+    resp->stream_id = req->hdr.stream_id;
+    len = sizeof(*resp);
+
+    return len;
+}
+
+size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
+    virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp)
+{
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideoStream *node, *next = NULL;
+    size_t len = 0;
+
+    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+    resp->stream_id = req->hdr.stream_id;
+    len = sizeof(*resp);
+
+    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+        if (node->stream_id == req->hdr.stream_id) {
+            // TODO: close decoder
+            MFXClose(node->mfx_session);
+            resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
+            QLIST_REMOVE(node, next);
+            g_free(node);
+            VIRTVID_DEBUG("    %s: stream 0x%x destroyed", __FUNCTION__, req->hdr.stream_id);
+            break;
+        }
+    }
+
+    return len;
+}
+
 size_t virtio_video_dec_cmd_get_params(VirtIODevice *vdev,
     virtio_video_get_params *req, virtio_video_get_params_resp *resp)
 {
@@ -80,11 +149,11 @@ size_t virtio_video_dec_cmd_get_params(VirtIODevice *vdev,
 
 size_t virtio_video_dec_event(VirtIODevice *vdev, virtio_video_event *ev)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    //VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
     size_t len = 0;
 
     if (ev) {
-        ev->stream_id = ++vid->stream_id;
+        //ev->stream_id = ++vid->stream_id;
         len = sizeof(*ev);
         VIRTVID_DEBUG("    %s: event_type 0x%x, stream_id 0x%x", __FUNCTION__, ev->event_type, ev->stream_id);
     } else {
@@ -303,7 +372,14 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
 
 static void virtio_video_decode_destroy_msdk(VirtIODevice *vdev)
 {
-    //VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideoStream *node, *next = NULL;
+
+    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+        MFXClose(node->mfx_session);
+        QLIST_REMOVE(node, next);
+        g_free(node);
+    }
 
     virtio_video_destroy_va_env_drm(vdev);
 }
