@@ -99,13 +99,14 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
     VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
     mfxStatus sts = MFX_ERR_NONE;
     virtio_video_format coded_format;
+    mfxSession mfx_session;
 
+    vid->mfx_impl = MFX_IMPL_AUTO_ANY;//MFX_IMPL_HARDWARE
     vid->mfx_version_major = 1;
     vid->mfx_version_minor = 0;
 
     mfxInitParam par = {
-        .Implementation = MFX_IMPL_AUTO_ANY,
-        //.Implementation = MFX_IMPL_HARDWARE,
+        .Implementation = vid->mfx_impl,
         .Version.Major = vid->mfx_version_major,
         .Version.Minor = vid->mfx_version_minor,
     };
@@ -117,15 +118,16 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
         return -1;
     }
 
-    sts = MFXInitEx(par, (mfxSession*)&vid->mfx_session);
+    sts = MFXInitEx(par, &mfx_session);
     if (sts != MFX_ERR_NONE) {
         VIRTVID_ERROR("MFXInitEx returns %d", sts);
         return -1;
     }
 
-    sts = MFXVideoCORE_SetHandle((mfxSession)vid->mfx_session, MFX_HANDLE_VA_DISPLAY, (mfxHDL)vid->va_disp_handle);
+    sts = MFXVideoCORE_SetHandle(mfx_session, MFX_HANDLE_VA_DISPLAY, (mfxHDL)vid->va_disp_handle);
     if (sts != MFX_ERR_NONE) {
         VIRTVID_ERROR("MFXVideoCORE_SetHandle returns %d", sts);
+        MFXClose(mfx_session);
         return -1;
     }
 
@@ -137,7 +139,7 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
             // Query CodecId to fill virtio_video_format_desc
             memset(&outParam, 0, sizeof(outParam));
             outParam.mfx.CodecId = coded_mfx4cc;
-            sts = MFXVideoDECODE_Query((mfxSession)vid->mfx_session, NULL, &outParam);
+            sts = MFXVideoDECODE_Query(mfx_session, NULL, &outParam);
             if (sts == MFX_ERR_NONE || sts == MFX_WRN_PARTIAL_ACCELERATION) {
                 void *buf = NULL;
                 uint32_t w_min = 0, h_min = 0, w_max = 0, h_max = 0;
@@ -166,9 +168,9 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
                 inParam.mfx.FrameInfo.Width = VIRTIO_VIDEO_MSDK_DIMENSION_MAX;
                 inParam.mfx.FrameInfo.Height = VIRTIO_VIDEO_MSDK_DIMENSION_MAX;
 
-                virtio_video_msdk_load_plugin(vdev, coded_format, false, false);
+                virtio_video_msdk_load_plugin(vdev, mfx_session, coded_format, false, false);
                 do {
-                    sts = MFXVideoDECODE_Query((mfxSession)vid->mfx_session, &inParam, &outParam);
+                    sts = MFXVideoDECODE_Query(mfx_session, &inParam, &outParam);
                     if (sts == MFX_ERR_NONE || sts == MFX_WRN_PARTIAL_ACCELERATION) {
                         w_max = outParam.mfx.FrameInfo.Width;
                         h_max = outParam.mfx.FrameInfo.Height;
@@ -185,7 +187,7 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
                 inParam.mfx.FrameInfo.Width = VIRTIO_VIDEO_MSDK_DIMENSION_MIN;
                 inParam.mfx.FrameInfo.Height = VIRTIO_VIDEO_MSDK_DIMENSION_MIN;
                 do {
-                    sts = MFXVideoDECODE_Query((mfxSession)vid->mfx_session, &inParam, &outParam);
+                    sts = MFXVideoDECODE_Query(mfx_session, &inParam, &outParam);
                     if (sts == MFX_ERR_NONE || sts == MFX_WRN_PARTIAL_ACCELERATION) {
                         w_min = outParam.mfx.FrameInfo.Width;
                         h_min = outParam.mfx.FrameInfo.Height;
@@ -198,7 +200,7 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
                         inParam.mfx.FrameInfo.Height += VIRTIO_VIDEO_MSDK_DIM_STEP_OTHER;
                     }
                 } while (inParam.mfx.FrameInfo.Width <= w_max && inParam.mfx.FrameInfo.Height <= h_max);
-                virtio_video_msdk_load_plugin(vdev, coded_format, false, true);
+                virtio_video_msdk_load_plugin(vdev, mfx_session, coded_format, false, true);
 
                 // Add one virtio_video_format_frame and virtio_video_format_range block to last added virtio_video_format_desc
                 if (w_min && w_max && h_min && h_max) {
@@ -294,14 +296,15 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
         }
     }
 
+    MFXClose(mfx_session);
+
     return 0;
 }
 
 static void virtio_video_decode_destroy_msdk(VirtIODevice *vdev)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    //VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
 
-    MFXClose((mfxSession)vid->mfx_session);
     virtio_video_destroy_va_env_drm(vdev);
 }
 

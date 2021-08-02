@@ -565,7 +565,7 @@ typedef struct VirtIOVideo {
     uint32_t stream_id;
     int drm_fd;
     void *va_disp_handle;
-    void *mfx_session;
+    int32_t mfx_impl;
     uint16_t mfx_version_major;
     uint16_t mfx_version_minor;
     VirtIOVideoCaps caps_in;
