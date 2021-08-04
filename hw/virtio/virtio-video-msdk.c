@@ -78,7 +78,7 @@ void virtio_video_msdk_fill_format_desc(virtio_video_format format, virtio_video
     format_desc->plane_align = 0;
 }
 
-bool virtio_video_msdk_find_format(VirtIOVideoCaps *caps, virtio_video_format format)
+bool virtio_video_msdk_find_format(VirtIOVideoCaps *caps, virtio_video_format format, virtio_video_format_desc **format_desc)
 {
     bool found = false;
     uint32_t idx_format, idx_frame, idx_rate, num_format, num_frame, num_rate;
@@ -95,6 +95,9 @@ bool virtio_video_msdk_find_format(VirtIOVideoCaps *caps, virtio_video_format fo
         found = false;
         if (((virtio_video_format_desc*)src)->format == format) {
             found = true;
+            if (format_desc) {
+                *format_desc = src;
+            }
             idx_format = num_format;
             VIRTVID_VERBOSE("format %x found at %d", format, idx_format);
         } else {

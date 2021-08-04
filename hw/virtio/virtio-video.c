@@ -109,6 +109,9 @@ static size_t virtio_video_process_cmd_get_params(VirtIODevice *vdev,
 {
     VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
 
+    if (req == NULL || resp == NULL)
+        return 0;
+
     switch (vid->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_get_params(vdev, req, resp);
