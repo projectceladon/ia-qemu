@@ -598,6 +598,7 @@ typedef struct VirtIOVideoStream {
         uint32_t profile;
         uint32_t level;
     } control;
+    virtio_video_params params;
     char tag[64];
     QLIST_ENTRY(VirtIOVideoStream) next;
 } VirtIOVideoStream;

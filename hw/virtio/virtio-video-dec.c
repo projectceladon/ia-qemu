@@ -247,6 +247,29 @@ size_t virtio_video_dec_cmd_get_params(VirtIODevice *vdev,
     return len;
 }
 
+size_t virtio_video_dec_cmd_set_params(VirtIODevice *vdev,
+    virtio_video_set_params *req, virtio_video_cmd_hdr *resp)
+{
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideoStream *node, *next = NULL;
+    size_t len = 0;
+
+    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+    resp->stream_id = req->hdr.stream_id;
+    len = sizeof(*resp);
+
+    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+        if (node->stream_id == req->hdr.stream_id) {
+            resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
+            memcpy(&node->params, &req->params, sizeof(node->params));
+            VIRTVID_DEBUG("    %s: stream 0x%x", __FUNCTION__, req->hdr.stream_id);
+            break;
+        }
+    }
+
+    return len;
+}
+
 size_t virtio_video_dec_cmd_get_control(VirtIODevice *vdev,
     virtio_video_get_control *req, virtio_video_get_control_resp **resp)
 {
