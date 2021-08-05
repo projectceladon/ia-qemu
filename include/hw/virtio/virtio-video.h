@@ -593,6 +593,11 @@ typedef struct VirtIOVideoStream {
     virtio_video_mem_type in_mem_type;
     virtio_video_mem_type out_mem_type;
     virtio_video_format in_format;
+    struct {
+        uint32_t bitrate;
+        uint32_t profile;
+        uint32_t level;
+    } control;
     char tag[64];
     QLIST_ENTRY(VirtIOVideoStream) next;
 } VirtIOVideoStream;

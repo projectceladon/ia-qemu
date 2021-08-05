@@ -125,6 +125,24 @@ static size_t virtio_video_process_cmd_get_params(VirtIODevice *vdev,
     }
 }
 
+static size_t virtio_video_process_cmd_get_control(VirtIODevice *vdev,
+    virtio_video_get_control *req, virtio_video_get_control_resp **resp)
+{
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+
+    if (req == NULL || resp == NULL)
+        return 0;
+
+    switch (vid->model) {
+    case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
+        return virtio_video_dec_cmd_get_control(vdev, req, resp);
+        break;
+    default:
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
+        return 0;
+    }
+}
+
 static int virtio_video_process_command(VirtIODevice *vdev,
                                         struct iovec *in_buf,
                                         unsigned int in_num,
@@ -268,7 +286,35 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         }
         case VIRTIO_VIDEO_CMD_SET_PARAMS:
         case VIRTIO_VIDEO_CMD_QUERY_CONTROL:
+            VIRTVID_ERROR("Unknown cmd 0x%x, stream 0x%x", hdr.type, hdr.stream_id);
+            break;
         case VIRTIO_VIDEO_CMD_GET_CONTROL:
+        {
+            virtio_video_get_control req = {0};
+            virtio_video_get_control_resp *resp = NULL;
+
+            if (unlikely(iov_to_buf(out_buf, out_num, 0, &req, sizeof(req)) != sizeof(req))) {
+                virtio_error(vdev, "virtio-video insufficient buffer for iov_to_buf in cmd_vq\n");
+                return -1;
+            }
+            VIRTVID_DEBUG("    control 0x%x", req.control);
+
+            if (in_buf == NULL || in_num != 1) {
+                VIRTVID_ERROR("    invalid in_buf(%p), in_num(%x) in cmd_vq", in_buf, in_num);
+                return -1;
+            }
+
+            len = virtio_video_process_cmd_get_control(vdev, &req, &resp);
+            if (unlikely(iov_from_buf(in_buf, in_num, 0, &resp, len) != len)) {
+                virtio_error(vdev, "virtio-gpio insufficient buffer for iov_from_buf in cmd_vq\n");
+                return -1;
+            }
+            VIRTVID_DEBUG("    resp_size 0x%lx", len);
+            *size = len;
+            if (resp)
+                g_free(resp);
+            break;
+        }
         case VIRTIO_VIDEO_CMD_SET_CONTROL:
         default:
         {

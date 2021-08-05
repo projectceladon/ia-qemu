@@ -69,6 +69,8 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
     size_t len = 0;
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
+    resp->stream_id = req->hdr.stream_id;
+    len = sizeof(*resp);
     if (virtio_video_msdk_find_format(&(vid->caps_in), req->coded_format, NULL)) {
         mfxStatus sts = MFX_ERR_NONE;
         VirtIOVideoStream *node = NULL;
@@ -80,28 +82,88 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
 
         node = g_malloc0(sizeof(VirtIOVideoStream));
         if (node) {
+            mfxVideoParam inParam = {0}, outParam = {0};
+            int min, max;
             node->stream_id = ~0L;
+
             sts = MFXInitEx(par, (mfxSession*)&node->mfx_session);
-            if (sts == MFX_ERR_NONE) {
-                node->stream_id = req->hdr.stream_id;
-                node->in_mem_type = req->in_mem_type;
-                node->out_mem_type = req->out_mem_type;
-                node->in_format = req->coded_format;
-                memcpy(node->tag, req->tag, strlen((char*)req->tag));
-                QLIST_INSERT_HEAD(&vid->stream_list, node, next);
-                resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
-                VIRTVID_DEBUG("    %s: stream 0x%x created", __FUNCTION__, req->hdr.stream_id);
-            } else {
+            if (sts != MFX_ERR_NONE) {
                 VIRTVID_ERROR("    %s: MFXInitEx returns %d for stream 0x%x", __FUNCTION__, sts, req->hdr.stream_id);
                 g_free(node);
+                goto OUT;
             }
+
+            sts = MFXVideoCORE_SetHandle(node->mfx_session, MFX_HANDLE_VA_DISPLAY, (mfxHDL)vid->va_disp_handle);
+            if (sts != MFX_ERR_NONE) {
+                VIRTVID_ERROR("    %s: MFXVideoCORE_SetHandle returns %d for stream 0x%x", __FUNCTION__, sts, req->hdr.stream_id);
+                MFXClose(node->mfx_session);
+                g_free(node);
+                goto OUT;
+            }
+
+            virtio_video_msdk_load_plugin(vdev, node->mfx_session, req->coded_format, false, false);
+
+            node->stream_id = req->hdr.stream_id;
+            node->in_mem_type = req->in_mem_type;
+            node->out_mem_type = req->out_mem_type;
+            node->in_format = req->coded_format;
+            memcpy(node->tag, req->tag, strlen((char*)req->tag));
+
+            // Try query all profiles
+            virtio_video_msdk_fill_video_params(req->coded_format, &inParam);
+            memset(&outParam, 0, sizeof(outParam));
+            outParam.mfx.CodecId = inParam.mfx.CodecId;
+            virtio_video_profile_range(req->coded_format, &min, &max);
+            if (min != max) {
+                int profile;
+                for (profile = min; profile <= max; profile++) {
+                    inParam.mfx.CodecProfile = virtio_video_profile_to_mfx(req->coded_format, profile);
+                    if (inParam.mfx.CodecProfile != MFX_PROFILE_UNKNOWN) {
+                        sts = MFXVideoDECODE_Query(node->mfx_session, &inParam, &outParam);
+                        if (sts == MFX_ERR_NONE || sts == MFX_WRN_PARTIAL_ACCELERATION) {
+                            node->control.profile = profile;
+                        }
+                    }
+                }
+            }
+
+            // Try query all levels
+            virtio_video_msdk_fill_video_params(req->coded_format, &inParam);
+            memset(&outParam, 0, sizeof(outParam));
+            outParam.mfx.CodecId = inParam.mfx.CodecId;
+            virtio_video_level_range(req->coded_format, &min, &max);
+            if (min != max) {
+                int level;
+                for (level = min; level <= max; level++) {
+                    inParam.mfx.CodecLevel = virtio_video_level_to_mfx(req->coded_format, level);
+                    if (inParam.mfx.CodecLevel != MFX_LEVEL_UNKNOWN) {
+                        sts = MFXVideoDECODE_Query(node->mfx_session, &inParam, &outParam);
+                        if (sts == MFX_ERR_NONE || sts == MFX_WRN_PARTIAL_ACCELERATION) {
+                            node->control.level = level;
+                        }
+                    }
+                }
+            }
+
+            virtio_video_msdk_fill_video_params(req->coded_format, &inParam);
+            memset(&outParam, 0, sizeof(outParam));
+            outParam.mfx.CodecId = inParam.mfx.CodecId;
+            inParam.mfx.TargetKbps = 10000; //TODO: Determine the max bitrage
+            sts = MFXVideoDECODE_Query(node->mfx_session, &inParam, &outParam);
+            if (sts == MFX_ERR_NONE || sts == MFX_WRN_PARTIAL_ACCELERATION) {
+                node->control.bitrate = inParam.mfx.TargetKbps;
+            }
+
+            QLIST_INSERT_HEAD(&vid->stream_list, node, next);
+
+            VIRTVID_DEBUG("    %s: stream 0x%x created", __FUNCTION__, req->hdr.stream_id);
+            resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
         }
     } else {
         VIRTVID_ERROR("    %s: stream 0x%x, unsupported format 0x%x", __FUNCTION__, req->hdr.stream_id, req->coded_format);
     }
-    resp->stream_id = req->hdr.stream_id;
-    len = sizeof(*resp);
 
+OUT:
     return len;
 }
 
@@ -119,6 +181,7 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
     QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
             // TODO: close decoder
+            virtio_video_msdk_load_plugin(vdev, node->mfx_session, node->in_format, false, true);
             MFXClose(node->mfx_session);
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
             QLIST_REMOVE(node, next);
@@ -184,6 +247,59 @@ size_t virtio_video_dec_cmd_get_params(VirtIODevice *vdev,
     return len;
 }
 
+size_t virtio_video_dec_cmd_get_control(VirtIODevice *vdev,
+    virtio_video_get_control *req, virtio_video_get_control_resp **resp)
+{
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideoStream *node, *next = NULL;
+    size_t len = 0;
+
+    switch (req->control) {
+    case VIRTIO_VIDEO_CONTROL_BITRATE:
+        len = sizeof(virtio_video_get_control_resp) + sizeof(virtio_video_control_val_bitrate);
+        break;
+    case VIRTIO_VIDEO_CONTROL_PROFILE:
+        len = sizeof(virtio_video_get_control_resp) + sizeof(virtio_video_control_val_profile);
+        break;
+    case VIRTIO_VIDEO_CONTROL_LEVEL:
+        len = sizeof(virtio_video_get_control_resp) + sizeof(virtio_video_control_val_level);
+        break;
+    default:
+        len = sizeof(virtio_video_get_control_resp);
+        VIRTVID_ERROR("    %s: stream 0x%x unsupported control %d", __FUNCTION__, req->hdr.stream_id, req->control);
+        break;
+    }
+
+    *resp = g_malloc0(len);
+    if (*resp != NULL) {
+        (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+        (*resp)->hdr.stream_id = req->hdr.stream_id;
+        QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+            if (node->stream_id == req->hdr.stream_id) {
+                (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_CONTROL;
+                if (req->control == VIRTIO_VIDEO_CONTROL_BITRATE) {
+                    ((virtio_video_control_val_bitrate*)((void*)(*resp) + sizeof(virtio_video_get_control_resp)))->bitrate = node->control.bitrate;
+                    VIRTVID_DEBUG("    %s: stream 0x%x bitrate %d", __FUNCTION__, req->hdr.stream_id, node->control.bitrate);
+                } else if (req->control == VIRTIO_VIDEO_CONTROL_PROFILE) {
+                    ((virtio_video_control_val_profile*)((void*)(*resp) + sizeof(virtio_video_get_control_resp)))->profile = node->control.profile;
+                    VIRTVID_DEBUG("    %s: stream 0x%x profile %d", __FUNCTION__, req->hdr.stream_id, node->control.profile);
+                } else if (req->control == VIRTIO_VIDEO_CONTROL_LEVEL) {
+                    ((virtio_video_control_val_level*)((void*)(*resp) + sizeof(virtio_video_get_control_resp)))->level = node->control.level;
+                    VIRTVID_DEBUG("    %s: stream 0x%x level %d", __FUNCTION__, req->hdr.stream_id, node->control.level);
+                } else {
+                    (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_UNSUPPORTED_CONTROL;
+                    VIRTVID_ERROR("    %s: stream 0x%x unsupported control %d", __FUNCTION__, req->hdr.stream_id, req->control);
+                }
+                break;
+            }
+        }
+    } else {
+        len = 0;
+    }
+
+    return len;
+}
+
 size_t virtio_video_dec_event(VirtIODevice *vdev, virtio_video_event *ev)
 {
     //VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
@@ -220,7 +336,7 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
     mfxVideoParam inParam = {0}, outParam = {0};
 
     if (virtio_video_create_va_env_drm(vdev)) {
-        VIRTVID_ERROR("Fail to create VA environment on DRM\n");
+        VIRTVID_ERROR("Fail to create VA environment on DRM");
         return -1;
     }
 

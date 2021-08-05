@@ -60,5 +60,9 @@ int virtio_video_msdk_get_plugin(virtio_video_format format, bool encode, mfxPlu
 void virtio_video_msdk_load_plugin(VirtIODevice *vdev, mfxSession mfx_session, virtio_video_format format, bool encode, bool unload);
 int virito_video_format_to_mfx4cc(virtio_video_format fmt);
 virtio_video_format virito_video_format_from_mfx4cc(int mfx4cc);
+void virtio_video_profile_range(virtio_video_format fmt, int *min, int *max);
+void virtio_video_level_range(virtio_video_format fmt, int *min, int *max);
+int virtio_video_profile_to_mfx(virtio_video_format fmt, virtio_video_profile profile);
+int virtio_video_level_to_mfx(virtio_video_format fmt, virtio_video_level level);
 
 #endif /* QEMU_VIRTIO_VIDEO_MSDK_H */

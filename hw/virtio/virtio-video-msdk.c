@@ -375,3 +375,327 @@ virtio_video_format virito_video_format_from_mfx4cc(int mfx4cc)
 
     return fmt;
 }
+
+void virtio_video_profile_range(virtio_video_format fmt, int *min, int *max)
+{
+    if (min == NULL || max == NULL) {
+        return;
+    }
+
+    *min = 0;
+    *max = 0;
+
+    switch (fmt) {
+    case VIRTIO_VIDEO_FORMAT_MPEG2:
+        *min = VIRTIO_VIDEO_PROFILE_MPEG2_MIN;
+        *max = VIRTIO_VIDEO_PROFILE_MPEG2_MAX;
+        break;
+    case VIRTIO_VIDEO_FORMAT_H264:
+        *min = VIRTIO_VIDEO_PROFILE_H264_MIN;
+        *max = VIRTIO_VIDEO_PROFILE_H264_MAX;
+        break;
+    case VIRTIO_VIDEO_FORMAT_HEVC:
+        *min = VIRTIO_VIDEO_PROFILE_HEVC_MIN;
+        *max = VIRTIO_VIDEO_PROFILE_HEVC_MAX;
+        break;
+    case VIRTIO_VIDEO_FORMAT_VP8:
+        *min = VIRTIO_VIDEO_PROFILE_VP8_MIN;
+        *max = VIRTIO_VIDEO_PROFILE_VP8_MAX;
+        break;
+    case VIRTIO_VIDEO_FORMAT_VP9:
+        *min = VIRTIO_VIDEO_PROFILE_VP9_MIN;
+        *max = VIRTIO_VIDEO_PROFILE_VP9_MAX;
+        break;
+    default:
+        break;
+    }
+}
+
+void virtio_video_level_range(virtio_video_format fmt, int *min, int *max)
+{
+    if (min == NULL || max == NULL) {
+        return;
+    }
+
+    *min = 0;
+    *max = 0;
+
+    switch (fmt) {
+    case VIRTIO_VIDEO_FORMAT_MPEG2:
+        *min = VIRTIO_VIDEO_LEVEL_MPEG2_MIN;
+        *max = VIRTIO_VIDEO_LEVEL_MPEG2_MAX;
+        break;
+    case VIRTIO_VIDEO_FORMAT_H264:
+        *min = VIRTIO_VIDEO_LEVEL_H264_MIN;
+        *max = VIRTIO_VIDEO_LEVEL_H264_MAX;
+        break;
+    case VIRTIO_VIDEO_FORMAT_HEVC:
+        *min = VIRTIO_VIDEO_LEVEL_HEVC_MIN;
+        *max = VIRTIO_VIDEO_LEVEL_HEVC_MAX;
+        break;
+    case VIRTIO_VIDEO_FORMAT_VP8:
+        *min = VIRTIO_VIDEO_LEVEL_VP8_MIN;
+        *max = VIRTIO_VIDEO_LEVEL_VP8_MAX;
+        break;
+    case VIRTIO_VIDEO_FORMAT_VP9:
+        *min = VIRTIO_VIDEO_LEVEL_VP9_MIN;
+        *max = VIRTIO_VIDEO_LEVEL_VP9_MAX;
+        break;
+    default:
+        break;
+    }
+}
+
+int virtio_video_profile_to_mfx(virtio_video_format fmt, virtio_video_profile profile)
+{
+    int mfx_profile = MFX_PROFILE_UNKNOWN;
+
+    switch (fmt) {
+    case VIRTIO_VIDEO_FORMAT_MPEG2:
+    {
+        switch (profile) {
+        case VIRTIO_VIDEO_PROFILE_MPEG2_SIMPLE:
+            mfx_profile = MFX_PROFILE_MPEG2_SIMPLE;
+            break;
+        case VIRTIO_VIDEO_PROFILE_MPEG2_MAIN:
+            mfx_profile = MFX_PROFILE_MPEG2_MAIN;
+            break;
+        case VIRTIO_VIDEO_PROFILE_MPEG2_HIGH:
+            mfx_profile = MFX_PROFILE_MPEG2_HIGH;
+            break;
+        default:
+            break;
+        }
+    }
+    break;
+    case VIRTIO_VIDEO_FORMAT_H264:
+    {
+        switch (profile) {
+        case VIRTIO_VIDEO_PROFILE_H264_BASELINE:
+            mfx_profile = MFX_PROFILE_AVC_BASELINE;
+            break;
+        case VIRTIO_VIDEO_PROFILE_H264_MAIN:
+            mfx_profile = MFX_PROFILE_AVC_MAIN;
+            break;
+        case VIRTIO_VIDEO_PROFILE_H264_EXTENDED:
+            mfx_profile = MFX_PROFILE_AVC_EXTENDED;
+            break;
+        case VIRTIO_VIDEO_PROFILE_H264_HIGH:
+            mfx_profile = MFX_PROFILE_AVC_HIGH;
+            break;
+        case VIRTIO_VIDEO_PROFILE_H264_HIGH10PROFILE:
+            mfx_profile = MFX_PROFILE_AVC_HIGH10;
+            break;
+        case VIRTIO_VIDEO_PROFILE_H264_HIGH422PROFILE:
+            mfx_profile = MFX_PROFILE_AVC_HIGH_422;
+            break;
+        case VIRTIO_VIDEO_PROFILE_H264_HIGH444PREDICTIVEPROFILE:
+        case VIRTIO_VIDEO_PROFILE_H264_SCALABLEBASELINE:
+        case VIRTIO_VIDEO_PROFILE_H264_SCALABLEHIGH:
+        case VIRTIO_VIDEO_PROFILE_H264_STEREOHIGH:
+        case VIRTIO_VIDEO_PROFILE_H264_MULTIVIEWHIGH:
+            break;
+        default:
+            break;
+        }
+    }
+    break;
+    case VIRTIO_VIDEO_FORMAT_HEVC:
+    {
+        switch (profile) {
+        case VIRTIO_VIDEO_PROFILE_HEVC_MAIN:
+            mfx_profile = MFX_PROFILE_HEVC_MAIN;
+            break;
+        case VIRTIO_VIDEO_PROFILE_HEVC_MAIN10:
+            mfx_profile = MFX_PROFILE_HEVC_MAIN10;
+            break;
+        case VIRTIO_VIDEO_PROFILE_HEVC_MAIN_STILL_PICTURE:
+            mfx_profile = MFX_PROFILE_HEVC_MAINSP;
+            break;
+        default:
+            break;
+        }
+    }
+    break;
+    case VIRTIO_VIDEO_FORMAT_VP8:
+    {
+        switch (profile) {
+        case VIRTIO_VIDEO_PROFILE_VP8_PROFILE0:
+            mfx_profile = MFX_PROFILE_VP8_0;
+            break;
+        case VIRTIO_VIDEO_PROFILE_VP8_PROFILE1:
+            mfx_profile = MFX_PROFILE_VP8_1;
+            break;
+        case VIRTIO_VIDEO_PROFILE_VP8_PROFILE2:
+            mfx_profile = MFX_PROFILE_VP8_2;
+            break;
+        case VIRTIO_VIDEO_PROFILE_VP8_PROFILE3:
+            mfx_profile = MFX_PROFILE_VP8_3;
+            break;
+        default:
+            break;
+        }
+    }
+    break;
+    case VIRTIO_VIDEO_FORMAT_VP9:
+    {
+        switch (profile) {
+        case VIRTIO_VIDEO_PROFILE_VP9_PROFILE0:
+            mfx_profile = MFX_PROFILE_VP9_0;
+            break;
+        case VIRTIO_VIDEO_PROFILE_VP9_PROFILE1:
+            mfx_profile = MFX_PROFILE_VP9_1;
+            break;
+        case VIRTIO_VIDEO_PROFILE_VP9_PROFILE2:
+            mfx_profile = MFX_PROFILE_VP9_2;
+            break;
+        case VIRTIO_VIDEO_PROFILE_VP9_PROFILE3:
+            mfx_profile = MFX_PROFILE_VP9_3;
+            break;
+        default:
+            break;
+        }
+    }
+    break;
+    default:
+        break;
+    }
+
+    return mfx_profile;
+}
+
+int virtio_video_level_to_mfx(virtio_video_format fmt, virtio_video_level level)
+{
+    int mfx_level = MFX_LEVEL_UNKNOWN;
+
+    switch (fmt) {
+    case VIRTIO_VIDEO_FORMAT_MPEG2:
+    {
+        switch (level) {
+        case VIRTIO_VIDEO_LEVEL_MPEG2_LOW:
+            mfx_level = MFX_LEVEL_MPEG2_LOW;
+            break;
+        case VIRTIO_VIDEO_LEVEL_MPEG2_MAIN:
+            mfx_level = MFX_LEVEL_MPEG2_MAIN;
+            break;
+        case VIRTIO_VIDEO_LEVEL_MPEG2_HIGH:
+            mfx_level = MFX_LEVEL_MPEG2_HIGH;
+            break;
+        case VIRTIO_VIDEO_LEVEL_MPEG2_HIGH_1440:
+            mfx_level = MFX_LEVEL_MPEG2_HIGH1440;
+            break;
+        default:
+            break;
+        }
+    }
+    break;
+    case VIRTIO_VIDEO_FORMAT_H264:
+    {
+        switch (level) {
+        case VIRTIO_VIDEO_LEVEL_H264_1_0:
+            mfx_level = MFX_LEVEL_AVC_1;
+            break;
+        case VIRTIO_VIDEO_LEVEL_H264_1_1:
+            mfx_level = MFX_LEVEL_AVC_11;
+            break;
+        case VIRTIO_VIDEO_LEVEL_H264_1_2:
+            mfx_level = MFX_LEVEL_AVC_12;
+            break;
+        case VIRTIO_VIDEO_LEVEL_H264_1_3:
+            mfx_level = MFX_LEVEL_AVC_13;
+            break;
+        case VIRTIO_VIDEO_LEVEL_H264_2_0:
+            mfx_level = MFX_LEVEL_AVC_2;
+            break;
+        case VIRTIO_VIDEO_LEVEL_H264_2_1:
+            mfx_level = MFX_LEVEL_AVC_21;
+            break;
+        case VIRTIO_VIDEO_LEVEL_H264_2_2:
+            mfx_level = MFX_LEVEL_AVC_22;
+            break;
+        case VIRTIO_VIDEO_LEVEL_H264_3_0:
+            mfx_level = MFX_LEVEL_AVC_3;
+            break;
+        case VIRTIO_VIDEO_LEVEL_H264_3_1:
+            mfx_level = MFX_LEVEL_AVC_31;
+            break;
+        case VIRTIO_VIDEO_LEVEL_H264_3_2:
+            mfx_level = MFX_LEVEL_AVC_32;
+            break;
+        case VIRTIO_VIDEO_LEVEL_H264_4_0:
+            mfx_level = MFX_LEVEL_AVC_4;
+            break;
+        case VIRTIO_VIDEO_LEVEL_H264_4_1:
+            mfx_level = MFX_LEVEL_AVC_41;
+            break;
+        case VIRTIO_VIDEO_LEVEL_H264_4_2:
+            mfx_level = MFX_LEVEL_AVC_42;
+            break;
+        case VIRTIO_VIDEO_LEVEL_H264_5_0:
+            mfx_level = MFX_LEVEL_AVC_5;
+            break;
+        case VIRTIO_VIDEO_LEVEL_H264_5_1:
+            mfx_level = MFX_LEVEL_AVC_51;
+            break;
+        default:
+            break;
+        }
+    }
+    break;
+    case VIRTIO_VIDEO_FORMAT_HEVC:
+    {
+        switch (level) {
+        case VIRTIO_VIDEO_LEVEL_HEVC_1_0:
+            mfx_level = MFX_LEVEL_HEVC_1;
+            break;
+        case VIRTIO_VIDEO_LEVEL_HEVC_2_0:
+            mfx_level = MFX_LEVEL_HEVC_2;
+            break;
+        case VIRTIO_VIDEO_LEVEL_HEVC_2_1:
+            mfx_level = MFX_LEVEL_HEVC_21;
+            break;
+        case VIRTIO_VIDEO_LEVEL_HEVC_3_0:
+            mfx_level = MFX_LEVEL_HEVC_3;
+            break;
+        case VIRTIO_VIDEO_LEVEL_HEVC_3_1:
+            mfx_level = MFX_LEVEL_HEVC_31;
+            break;
+        case VIRTIO_VIDEO_LEVEL_HEVC_4_0:
+            mfx_level = MFX_LEVEL_HEVC_4;
+            break;
+        case VIRTIO_VIDEO_LEVEL_HEVC_4_1:
+            mfx_level = MFX_LEVEL_HEVC_41;
+            break;
+        case VIRTIO_VIDEO_LEVEL_HEVC_5_0:
+            mfx_level = MFX_LEVEL_HEVC_5;
+            break;
+        case VIRTIO_VIDEO_LEVEL_HEVC_5_1:
+            mfx_level = MFX_LEVEL_HEVC_51;
+            break;
+        case VIRTIO_VIDEO_LEVEL_HEVC_5_2:
+            mfx_level = MFX_LEVEL_HEVC_52;
+            break;
+        case VIRTIO_VIDEO_LEVEL_HEVC_6_0:
+            mfx_level = MFX_LEVEL_HEVC_6;
+            break;
+        case VIRTIO_VIDEO_LEVEL_HEVC_6_1:
+            mfx_level = MFX_LEVEL_HEVC_61;
+            break;
+        case VIRTIO_VIDEO_LEVEL_HEVC_6_2:
+            mfx_level = MFX_LEVEL_HEVC_62;
+            break;
+        default:
+            break;
+        }
+    }
+    break;
+    case VIRTIO_VIDEO_FORMAT_VP8:
+        break;
+    case VIRTIO_VIDEO_FORMAT_VP9:
+        break;
+    default:
+        break;
+    }
+
+    return mfx_level;
+}

@@ -36,6 +36,8 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
     virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp);
 size_t virtio_video_dec_cmd_get_params(VirtIODevice *vdev,
     virtio_video_get_params *req, virtio_video_get_params_resp *resp);
+size_t virtio_video_dec_cmd_get_control(VirtIODevice *vdev,
+    virtio_video_get_control *req, virtio_video_get_control_resp **resp);
 size_t virtio_video_dec_event(VirtIODevice *vdev, virtio_video_event *ev);
 
 // Media-SDK wrapper
