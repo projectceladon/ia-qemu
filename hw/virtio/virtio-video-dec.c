@@ -194,6 +194,36 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
     return len;
 }
 
+size_t virtio_video_dec_cmd_resource_destroy_all(VirtIODevice *vdev,
+    virtio_video_resource_destroy_all *req, virtio_video_cmd_hdr *resp)
+{
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideoStream *node, *next = NULL;
+    size_t len = 0;
+
+    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+    resp->stream_id = req->hdr.stream_id;
+    len = sizeof(*resp);
+
+    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+        if (node->stream_id == req->hdr.stream_id) {
+            // TODO: Drain codec
+            // TODO: Destroy all resources
+            if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
+
+            } else {
+
+            }
+
+            resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
+            VIRTVID_DEBUG("    %s: stream 0x%x queue_type 0x%x all resource destroyed", __FUNCTION__, req->hdr.stream_id, req->queue_type);
+            break;
+        }
+    }
+
+    return len;
+}
+
 size_t virtio_video_dec_cmd_get_params(VirtIODevice *vdev,
     virtio_video_get_params *req, virtio_video_get_params_resp *resp)
 {
