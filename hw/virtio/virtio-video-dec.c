@@ -353,6 +353,40 @@ size_t virtio_video_dec_cmd_get_control(VirtIODevice *vdev,
     return len;
 }
 
+size_t virtio_video_dec_cmd_set_control(VirtIODevice *vdev,
+    virtio_video_set_control *req, virtio_video_set_control_resp *resp)
+{
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideoStream *node, *next = NULL;
+    size_t len = 0;
+
+    resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+    resp->hdr.stream_id = req->hdr.stream_id;
+    len = sizeof(*resp);
+
+    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+        if (node->stream_id == req->hdr.stream_id) {
+            resp->hdr.type = VIRTIO_VIDEO_RESP_OK_NODATA;
+            if (req->control == VIRTIO_VIDEO_CONTROL_BITRATE) {
+                node->control.bitrate = ((virtio_video_control_val_bitrate*)(((void*)req) + sizeof(virtio_video_set_control)))->bitrate;
+                VIRTVID_DEBUG("    %s: stream 0x%x bitrate %d", __FUNCTION__, req->hdr.stream_id, node->control.bitrate);
+            } else if (req->control == VIRTIO_VIDEO_CONTROL_PROFILE) {
+                node->control.profile = ((virtio_video_control_val_profile*)(((void*)req) + sizeof(virtio_video_set_control)))->profile;
+                VIRTVID_DEBUG("    %s: stream 0x%x profile %d", __FUNCTION__, req->hdr.stream_id, node->control.profile);
+            } else if (req->control == VIRTIO_VIDEO_CONTROL_LEVEL) {
+                node->control.level = ((virtio_video_control_val_level*)(((void*)req) + sizeof(virtio_video_set_control)))->level;
+                VIRTVID_DEBUG("    %s: stream 0x%x level %d", __FUNCTION__, req->hdr.stream_id, node->control.level);
+            } else {
+                resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_UNSUPPORTED_CONTROL;
+                VIRTVID_ERROR("    %s: stream 0x%x unsupported control %d", __FUNCTION__, req->hdr.stream_id, req->control);
+            }
+            break;
+        }
+    }
+
+    return len;
+}
+
 size_t virtio_video_dec_event(VirtIODevice *vdev, virtio_video_event *ev)
 {
     //VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
