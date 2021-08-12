@@ -587,12 +587,27 @@ typedef struct VirtIOVideoBackend {
     const char* name;
 } VirtIOVideoBackend;
 
+typedef struct VirtIOVideoControl {
+    uint32_t value;
+    QLIST_ENTRY(VirtIOVideoControl) next;
+} VirtIOVideoControl;
+
 typedef struct VirtIOVideoStream {
     void *mfx_session;
     uint32_t stream_id;
     virtio_video_mem_type in_mem_type;
     virtio_video_mem_type out_mem_type;
     virtio_video_format in_format;
+    struct {
+        struct {
+            uint32_t num;
+            QLIST_HEAD(, VirtIOVideoControl) list;
+        } profile;
+        struct {
+            uint32_t num;
+            QLIST_HEAD(, VirtIOVideoControl) list;
+        } level;
+    } control_caps;
     struct {
         uint32_t bitrate;
         uint32_t profile;

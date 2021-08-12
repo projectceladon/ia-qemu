@@ -40,6 +40,8 @@ size_t virtio_video_dec_cmd_get_params(VirtIODevice *vdev,
     virtio_video_get_params *req, virtio_video_get_params_resp *resp);
 size_t virtio_video_dec_cmd_set_params(VirtIODevice *vdev,
     virtio_video_set_params *req, virtio_video_cmd_hdr *resp);
+size_t virtio_video_dec_cmd_query_control(VirtIODevice *vdev,
+    virtio_video_query_control *req, virtio_video_query_control_resp **resp);
 size_t virtio_video_dec_cmd_get_control(VirtIODevice *vdev,
     virtio_video_get_control *req, virtio_video_get_control_resp **resp);
 size_t virtio_video_dec_cmd_set_control(VirtIODevice *vdev,

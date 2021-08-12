@@ -82,6 +82,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
 
         node = g_malloc0(sizeof(VirtIOVideoStream));
         if (node) {
+            VirtIOVideoControl *control = NULL;
             mfxVideoParam inParam = {0}, outParam = {0};
             int min, max;
             node->stream_id = ~0L;
@@ -110,6 +111,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
             memcpy(node->tag, req->tag, strlen((char*)req->tag));
 
             // Try query all profiles
+            QLIST_INIT(&node->control_caps.profile.list);
             virtio_video_msdk_fill_video_params(req->coded_format, &inParam);
             memset(&outParam, 0, sizeof(outParam));
             outParam.mfx.CodecId = inParam.mfx.CodecId;
@@ -122,12 +124,19 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
                         sts = MFXVideoDECODE_Query(node->mfx_session, &inParam, &outParam);
                         if (sts == MFX_ERR_NONE || sts == MFX_WRN_PARTIAL_ACCELERATION) {
                             node->control.profile = profile;
+                            control = g_malloc0(sizeof(VirtIOVideoControl));
+                            if (control) {
+                                node->control_caps.profile.num++;
+                                control->value = profile;
+                                QLIST_INSERT_HEAD(&node->control_caps.profile.list, control, next);
+                            }
                         }
                     }
                 }
             }
 
             // Try query all levels
+            QLIST_INIT(&node->control_caps.level.list);
             virtio_video_msdk_fill_video_params(req->coded_format, &inParam);
             memset(&outParam, 0, sizeof(outParam));
             outParam.mfx.CodecId = inParam.mfx.CodecId;
@@ -140,6 +149,12 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
                         sts = MFXVideoDECODE_Query(node->mfx_session, &inParam, &outParam);
                         if (sts == MFX_ERR_NONE || sts == MFX_WRN_PARTIAL_ACCELERATION) {
                             node->control.level = level;
+                            control = g_malloc0(sizeof(VirtIOVideoControl));
+                            if (control) {
+                                node->control_caps.level.num++;
+                                control->value = level;
+                                QLIST_INSERT_HEAD(&node->control_caps.level.list, control, next);
+                            }
                         }
                     }
                 }
@@ -172,6 +187,7 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
 {
     VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
+    VirtIOVideoControl *control, *next_ctrl = NULL;
     size_t len = 0;
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
@@ -184,6 +200,14 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
             virtio_video_msdk_load_plugin(vdev, node->mfx_session, node->in_format, false, true);
             MFXClose(node->mfx_session);
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
+            QLIST_FOREACH_SAFE(control, &node->control_caps.profile.list, next, next_ctrl) {
+                QLIST_REMOVE(control, next);
+                g_free(control);
+            }
+            QLIST_FOREACH_SAFE(control, &node->control_caps.level.list, next, next_ctrl) {
+                QLIST_REMOVE(control, next);
+                g_free(control);
+            }
             QLIST_REMOVE(node, next);
             g_free(node);
             VIRTVID_DEBUG("    %s: stream 0x%x destroyed", __FUNCTION__, req->hdr.stream_id);
@@ -294,6 +318,97 @@ size_t virtio_video_dec_cmd_set_params(VirtIODevice *vdev,
             memcpy(&node->params, &req->params, sizeof(node->params));
             VIRTVID_DEBUG("    %s: stream 0x%x", __FUNCTION__, req->hdr.stream_id);
             break;
+        }
+    }
+
+    return len;
+}
+
+size_t virtio_video_dec_cmd_query_control(VirtIODevice *vdev,
+    virtio_video_query_control *req, virtio_video_query_control_resp **resp)
+{
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideoStream *node, *next = NULL;
+    size_t len = 0;
+
+    *resp = NULL;
+    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+        if (node->stream_id == req->hdr.stream_id) {
+            if (req->control == VIRTIO_VIDEO_CONTROL_PROFILE) {
+                virtio_video_format format = ((virtio_video_query_control_profile*)((void*)req + sizeof(virtio_video_query_control)))->format;
+
+                if (format == node->in_format) {
+                    len = sizeof(virtio_video_query_control_resp);
+                    len += sizeof(virtio_video_query_control_resp_profile);
+                    len += node->control_caps.profile.num * sizeof(__le32);
+                } else {
+                    VIRTVID_ERROR("    %s: stream 0x%x format %d mismatch requested %d", __FUNCTION__, req->hdr.stream_id, node->in_format, format);
+                }
+
+                *resp = g_malloc0(len);
+                if (*resp != NULL) {
+                    VirtIOVideoControl *control, *next_ctrl = NULL;
+                    __le32 *profile = (void*)(*resp) + sizeof(virtio_video_query_control_resp) + sizeof(virtio_video_query_control_resp_profile);
+
+                    (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_QUERY_CONTROL;
+                    QLIST_FOREACH_SAFE(control, &node->control_caps.profile.list, next, next_ctrl) {
+                        *profile = control->value;
+                        ((virtio_video_query_control_resp_profile*)((void*)(*resp) + sizeof(virtio_video_query_control_resp)))->num++;
+                        profile++;
+                    }
+                } else {
+                    len = 0;
+                }
+                VIRTVID_DEBUG("    %s: stream 0x%x support %d profiles", __FUNCTION__, req->hdr.stream_id, node->control_caps.profile.num);
+            } else if (req->control == VIRTIO_VIDEO_CONTROL_LEVEL) {
+                virtio_video_format format = ((virtio_video_query_control_level*)((void*)req + sizeof(virtio_video_query_control)))->format;
+
+                if (format == node->in_format) {
+                    len = sizeof(virtio_video_query_control_resp);
+                    len += sizeof(virtio_video_query_control_resp_level);
+                    len += node->control_caps.level.num * sizeof(__le32);
+                } else {
+                    VIRTVID_ERROR("    %s: stream 0x%x format %d mismatch requested %d", __FUNCTION__, req->hdr.stream_id, node->in_format, format);
+                }
+
+                *resp = g_malloc0(len);
+                if (*resp != NULL) {
+                    VirtIOVideoControl *control, *next_ctrl = NULL;
+                    __le32 *level = (void*)(*resp) + sizeof(virtio_video_query_control_resp) + sizeof(virtio_video_query_control_resp_level);
+
+                    (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_QUERY_CONTROL;
+                    QLIST_FOREACH_SAFE(control, &node->control_caps.level.list, next, next_ctrl) {
+                        *level = control->value;
+                        ((virtio_video_query_control_resp_level*)((void*)(*resp) + sizeof(virtio_video_query_control_resp)))->num++;
+                        level++;
+                    }
+                } else {
+                    len = 0;
+                }
+                VIRTVID_DEBUG("    %s: stream 0x%x support %d levels", __FUNCTION__, req->hdr.stream_id, node->control_caps.level.num);
+            } else {
+                len = sizeof(virtio_video_query_control_resp);
+                *resp = g_malloc0(len);
+                if (*resp != NULL) {
+                    (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_UNSUPPORTED_CONTROL;
+                    (*resp)->hdr.stream_id = req->hdr.stream_id;
+                } else {
+                    len = 0;
+                }
+                VIRTVID_ERROR("    %s: stream 0x%x unsupported control %d", __FUNCTION__, req->hdr.stream_id, req->control);
+            }
+            break;
+        }
+    }
+
+    if (*resp == NULL) {
+        len = sizeof(virtio_video_query_control_resp);
+        *resp = g_malloc0(len);
+        if (*resp != NULL) {
+            (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+            (*resp)->hdr.stream_id = req->hdr.stream_id;
+        } else {
+            len = 0;
         }
     }
 
@@ -614,9 +729,18 @@ static void virtio_video_decode_destroy_msdk(VirtIODevice *vdev)
 {
     VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
+    VirtIOVideoControl *control, *next_ctrl = NULL;
 
     QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
         MFXClose(node->mfx_session);
+        QLIST_FOREACH_SAFE(control, &node->control_caps.profile.list, next, next_ctrl) {
+            QLIST_REMOVE(control, next);
+            g_free(control);
+        }
+        QLIST_FOREACH_SAFE(control, &node->control_caps.level.list, next, next_ctrl) {
+            QLIST_REMOVE(control, next);
+            g_free(control);
+        }
         QLIST_REMOVE(node, next);
         g_free(node);
     }
