@@ -691,6 +691,8 @@ static void virtio_video_init_framework(VirtIODevice *vdev, Error **errp)
     if (vid->event_vq == NULL) {
         error_setg(errp, "Fail to initialize virtio-video event_vq");
     }
+
+    qemu_mutex_init(&vid->ev_mutex);
 }
 
 static void virtio_video_destroy_framework(VirtIODevice *vdev)
@@ -717,6 +719,9 @@ static void virtio_video_destroy_framework(VirtIODevice *vdev)
     default:
         return;
     }
+
+    qemu_mutex_destroy(&vid->ev_mutex);
+
     virtio_del_queue(vdev, 0);
     virtio_del_queue(vdev, 1);
     virtio_cleanup(vdev);

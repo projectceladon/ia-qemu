@@ -615,6 +615,9 @@ typedef struct VirtIOVideoStream {
     } control;
     virtio_video_params params;
     char tag[64];
+    QemuThread thread;
+    QemuMutex mutex;
+    VirtQueue *event_vq;
     QLIST_ENTRY(VirtIOVideoStream) next;
 } VirtIOVideoStream;
 
@@ -633,6 +636,7 @@ typedef struct VirtIOVideo {
     virtio_video_backend backend;
     virtio_video_config config;
     VirtQueue *cmd_vq, *event_vq;
+    QemuMutex ev_mutex;
     QLIST_HEAD(, VirtIOVideoStream) stream_list;
     int drm_fd;
     void *va_disp_handle;

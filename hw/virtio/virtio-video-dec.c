@@ -27,6 +27,8 @@
 #include "virtio-video-msdk.h"
 #include "virtio-video-vaapi.h"
 
+#define VIRTIO_VIDEO_DECODE_THREAD "Virtio-Video-Decode"
+
 size_t virtio_video_dec_cmd_query_capability(VirtIODevice *vdev,
     virtio_video_query_capability *req, virtio_video_query_capability_resp **resp)
 {
@@ -60,6 +62,34 @@ size_t virtio_video_dec_cmd_query_capability(VirtIODevice *vdev,
     }
 
     return len;
+}
+
+static void *virtio_video_decode_thread(void *arg)
+{
+    VirtIOVideoStream *stream = arg;
+    sigset_t sigmask, old;
+    int err;
+
+    sigemptyset(&sigmask);
+    sigaddset(&sigmask, SIGTERM);
+    sigaddset(&sigmask, SIGINT);
+    err = pthread_sigmask(SIG_BLOCK, &sigmask, &old);
+    if (err) {
+        VIRTVID_ERROR("%s thread %d change SIG_BLOCK failed err %d\n", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id, err);
+    }
+
+    VIRTVID_DEBUG("%s thread %d running\n", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id);
+    // while (1) {
+    // }
+
+    err = pthread_sigmask(SIG_SETMASK, &old, NULL);
+    if (err) {
+        VIRTVID_ERROR("%s thread %d restore old sigmask failed err %d\n", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id, err);
+    }
+
+    VIRTVID_DEBUG("%s thread %d exits\n", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id);
+
+    return NULL;
 }
 
 size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
@@ -169,6 +199,11 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
                 node->control.bitrate = inParam.mfx.TargetKbps;
             }
 
+            qemu_mutex_init(&node->mutex);
+            node->event_vq = vid->event_vq;
+
+            qemu_thread_create(&node->thread, VIRTIO_VIDEO_DECODE_THREAD, virtio_video_decode_thread, node, QEMU_THREAD_JOINABLE);
+
             QLIST_INSERT_HEAD(&vid->stream_list, node, next);
 
             VIRTVID_DEBUG("    %s: stream 0x%x created", __FUNCTION__, req->hdr.stream_id);
@@ -208,6 +243,13 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
                 QLIST_REMOVE(control, next);
                 g_free(control);
             }
+            qemu_mutex_destroy(&node->mutex);
+
+            // TODO: Notify thread to stop, or send SIGTERM
+            pthread_kill(node->thread.thread, SIGTERM);
+            qemu_thread_join(&node->thread);
+            node->thread.thread = 0;
+
             QLIST_REMOVE(node, next);
             g_free(node);
             VIRTVID_DEBUG("    %s: stream 0x%x destroyed", __FUNCTION__, req->hdr.stream_id);
