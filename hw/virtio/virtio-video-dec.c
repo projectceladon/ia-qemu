@@ -113,6 +113,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
         node = g_malloc0(sizeof(VirtIOVideoStream));
         if (node) {
             VirtIOVideoControl *control = NULL;
+            virtio_video_format_desc *desc = NULL;
             mfxVideoParam inParam = {0}, outParam = {0};
             int min, max;
             node->stream_id = ~0L;
@@ -197,6 +198,39 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
             sts = MFXVideoDECODE_Query(node->mfx_session, &inParam, &outParam);
             if (sts == MFX_ERR_NONE || sts == MFX_WRN_PARTIAL_ACCELERATION) {
                 node->control.bitrate = inParam.mfx.TargetKbps;
+            }
+
+            memset(&node->in_params, 0, sizeof(node->in_params));
+
+            if (virtio_video_msdk_find_format(&(vid->caps_in), node->in_format, &desc)) {
+                node->in_params.frame_width = ((virtio_video_format_frame*)((void*)desc + sizeof(virtio_video_format_desc)))->width.max;
+                node->in_params.frame_height = ((virtio_video_format_frame*)((void*)desc + sizeof(virtio_video_format_desc)))->height.max;
+                node->in_params.min_buffers = 1;
+                node->in_params.max_buffers = 1;
+                node->in_params.crop.left = 0;
+                node->in_params.crop.top = 0;
+                node->in_params.crop.width = node->in_params.frame_width;
+                node->in_params.crop.height = node->in_params.frame_height;
+                node->in_params.frame_rate = ((virtio_video_format_range*)((void*)desc + sizeof(virtio_video_format_desc) + sizeof(virtio_video_format_frame)))->max;
+
+                memcpy(&node->out_params, &node->in_params, sizeof(node->in_params));
+
+                // For VIRTIO_VIDEO_QUEUE_TYPE_INPUT
+                node->in_params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_INPUT;
+                node->in_params.format = node->in_format;
+                // TODO: what's the definition of plane number, size and stride for coded format?
+                node->in_params.num_planes = 1;
+                node->in_params.plane_formats[0].plane_size = 0;
+                node->in_params.plane_formats[0].stride = 0;
+
+                // For VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT
+                node->out_params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT;
+                node->out_params.format = VIRTIO_VIDEO_FORMAT_NV12;
+                node->out_params.num_planes = 2;
+                node->out_params.plane_formats[0].plane_size = node->out_params.frame_width * node->out_params.frame_height;
+                node->out_params.plane_formats[0].stride = node->out_params.frame_width;
+                node->out_params.plane_formats[1].plane_size = node->out_params.frame_width * node->out_params.frame_height / 2;
+                node->out_params.plane_formats[1].stride = node->out_params.frame_width;
             }
 
             qemu_mutex_init(&node->mutex);
@@ -303,39 +337,16 @@ size_t virtio_video_dec_cmd_get_params(VirtIODevice *vdev,
 
     QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
-            virtio_video_format_desc *desc = NULL;
-            if (virtio_video_msdk_find_format(&(vid->caps_in), node->in_format, &desc)) {
-                resp->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_PARAMS;
-
-                resp->params.queue_type = req->queue_type;
-                resp->params.frame_width = ((virtio_video_format_frame*)((void*)desc + sizeof(virtio_video_format_desc)))->width.max;
-                resp->params.frame_height = ((virtio_video_format_frame*)((void*)desc + sizeof(virtio_video_format_desc)))->height.max;
-                resp->params.min_buffers = 1;
-                resp->params.max_buffers = 1;
-                resp->params.crop.left = 0;
-                resp->params.crop.top = 0;
-                resp->params.crop.width = resp->params.frame_width;
-                resp->params.crop.height = resp->params.frame_height;
-                resp->params.frame_rate = ((virtio_video_format_range*)((void*)desc + sizeof(virtio_video_format_desc) + sizeof(virtio_video_format_frame)))->max;
-
-                if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
-                    resp->params.format = node->in_format;
-                    // TODO: what's the definition of plane number, size and stride for coded format?
-                    resp->params.num_planes = 1;
-                    resp->params.plane_formats[0].plane_size = 0;
-                    resp->params.plane_formats[0].stride = 0;
-                } else {
-                    resp->params.format = VIRTIO_VIDEO_FORMAT_NV12;
-                    resp->params.num_planes = 2;
-                    resp->params.plane_formats[0].plane_size = resp->params.frame_width * resp->params.frame_height;
-                    resp->params.plane_formats[0].stride = resp->params.frame_width;
-                    resp->params.plane_formats[1].plane_size = resp->params.frame_width * resp->params.frame_height / 2;
-                    resp->params.plane_formats[1].stride = resp->params.frame_width;
-                }
-                VIRTVID_DEBUG("    %s: stream 0x%x", __FUNCTION__, req->hdr.stream_id);
+            resp->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_PARAMS;
+            if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
+                memcpy(&resp->params, &node->in_params, sizeof(resp->params));
+            } else if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
+                memcpy(&resp->params, &node->out_params, sizeof(resp->params));
             } else {
-                resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
+                resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
             }
+            VIRTVID_DEBUG("    %s: stream 0x%x", __FUNCTION__, req->hdr.stream_id);
             break;
         }
     }
@@ -357,7 +368,14 @@ size_t virtio_video_dec_cmd_set_params(VirtIODevice *vdev,
     QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
-            memcpy(&node->params, &req->params, sizeof(node->params));
+            if (req->params.queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
+                memcpy(&node->in_params, &req->params, sizeof(req->params));
+            } else if (req->params.queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
+                memcpy(&node->out_params, &req->params, sizeof(req->params));
+            } else {
+                resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->params.queue_type);
+            }
             VIRTVID_DEBUG("    %s: stream 0x%x", __FUNCTION__, req->hdr.stream_id);
             break;
         }

@@ -613,7 +613,8 @@ typedef struct VirtIOVideoStream {
         uint32_t profile;
         uint32_t level;
     } control;
-    virtio_video_params params;
+    virtio_video_params in_params;
+    virtio_video_params out_params;
     char tag[64];
     QemuThread thread;
     QemuMutex mutex;
