@@ -592,6 +592,18 @@ typedef struct VirtIOVideoControl {
     QLIST_ENTRY(VirtIOVideoControl) next;
 } VirtIOVideoControl;
 
+typedef enum VirtIOVideoStreamEvent {
+    VirtIOVideoStreamEventNone = 0,
+    VirtIOVideoStreamEventParamChange,
+    VirtIOVideoStreamEventTerminate,
+} VirtIOVideoStreamEvent;
+
+typedef struct VirtIOVideoStreamEventEntry {
+    VirtIOVideoStreamEvent ev;
+    void *data;
+    QLIST_ENTRY(VirtIOVideoStreamEventEntry) next;
+} VirtIOVideoStreamEventEntry;
+
 typedef struct VirtIOVideoStream {
     void *mfx_session;
     uint32_t stream_id;
@@ -613,6 +625,8 @@ typedef struct VirtIOVideoStream {
         uint32_t profile;
         uint32_t level;
     } control;
+    QLIST_HEAD(, VirtIOVideoStreamEventEntry) ev_list;
+    void *mfxParams;
     virtio_video_params in_params;
     virtio_video_params out_params;
     char tag[64];

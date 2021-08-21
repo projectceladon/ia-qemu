@@ -69,25 +69,75 @@ static void *virtio_video_decode_thread(void *arg)
     VirtIOVideoStream *stream = arg;
     sigset_t sigmask, old;
     int err;
+    bool running = TRUE;
+    mfxStatus sts = MFX_ERR_NONE;
 
     sigemptyset(&sigmask);
     sigaddset(&sigmask, SIGTERM);
     sigaddset(&sigmask, SIGINT);
     err = pthread_sigmask(SIG_BLOCK, &sigmask, &old);
     if (err) {
-        VIRTVID_ERROR("%s thread %d change SIG_BLOCK failed err %d\n", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id, err);
+        VIRTVID_ERROR("%s thread 0x%0x change SIG_BLOCK failed err %d", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id, err);
     }
 
-    VIRTVID_DEBUG("%s thread %d running\n", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id);
-    // while (1) {
-    // }
+    sts = MFXVideoDECODE_Init(stream->mfx_session, stream->mfxParams);
+    if (sts != MFX_ERR_NONE) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Init failed with err %d", stream->stream_id, sts);
+    }
+
+    // Retrieve current working mfxVideoParam
+    sts = MFXVideoDECODE_GetVideoParam(stream->mfx_session, stream->mfxParams);
+    if (sts != MFX_ERR_NONE) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_GetVideoParam failed with err %d", stream->stream_id, sts);
+    }
+
+    VIRTVID_DEBUG("%s thread 0x%0x running", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id);
+    while (running) {
+        qemu_mutex_lock(&stream->mutex);
+        if (!QLIST_EMPTY(&stream->ev_list)) {
+            VirtIOVideoStreamEventEntry *entry = QLIST_FIRST(&stream->ev_list);
+
+            QLIST_SAFE_REMOVE(entry, next);
+
+            switch (entry->ev) {
+            case VirtIOVideoStreamEventParamChange:
+                sts = MFXVideoDECODE_Reset(stream->mfx_session, stream->mfxParams);
+                if (sts != MFX_ERR_NONE) {
+                    running = FALSE;
+                }
+                break;
+            case VirtIOVideoStreamEventTerminate:
+                running = FALSE;
+                break;
+            default:
+                break;
+            }
+
+            g_free(entry);
+        }
+        qemu_mutex_unlock(&stream->mutex);
+
+        if (!running) {
+            continue;
+        }
+    }
+
+    sts = MFXVideoDECODE_Reset(stream->mfx_session, stream->mfxParams);
+    if (sts != MFX_ERR_NONE) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Reset failed with err %d", stream->stream_id, sts);
+    }
+
+    sts = MFXVideoDECODE_Close(stream->mfx_session);
+    if (sts != MFX_ERR_NONE) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Close failed with err %d", stream->stream_id, sts);
+    }
 
     err = pthread_sigmask(SIG_SETMASK, &old, NULL);
     if (err) {
-        VIRTVID_ERROR("%s thread %d restore old sigmask failed err %d\n", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id, err);
+        VIRTVID_ERROR("%s thread 0x%0x restore old sigmask failed err %d", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id, err);
     }
 
-    VIRTVID_DEBUG("%s thread %d exits\n", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id);
+    VIRTVID_DEBUG("%s thread 0x%0x exits", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id);
 
     return NULL;
 }
@@ -141,6 +191,15 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
             node->in_format = req->coded_format;
             memcpy(node->tag, req->tag, strlen((char*)req->tag));
 
+            QLIST_INIT(&node->ev_list);
+
+            // Prepare an initial mfxVideoParam for decode
+            node->mfxParams = g_malloc0(sizeof(mfxVideoParam));
+            virtio_video_msdk_fill_video_params(req->coded_format, node->mfxParams);
+
+            // TODO: Should we use VIDEO_MEMORY for virtio-gpu object?
+            ((mfxVideoParam*)node->mfxParams)->IOPattern = MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
+
             // Try query all profiles
             QLIST_INIT(&node->control_caps.profile.list);
             virtio_video_msdk_fill_video_params(req->coded_format, &inParam);
@@ -164,6 +223,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
                         }
                     }
                 }
+                ((mfxVideoParam*)node->mfxParams)->mfx.CodecProfile = virtio_video_profile_to_mfx(req->coded_format, QLIST_FIRST(&node->control_caps.profile.list)->value);
             }
 
             // Try query all levels
@@ -189,6 +249,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
                         }
                     }
                 }
+                ((mfxVideoParam*)node->mfxParams)->mfx.CodecLevel = virtio_video_level_to_mfx(req->coded_format, QLIST_FIRST(&node->control_caps.level.list)->value);
             }
 
             virtio_video_msdk_fill_video_params(req->coded_format, &inParam);
@@ -198,6 +259,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
             sts = MFXVideoDECODE_Query(node->mfx_session, &inParam, &outParam);
             if (sts == MFX_ERR_NONE || sts == MFX_WRN_PARTIAL_ACCELERATION) {
                 node->control.bitrate = inParam.mfx.TargetKbps;
+                ((mfxVideoParam*)node->mfxParams)->mfx.TargetKbps = node->control.bitrate;
             }
 
             memset(&node->in_params, 0, sizeof(node->in_params));
@@ -233,6 +295,11 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
                 node->out_params.plane_formats[1].stride = node->out_params.frame_width;
             }
 
+            ((mfxVideoParam*)node->mfxParams)->mfx.FrameInfo.Width = node->in_params.frame_width;
+            ((mfxVideoParam*)node->mfxParams)->mfx.FrameInfo.Height = node->in_params.frame_height;
+            ((mfxVideoParam*)node->mfxParams)->mfx.FrameInfo.FrameRateExtN = node->in_params.frame_rate;
+            ((mfxVideoParam*)node->mfxParams)->mfx.FrameInfo.FrameRateExtD = 1;
+
             qemu_mutex_init(&node->mutex);
             node->event_vq = vid->event_vq;
 
@@ -257,6 +324,7 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
     VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
     VirtIOVideoControl *control, *next_ctrl = NULL;
+    VirtIOVideoStreamEventEntry *entry, *next_entry = NULL;
     size_t len = 0;
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
@@ -265,10 +333,8 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
 
     QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
-            // TODO: close decoder
-            virtio_video_msdk_load_plugin(vdev, node->mfx_session, node->in_format, false, true);
-            MFXClose(node->mfx_session);
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
+
             QLIST_FOREACH_SAFE(control, &node->control_caps.profile.list, next, next_ctrl) {
                 QLIST_REMOVE(control, next);
                 g_free(control);
@@ -277,12 +343,28 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
                 QLIST_REMOVE(control, next);
                 g_free(control);
             }
-            qemu_mutex_destroy(&node->mutex);
 
-            // TODO: Notify thread to stop, or send SIGTERM
-            pthread_kill(node->thread.thread, SIGTERM);
+            entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
+            entry->ev = VirtIOVideoStreamEventTerminate;
+            qemu_mutex_lock(&node->mutex);
+            QLIST_INSERT_HEAD(&node->ev_list, entry, next);
+            qemu_mutex_unlock(&node->mutex);
+
+            // May need send SIGTERM if the thread is dead
+            //pthread_kill(node->thread.thread, SIGTERM);
             qemu_thread_join(&node->thread);
             node->thread.thread = 0;
+
+            QLIST_FOREACH_SAFE(entry, &node->ev_list, next, next_entry) {
+                QLIST_SAFE_REMOVE(entry, next);
+                g_free(entry);
+            }
+
+            qemu_mutex_destroy(&node->mutex);
+
+            g_free(node->mfxParams);
+            virtio_video_msdk_load_plugin(vdev, node->mfx_session, node->in_format, false, true);
+            MFXClose(node->mfx_session);
 
             QLIST_REMOVE(node, next);
             g_free(node);
@@ -376,6 +458,20 @@ size_t virtio_video_dec_cmd_set_params(VirtIODevice *vdev,
                 resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
                 VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->params.queue_type);
             }
+
+            if (resp->type == VIRTIO_VIDEO_RESP_OK_NODATA) {
+                VirtIOVideoStreamEventEntry *entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
+
+                entry->ev = VirtIOVideoStreamEventParamChange;
+                qemu_mutex_lock(&node->mutex);
+                ((mfxVideoParam*)node->mfxParams)->mfx.FrameInfo.Width = req->params.frame_width;
+                ((mfxVideoParam*)node->mfxParams)->mfx.FrameInfo.Height = req->params.frame_height;
+                ((mfxVideoParam*)node->mfxParams)->mfx.FrameInfo.FrameRateExtN = req->params.frame_rate;
+                ((mfxVideoParam*)node->mfxParams)->mfx.FrameInfo.FrameRateExtD = 1;
+                QLIST_INSERT_HEAD(&node->ev_list, entry, next);
+                qemu_mutex_unlock(&node->mutex);
+            }
+
             VIRTVID_DEBUG("    %s: stream 0x%x", __FUNCTION__, req->hdr.stream_id);
             break;
         }
@@ -554,6 +650,18 @@ size_t virtio_video_dec_cmd_set_control(VirtIODevice *vdev,
             } else {
                 resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_UNSUPPORTED_CONTROL;
                 VIRTVID_ERROR("    %s: stream 0x%x unsupported control %d", __FUNCTION__, req->hdr.stream_id, req->control);
+            }
+
+            if (resp->hdr.type == VIRTIO_VIDEO_RESP_OK_NODATA) {
+                VirtIOVideoStreamEventEntry *entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
+
+                entry->ev = VirtIOVideoStreamEventParamChange;
+                qemu_mutex_lock(&node->mutex);
+                ((mfxVideoParam*)node->mfxParams)->mfx.CodecProfile = virtio_video_profile_to_mfx(node->in_format, node->control.profile);
+                ((mfxVideoParam*)node->mfxParams)->mfx.CodecLevel = virtio_video_level_to_mfx(node->in_format, node->control.level);
+                ((mfxVideoParam*)node->mfxParams)->mfx.TargetKbps = node->control.bitrate;
+                QLIST_INSERT_HEAD(&node->ev_list, entry, next);
+                qemu_mutex_unlock(&node->mutex);
             }
             break;
         }
