@@ -336,11 +336,11 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
 
             QLIST_FOREACH_SAFE(control, &node->control_caps.profile.list, next, next_ctrl) {
-                QLIST_REMOVE(control, next);
+                QLIST_SAFE_REMOVE(control, next);
                 g_free(control);
             }
             QLIST_FOREACH_SAFE(control, &node->control_caps.level.list, next, next_ctrl) {
-                QLIST_REMOVE(control, next);
+                QLIST_SAFE_REMOVE(control, next);
                 g_free(control);
             }
 
@@ -366,7 +366,7 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
             virtio_video_msdk_load_plugin(vdev, node->mfx_session, node->in_format, false, true);
             MFXClose(node->mfx_session);
 
-            QLIST_REMOVE(node, next);
+            QLIST_SAFE_REMOVE(node, next);
             g_free(node);
             VIRTVID_DEBUG("    %s: stream 0x%x destroyed", __FUNCTION__, req->hdr.stream_id);
             break;
@@ -902,14 +902,14 @@ static void virtio_video_decode_destroy_msdk(VirtIODevice *vdev)
     QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
         MFXClose(node->mfx_session);
         QLIST_FOREACH_SAFE(control, &node->control_caps.profile.list, next, next_ctrl) {
-            QLIST_REMOVE(control, next);
+            QLIST_SAFE_REMOVE(control, next);
             g_free(control);
         }
         QLIST_FOREACH_SAFE(control, &node->control_caps.level.list, next, next_ctrl) {
-            QLIST_REMOVE(control, next);
+            QLIST_SAFE_REMOVE(control, next);
             g_free(control);
         }
-        QLIST_REMOVE(node, next);
+        QLIST_SAFE_REMOVE(node, next);
         g_free(node);
     }
 
