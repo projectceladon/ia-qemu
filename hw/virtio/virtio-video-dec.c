@@ -300,6 +300,9 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
             ((mfxVideoParam*)node->mfxParams)->mfx.FrameInfo.FrameRateExtN = node->in_params.frame_rate;
             ((mfxVideoParam*)node->mfxParams)->mfx.FrameInfo.FrameRateExtD = 1;
 
+            QLIST_INIT(&node->in_list);
+            QLIST_INIT(&node->out_list);
+
             qemu_mutex_init(&node->mutex);
             node->event_vq = vid->event_vq;
 
@@ -370,6 +373,66 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
             g_free(node);
             VIRTVID_DEBUG("    %s: stream 0x%x destroyed", __FUNCTION__, req->hdr.stream_id);
             break;
+        }
+    }
+
+    return len;
+}
+
+size_t virtio_video_dec_cmd_resource_create(VirtIODevice *vdev,
+    virtio_video_resource_create *req, virtio_video_cmd_hdr *resp)
+{
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideoStream *node, *next = NULL;
+    size_t len = 0;
+
+    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+    resp->stream_id = req->hdr.stream_id;
+    len = sizeof(*resp);
+
+
+    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+        if (node->stream_id == req->hdr.stream_id) {
+            VirtIOVideoStreamResource *entry = g_malloc0(sizeof(VirtIOVideoStreamResource));
+
+            resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
+            if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT || req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
+                uint32_t plane;
+
+                entry->resource_id = req->resource_id;
+                entry->planes_layout = req->planes_layout;
+                entry->num_planes = req->num_planes;
+                memcpy(&entry->plane_offsets, &req->plane_offsets, sizeof(entry->plane_offsets));
+                memcpy(&entry->num_entries, &req->num_entries, sizeof(entry->num_entries));
+
+                for (plane = 0; plane < VIRTIO_VIDEO_MAX_PLANES; plane++) {
+                    if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
+                        if (node->in_mem_type == VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES) {
+                            entry->mem[plane] = g_malloc(entry->num_entries[plane] * sizeof(virtio_video_mem_entry));
+                        } else {
+                            entry->mem[plane] = g_malloc(entry->num_entries[plane] * sizeof(virtio_video_object_entry));
+                        }
+                    } else {
+                        if (node->out_mem_type == VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES) {
+                            entry->mem[plane] = g_malloc(entry->num_entries[plane] * sizeof(virtio_video_mem_entry));
+                        } else {
+                            entry->mem[plane] = g_malloc(entry->num_entries[plane] * sizeof(virtio_video_object_entry));
+                        }
+                    }
+                }
+
+                qemu_mutex_lock(&node->mutex);
+                if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
+                    QLIST_INSERT_HEAD(&node->in_list, entry, next);
+                } else {
+                    QLIST_INSERT_HEAD(&node->out_list, entry, next);
+                }
+                qemu_mutex_unlock(&node->mutex);
+            } else {
+                resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+                g_free(entry);
+                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
+            }
         }
     }
 

@@ -604,6 +604,16 @@ typedef struct VirtIOVideoStreamEventEntry {
     QLIST_ENTRY(VirtIOVideoStreamEventEntry) next;
 } VirtIOVideoStreamEventEntry;
 
+typedef struct VirtIOVideoStreamResource {
+    uint32_t resource_id;
+    uint32_t planes_layout;
+    uint32_t num_planes;
+    __le32 plane_offsets[VIRTIO_VIDEO_MAX_PLANES];
+    __le32 num_entries[VIRTIO_VIDEO_MAX_PLANES];
+    void *mem[VIRTIO_VIDEO_MAX_PLANES];
+    QLIST_ENTRY(VirtIOVideoStreamResource) next;
+} VirtIOVideoStreamResource;
+
 typedef struct VirtIOVideoStream {
     void *mfx_session;
     uint32_t stream_id;
@@ -626,6 +636,8 @@ typedef struct VirtIOVideoStream {
         uint32_t level;
     } control;
     QLIST_HEAD(, VirtIOVideoStreamEventEntry) ev_list;
+    QLIST_HEAD(, VirtIOVideoStreamResource) in_list;
+    QLIST_HEAD(, VirtIOVideoStreamResource) out_list;
     void *mfxParams;
     virtio_video_params in_params;
     virtio_video_params out_params;
