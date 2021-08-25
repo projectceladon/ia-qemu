@@ -328,6 +328,7 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
     VirtIOVideoStream *node, *next = NULL;
     VirtIOVideoControl *control, *next_ctrl = NULL;
     VirtIOVideoStreamEventEntry *entry, *next_entry = NULL;
+    VirtIOVideoStreamResource *res, *next_res = NULL;
     size_t len = 0;
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
@@ -361,6 +362,16 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
             QLIST_FOREACH_SAFE(entry, &node->ev_list, next, next_entry) {
                 QLIST_SAFE_REMOVE(entry, next);
                 g_free(entry);
+            }
+
+            QLIST_FOREACH_SAFE(res, &node->in_list, next, next_res) {
+                QLIST_SAFE_REMOVE(res, next);
+                g_free(res);
+            }
+
+            QLIST_FOREACH_SAFE(res, &node->out_list, next, next_res) {
+                QLIST_SAFE_REMOVE(res, next);
+                g_free(res);
             }
 
             qemu_mutex_destroy(&node->mutex);
@@ -444,6 +455,7 @@ size_t virtio_video_dec_cmd_resource_destroy_all(VirtIODevice *vdev,
 {
     VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
+    VirtIOVideoStreamResource *res, *next_res = NULL;
     size_t len = 0;
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
@@ -453,14 +465,21 @@ size_t virtio_video_dec_cmd_resource_destroy_all(VirtIODevice *vdev,
     QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
             // TODO: Drain codec
-            // TODO: Destroy all resources
-            if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
-
-            } else {
-
-            }
-
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
+            if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
+                QLIST_FOREACH_SAFE(res, &node->in_list, next, next_res) {
+                    QLIST_SAFE_REMOVE(res, next);
+                    g_free(res);
+                }
+            } else if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
+                QLIST_FOREACH_SAFE(res, &node->out_list, next, next_res) {
+                    QLIST_SAFE_REMOVE(res, next);
+                    g_free(res);
+                }
+            } else {
+                resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
+            }
             VIRTVID_DEBUG("    %s: stream 0x%x queue_type 0x%x all resource destroyed", __FUNCTION__, req->hdr.stream_id, req->queue_type);
             break;
         }
@@ -960,20 +979,14 @@ static void virtio_video_decode_destroy_msdk(VirtIODevice *vdev)
 {
     VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
-    VirtIOVideoControl *control, *next_ctrl = NULL;
 
     QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
-        MFXClose(node->mfx_session);
-        QLIST_FOREACH_SAFE(control, &node->control_caps.profile.list, next, next_ctrl) {
-            QLIST_SAFE_REMOVE(control, next);
-            g_free(control);
-        }
-        QLIST_FOREACH_SAFE(control, &node->control_caps.level.list, next, next_ctrl) {
-            QLIST_SAFE_REMOVE(control, next);
-            g_free(control);
-        }
-        QLIST_SAFE_REMOVE(node, next);
-        g_free(node);
+        virtio_video_stream_destroy req = {0};
+        virtio_video_cmd_hdr resp = {0};
+
+        // Destroy all in case CMD_STREAM_DESTROY not called on some stream
+        req.hdr.stream_id = node->stream_id;
+        virtio_video_dec_cmd_stream_destroy(vdev, &req, &resp);
     }
 
     virtio_video_destroy_va_env_drm(vdev);
