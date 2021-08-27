@@ -36,6 +36,8 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
     virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp);
 size_t virtio_video_dec_cmd_resource_create(VirtIODevice *vdev,
     virtio_video_resource_create *req, virtio_video_cmd_hdr *resp);
+size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
+    virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp);
 size_t virtio_video_dec_cmd_resource_destroy_all(VirtIODevice *vdev,
     virtio_video_resource_destroy_all *req, virtio_video_cmd_hdr *resp);
 size_t virtio_video_dec_cmd_get_params(VirtIODevice *vdev,

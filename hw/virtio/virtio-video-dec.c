@@ -69,8 +69,10 @@ static void *virtio_video_decode_thread(void *arg)
     VirtIOVideoStream *stream = arg;
     sigset_t sigmask, old;
     int err;
-    bool running = TRUE;
+    bool running = TRUE, decoding = TRUE;
     mfxStatus sts = MFX_ERR_NONE;
+    mfxFrameSurface1 *surface_out;
+    mfxSyncPoint syncp;
 
     sigemptyset(&sigmask);
     sigaddset(&sigmask, SIGTERM);
@@ -93,6 +95,11 @@ static void *virtio_video_decode_thread(void *arg)
 
     VIRTVID_DEBUG("%s thread 0x%0x running", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id);
     while (running) {
+        decoding = FALSE;
+
+        qemu_event_wait(&stream->signal_in);
+        qemu_event_reset(&stream->signal_in);
+
         qemu_mutex_lock(&stream->mutex);
         if (!QLIST_EMPTY(&stream->ev_list)) {
             VirtIOVideoStreamEventEntry *entry = QLIST_FIRST(&stream->ev_list);
@@ -106,6 +113,9 @@ static void *virtio_video_decode_thread(void *arg)
                     running = FALSE;
                 }
                 break;
+            case VirtIOVideoStreamEventStreamQueue:
+                decoding = TRUE;
+                break;
             case VirtIOVideoStreamEventTerminate:
                 running = FALSE;
                 break;
@@ -117,9 +127,28 @@ static void *virtio_video_decode_thread(void *arg)
         }
         qemu_mutex_unlock(&stream->mutex);
 
-        if (!running) {
+        if (!running || !decoding) {
             continue;
         }
+
+        sts = MFXVideoDECODE_DecodeFrameAsync(stream->mfx_session, stream->mfxBs, stream->mfxSurfWork, &surface_out, &syncp);
+        if (sts == MFX_ERR_NONE) {
+            sts = MFXVideoCORE_SyncOperation(stream->mfx_session, syncp, stream->mfxWaitMs);
+            if (sts == MFX_ERR_NONE) {
+                stream->stat = VirtIOVideoStreamStatNone;
+            } else {
+                running = FALSE;
+                stream->stat = VirtIOVideoStreamStatError;
+                VIRTVID_ERROR("stream 0x%x MFXVideoCORE_SyncOperation failed with err %d", stream->stream_id, sts);
+            }
+        } else {
+            running = FALSE;
+            stream->stat = VirtIOVideoStreamStatError;
+            VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_DecodeFrameAsync failed with err %d", stream->stream_id, sts);
+        }
+
+        // Notify CMD_RESOURCE_QUEUE, it's waiting for virtio_video_resource_queue_resp
+        qemu_event_set(&stream->signal_out);
     }
 
     sts = MFXVideoDECODE_Reset(stream->mfx_session, stream->mfxParams);
@@ -166,6 +195,8 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
             virtio_video_format_desc *desc = NULL;
             mfxVideoParam inParam = {0}, outParam = {0};
             int min, max;
+
+            node->mfxWaitMs = 60000;
             node->stream_id = ~0L;
 
             sts = MFXInitEx(par, (mfxSession*)&node->mfx_session);
@@ -303,6 +334,10 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
             QLIST_INIT(&node->in_list);
             QLIST_INIT(&node->out_list);
 
+            qemu_event_init(&node->signal_in, false);
+            qemu_event_init(&node->signal_out, false);
+            node->stat = VirtIOVideoStreamStatNone;
+
             qemu_mutex_init(&node->mutex);
             node->event_vq = vid->event_vq;
 
@@ -374,6 +409,9 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
                 g_free(res);
             }
 
+            qemu_event_destroy(&node->signal_in);
+            qemu_event_destroy(&node->signal_out);
+
             qemu_mutex_destroy(&node->mutex);
 
             g_free(node->mfxParams);
@@ -443,6 +481,45 @@ size_t virtio_video_dec_cmd_resource_create(VirtIODevice *vdev,
                 resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
                 g_free(entry);
                 VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
+            }
+        }
+    }
+
+    return len;
+}
+
+size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
+    virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp)
+{
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideoStream *node, *next = NULL;
+    size_t len = 0;
+
+    resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+    resp->hdr.stream_id = req->hdr.stream_id;
+    len = sizeof(*resp);
+
+
+    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+        if (node->stream_id == req->hdr.stream_id) {
+            VirtIOVideoStreamEventEntry *entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
+
+            // Notify decode thread new resource queued
+            entry->ev = VirtIOVideoStreamEventStreamQueue;
+            qemu_mutex_lock(&node->mutex);
+            QLIST_INSERT_HEAD(&node->ev_list, entry, next);
+            qemu_mutex_unlock(&node->mutex);
+            qemu_event_set(&node->signal_in);
+
+            // Wait for decode thread work done
+            qemu_event_wait(&node->signal_out);
+            qemu_event_reset(&node->signal_out);
+
+            resp->hdr.type = VIRTIO_VIDEO_RESP_OK_RESOURCE_QUEUE;
+            resp->timestamp = req->timestamp;
+            resp->size = 0; // Only for encode
+            if (node->stat == VirtIOVideoStreamStatError) {
+                resp->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
             }
         }
     }

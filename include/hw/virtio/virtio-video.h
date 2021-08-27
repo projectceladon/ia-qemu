@@ -595,8 +595,15 @@ typedef struct VirtIOVideoControl {
 typedef enum VirtIOVideoStreamEvent {
     VirtIOVideoStreamEventNone = 0,
     VirtIOVideoStreamEventParamChange,
+    VirtIOVideoStreamEventStreamQueue,
     VirtIOVideoStreamEventTerminate,
 } VirtIOVideoStreamEvent;
+
+typedef enum VirtIOVideoStreamStat {
+    VirtIOVideoStreamStatNone = 0,
+    VirtIOVideoStreamStatError,
+    VirtIOVideoStreamStatEndOfStream,
+} VirtIOVideoStreamStat;
 
 typedef struct VirtIOVideoStreamEventEntry {
     VirtIOVideoStreamEvent ev;
@@ -616,6 +623,7 @@ typedef struct VirtIOVideoStreamResource {
 
 typedef struct VirtIOVideoStream {
     void *mfx_session;
+    uint32_t mfxWaitMs;
     uint32_t stream_id;
     virtio_video_mem_type in_mem_type;
     virtio_video_mem_type out_mem_type;
@@ -639,6 +647,11 @@ typedef struct VirtIOVideoStream {
     QLIST_HEAD(, VirtIOVideoStreamResource) in_list;
     QLIST_HEAD(, VirtIOVideoStreamResource) out_list;
     void *mfxParams;
+    void *mfxBs;
+    void *mfxSurfWork;
+    QemuEvent signal_in;
+    QemuEvent signal_out;
+    VirtIOVideoStreamStat stat;
     virtio_video_params in_params;
     virtio_video_params out_params;
     char tag[64];
