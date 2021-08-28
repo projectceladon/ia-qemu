@@ -116,6 +116,16 @@ static void *virtio_video_decode_thread(void *arg)
             case VirtIOVideoStreamEventStreamQueue:
                 decoding = TRUE;
                 break;
+            case VirtIOVideoStreamEventQueueClear:
+                decoding = FALSE;
+                running = FALSE;
+                // TODO: How to clear queue?
+                if (*(uint32_t*)(entry->data) == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
+
+                } else { // VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT
+
+                }
+                break;
             case VirtIOVideoStreamEventTerminate:
                 running = FALSE;
                 break;
@@ -558,6 +568,45 @@ size_t virtio_video_dec_cmd_resource_destroy_all(VirtIODevice *vdev,
                 VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
             }
             VIRTVID_DEBUG("    %s: stream 0x%x queue_type 0x%x all resource destroyed", __FUNCTION__, req->hdr.stream_id, req->queue_type);
+            break;
+        }
+    }
+
+    return len;
+}
+
+size_t virtio_video_dec_cmd_queue_clear(VirtIODevice *vdev,
+    virtio_video_queue_clear *req, virtio_video_cmd_hdr *resp)
+{
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideoStream *node, *next = NULL;
+    size_t len = 0;
+
+    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+    resp->stream_id = req->hdr.stream_id;
+    len = sizeof(*resp);
+
+    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+        if (node->stream_id == req->hdr.stream_id) {
+            VirtIOVideoStreamEventEntry *entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
+
+            resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
+            if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT || req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
+                entry->ev = VirtIOVideoStreamEventQueueClear;
+                entry->data = g_malloc(sizeof(uint32_t));
+                *(uint32_t*)(entry->data) = req->queue_type;
+
+                qemu_mutex_lock(&node->mutex);
+                QLIST_INSERT_HEAD(&node->ev_list, entry, next);
+                qemu_mutex_unlock(&node->mutex);
+                qemu_event_set(&node->signal_in);
+            } else {
+                resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+                g_free(entry);
+                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
+            }
+
+            VIRTVID_DEBUG("    %s: stream 0x%x queue_type 0x%x cleared", __FUNCTION__, req->hdr.stream_id, req->queue_type);
             break;
         }
     }
