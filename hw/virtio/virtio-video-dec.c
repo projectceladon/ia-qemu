@@ -678,6 +678,7 @@ size_t virtio_video_dec_cmd_set_params(VirtIODevice *vdev,
                 ((mfxVideoParam*)node->mfxParams)->mfx.FrameInfo.FrameRateExtD = 1;
                 QLIST_INSERT_HEAD(&node->ev_list, entry, next);
                 qemu_mutex_unlock(&node->mutex);
+                qemu_event_set(&node->signal_in);
             }
 
             VIRTVID_DEBUG("    %s: stream 0x%x", __FUNCTION__, req->hdr.stream_id);
@@ -870,6 +871,7 @@ size_t virtio_video_dec_cmd_set_control(VirtIODevice *vdev,
                 ((mfxVideoParam*)node->mfxParams)->mfx.TargetKbps = node->control.bitrate;
                 QLIST_INSERT_HEAD(&node->ev_list, entry, next);
                 qemu_mutex_unlock(&node->mutex);
+                qemu_event_set(&node->signal_in);
             }
             break;
         }
