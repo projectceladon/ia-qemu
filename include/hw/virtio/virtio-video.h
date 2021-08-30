@@ -595,6 +595,7 @@ typedef struct VirtIOVideoControl {
 typedef enum VirtIOVideoStreamEvent {
     VirtIOVideoStreamEventNone = 0,
     VirtIOVideoStreamEventParamChange,
+    VirtIOVideoStreamEventStreamDrain,
     VirtIOVideoStreamEventStreamQueue,
     VirtIOVideoStreamEventQueueClear,
     VirtIOVideoStreamEventTerminate,
@@ -625,6 +626,7 @@ typedef struct VirtIOVideoStreamResource {
 typedef struct VirtIOVideoStream {
     void *mfx_session;
     uint32_t mfxWaitMs;
+    uint32_t retry;
     uint32_t stream_id;
     virtio_video_mem_type in_mem_type;
     virtio_video_mem_type out_mem_type;

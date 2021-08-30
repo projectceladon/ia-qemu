@@ -113,6 +113,14 @@ static void *virtio_video_decode_thread(void *arg)
                     running = FALSE;
                 }
                 break;
+            case VirtIOVideoStreamEventStreamDrain:
+                //set bs to NULL to signal end of stream to drain the decoding
+                do {
+                    sts = MFXVideoDECODE_DecodeFrameAsync(stream->mfx_session, NULL, stream->mfxSurfWork, &surface_out, &syncp);
+                    MFXVideoCORE_SyncOperation(stream->mfx_session, syncp, stream->mfxWaitMs);
+                } while (sts != MFX_ERR_MORE_DATA && (--stream->retry) > 0);
+                MFXVideoDECODE_Reset(stream->mfx_session, stream->mfxParams);
+                break;
             case VirtIOVideoStreamEventStreamQueue:
                 decoding = TRUE;
                 break;
@@ -431,6 +439,37 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
             QLIST_SAFE_REMOVE(node, next);
             g_free(node);
             VIRTVID_DEBUG("    %s: stream 0x%x destroyed", __FUNCTION__, req->hdr.stream_id);
+            break;
+        }
+    }
+
+    return len;
+}
+
+size_t virtio_video_dec_cmd_stream_drain(VirtIODevice *vdev,
+    virtio_video_stream_drain *req, virtio_video_cmd_hdr *resp)
+{
+    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideoStream *node, *next = NULL;
+    size_t len = 0;
+
+    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+    resp->stream_id = req->hdr.stream_id;
+    len = sizeof(*resp);
+
+    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+        if (node->stream_id == req->hdr.stream_id) {
+            VirtIOVideoStreamEventEntry *entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
+
+            resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
+            entry->ev = VirtIOVideoStreamEventStreamDrain;
+            qemu_mutex_lock(&node->mutex);
+            // Set retry count for drain
+            node->retry = 10;
+            QLIST_INSERT_HEAD(&node->ev_list, entry, next);
+            qemu_mutex_unlock(&node->mutex);
+            qemu_event_set(&node->signal_in);
+            VIRTVID_DEBUG("    %s: stream 0x%x drained", __FUNCTION__, req->hdr.stream_id);
             break;
         }
     }
