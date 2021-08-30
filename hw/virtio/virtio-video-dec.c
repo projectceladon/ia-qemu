@@ -406,6 +406,7 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
             qemu_mutex_lock(&node->mutex);
             QLIST_INSERT_HEAD(&node->ev_list, entry, next);
             qemu_mutex_unlock(&node->mutex);
+            qemu_event_set(&node->signal_in);
 
             // May need send SIGTERM if the thread is dead
             //pthread_kill(node->thread.thread, SIGTERM);
