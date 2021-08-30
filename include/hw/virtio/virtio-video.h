@@ -596,7 +596,7 @@ typedef enum VirtIOVideoStreamEvent {
     VirtIOVideoStreamEventNone = 0,
     VirtIOVideoStreamEventParamChange,
     VirtIOVideoStreamEventStreamDrain,
-    VirtIOVideoStreamEventStreamQueue,
+    VirtIOVideoStreamEventResourceQueue,
     VirtIOVideoStreamEventQueueClear,
     VirtIOVideoStreamEventTerminate,
 } VirtIOVideoStreamEvent;

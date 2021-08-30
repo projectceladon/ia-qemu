@@ -121,7 +121,7 @@ static void *virtio_video_decode_thread(void *arg)
                 } while (sts != MFX_ERR_MORE_DATA && (--stream->retry) > 0);
                 MFXVideoDECODE_Reset(stream->mfx_session, stream->mfxParams);
                 break;
-            case VirtIOVideoStreamEventStreamQueue:
+            case VirtIOVideoStreamEventResourceQueue:
                 decoding = TRUE;
                 break;
             case VirtIOVideoStreamEventQueueClear:
@@ -554,7 +554,7 @@ size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
             VirtIOVideoStreamEventEntry *entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
 
             // Notify decode thread new resource queued
-            entry->ev = VirtIOVideoStreamEventStreamQueue;
+            entry->ev = VirtIOVideoStreamEventResourceQueue;
             qemu_mutex_lock(&node->mutex);
             QLIST_INSERT_HEAD(&node->ev_list, entry, next);
             qemu_mutex_unlock(&node->mutex);
