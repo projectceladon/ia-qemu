@@ -26,6 +26,10 @@
 # define DRM_PLANE_TYPE_CURSOR  2
 #endif
 
+#ifndef DISABLE_EDID_AUTO_GENERATION
+#define DISABLE_EDID_AUTO_GENERATION
+#endif
+
 #define pread_field(_fd, _reg, _ptr, _fld)                              \
     (sizeof(_ptr->_fld) !=                                              \
      pread(_fd, &(_ptr->_fld), sizeof(_ptr->_fld),                      \
@@ -113,6 +117,10 @@ static int vfio_display_edid_ui_info(void *opaque, uint32_t idx,
     VFIOPCIDevice *vdev = opaque;
     VFIODisplay *dpy = vdev->dpy;
 
+    #if defined(DISABLE_EDID_AUTO_GENERATION)
+    return 0;
+    #endif
+
     if (!dpy->edid_regs) {
         return 0;
     }
@@ -132,6 +140,10 @@ static void vfio_display_edid_init(VFIOPCIDevice *vdev)
     int fd = vdev->vbasedev.fd;
     int ret;
 
+    #if defined(DISABLE_EDID_AUTO_GENERATION)
+    return;
+    #endif
+    
     ret = vfio_get_dev_region_info(&vdev->vbasedev,
                                    VFIO_REGION_TYPE_GFX,
                                    VFIO_REGION_SUBTYPE_GFX_EDID,
@@ -180,6 +192,10 @@ err:
 
 static void vfio_display_edid_exit(VFIODisplay *dpy)
 {
+    #if defined(DISABLE_EDID_AUTO_GENERATION)
+    return;
+    #endif
+
     if (!dpy->edid_regs) {
         return;
     }
