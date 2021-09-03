@@ -24,6 +24,7 @@
  */
 #include "qemu/osdep.h"
 #include "qapi/error.h"
+#include "exec/memory.h"
 #include "hw/virtio/virtio-video.h"
 #include "virtio-video-dec.h"
 #include "virtio-video-enc.h"
@@ -976,3 +977,14 @@ static void virtio_register_types(void)
 }
 
 type_init(virtio_register_types)
+
+void virtio_video_resource_desc_from_guest_page(VirtIOVideoResourceDesc *desc)
+{
+    if (desc) {
+        MemoryRegionSection section = memory_region_find(get_system_memory(), desc->mem_entry.addr, desc->mem_entry.length);
+
+        desc->hva = memory_region_get_ram_ptr(section.mr) + section.offset_within_region;
+        desc->len = desc->mem_entry.length;
+        desc->mr = section.mr;
+    }
+}

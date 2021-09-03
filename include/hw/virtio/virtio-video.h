@@ -613,13 +613,22 @@ typedef struct VirtIOVideoStreamEventEntry {
     QLIST_ENTRY(VirtIOVideoStreamEventEntry) next;
 } VirtIOVideoStreamEventEntry;
 
+typedef struct VirtIOVideoResourceDesc {
+    virtio_video_mem_entry mem_entry;
+    virtio_video_object_entry obj_entry;
+    void *hva;
+    uint32_t len;
+    MemoryRegion *mr;
+} VirtIOVideoResourceDesc;
+
 typedef struct VirtIOVideoStreamResource {
     uint32_t resource_id;
+    virtio_video_mem_type mem_type;
     uint32_t planes_layout;
     uint32_t num_planes;
     __le32 plane_offsets[VIRTIO_VIDEO_MAX_PLANES];
     __le32 num_entries[VIRTIO_VIDEO_MAX_PLANES];
-    void *mem[VIRTIO_VIDEO_MAX_PLANES];
+    VirtIOVideoResourceDesc *desc[VIRTIO_VIDEO_MAX_PLANES];
     QLIST_ENTRY(VirtIOVideoStreamResource) next;
 } VirtIOVideoStreamResource;
 
@@ -694,5 +703,7 @@ typedef struct VirtIOVideoPCI {
     VirtIOPCIProxy parent_obj;
     VirtIOVideo vdev;
 } VirtIOVideoPCI;
+
+void virtio_video_resource_desc_from_guest_page(VirtIOVideoResourceDesc *desc);
 
 #endif /* QEMU_VIRTIO_VIDEO_H */
