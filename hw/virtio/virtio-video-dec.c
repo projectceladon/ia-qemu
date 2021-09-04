@@ -93,6 +93,8 @@ static void *virtio_video_decode_thread(void *arg)
         VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_GetVideoParam failed with err %d", stream->stream_id, sts);
     }
 
+    memcpy(&((mfxFrameSurface1*)stream->mfxSurfWork)->Info, &((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo, sizeof(mfxFrameInfo));
+
     VIRTVID_DEBUG("%s thread 0x%0x running", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id);
     while (running) {
         decoding = FALSE;
@@ -245,6 +247,8 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
             // Prepare an initial mfxVideoParam for decode
             node->mfxParams = g_malloc0(sizeof(mfxVideoParam));
             virtio_video_msdk_fill_video_params(req->coded_format, node->mfxParams);
+
+            node->mfxSurfWork = g_malloc(sizeof(mfxFrameSurface1));
 
             // TODO: Should we use VIDEO_MEMORY for virtio-gpu object?
             ((mfxVideoParam*)node->mfxParams)->IOPattern = MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
@@ -433,6 +437,7 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
 
             qemu_mutex_destroy(&node->mutex);
 
+            g_free(node->mfxSurfWork);
             g_free(node->mfxParams);
             virtio_video_msdk_load_plugin(vdev, node->mfx_session, node->in_format, false, true);
             MFXClose(node->mfx_session);
@@ -558,20 +563,37 @@ size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
 
     QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
+            VirtIOVideoStreamResource *res, *next_res = NULL;
             VirtIOVideoStreamEventEntry *entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
 
-            // Notify decode thread new resource queued
-            entry->ev = VirtIOVideoStreamEventResourceQueue;
-            qemu_mutex_lock(&node->mutex);
-            QLIST_INSERT_HEAD(&node->ev_list, entry, next);
-            qemu_mutex_unlock(&node->mutex);
-            qemu_event_set(&node->signal_in);
+            if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
+                resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
+                QLIST_FOREACH_SAFE(res, &node->out_list, next, next_res) {
+                    if (req->resource_id == res->resource_id) {
+                        // Output is NV12 so only 2 planes for now
+                        ((mfxFrameSurface1*)node->mfxSurfWork)->Data.Y = res->desc[0]->hva;
+                        ((mfxFrameSurface1*)node->mfxSurfWork)->Data.U = res->desc[1]->hva;
+                        ((mfxFrameSurface1*)node->mfxSurfWork)->Data.Pitch = node->out_params.frame_width;
+                        resp->hdr.type = VIRTIO_VIDEO_RESP_OK_RESOURCE_QUEUE;
+                    }
+                }
+            } else if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
+                resp->hdr.type = VIRTIO_VIDEO_RESP_OK_RESOURCE_QUEUE;
+                // Notify decode thread to start on new input resource queued
+                entry->ev = VirtIOVideoStreamEventResourceQueue;
+                qemu_mutex_lock(&node->mutex);
+                QLIST_INSERT_HEAD(&node->ev_list, entry, next);
+                qemu_mutex_unlock(&node->mutex);
+                qemu_event_set(&node->signal_in);
 
-            // Wait for decode thread work done
-            qemu_event_wait(&node->signal_out);
-            qemu_event_reset(&node->signal_out);
+                // Wait for decode thread work done
+                qemu_event_wait(&node->signal_out);
+                qemu_event_reset(&node->signal_out);
+            } else {
+                resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
+            }
 
-            resp->hdr.type = VIRTIO_VIDEO_RESP_OK_RESOURCE_QUEUE;
             resp->timestamp = req->timestamp;
             resp->size = 0; // Only for encode
             if (node->stat == VirtIOVideoStreamStatError) {
