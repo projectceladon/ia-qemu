@@ -578,17 +578,26 @@ size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
                     }
                 }
             } else if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
-                resp->hdr.type = VIRTIO_VIDEO_RESP_OK_RESOURCE_QUEUE;
-                // Notify decode thread to start on new input resource queued
-                entry->ev = VirtIOVideoStreamEventResourceQueue;
-                qemu_mutex_lock(&node->mutex);
-                QLIST_INSERT_HEAD(&node->ev_list, entry, next);
-                qemu_mutex_unlock(&node->mutex);
-                qemu_event_set(&node->signal_in);
+                resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
+                QLIST_FOREACH_SAFE(res, &node->in_list, next, next_res) {
+                    if (req->resource_id == res->resource_id) {
+                        // bitstream shouldn't have plane concept
+                        ((mfxBitstream*)node->mfxBs)->MaxLength = req->data_sizes[0];
+                        ((mfxBitstream*)node->mfxBs)->Data = res->desc[0]->hva;
+                        resp->hdr.type = VIRTIO_VIDEO_RESP_OK_RESOURCE_QUEUE;
 
-                // Wait for decode thread work done
-                qemu_event_wait(&node->signal_out);
-                qemu_event_reset(&node->signal_out);
+                        // Notify decode thread to start on new input resource queued
+                        entry->ev = VirtIOVideoStreamEventResourceQueue;
+                        qemu_mutex_lock(&node->mutex);
+                        QLIST_INSERT_HEAD(&node->ev_list, entry, next);
+                        qemu_mutex_unlock(&node->mutex);
+                        qemu_event_set(&node->signal_in);
+
+                        // Wait for decode thread work done
+                        qemu_event_wait(&node->signal_out);
+                        qemu_event_reset(&node->signal_out);
+                    }
+                }
             } else {
                 resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
                 VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
