@@ -520,6 +520,7 @@ size_t virtio_video_dec_cmd_resource_create(VirtIODevice *vdev,
                         if (res->mem_type == VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES) {
                             memcpy(&res->desc[plane][desc_idx].mem_entry, src, sizeof(virtio_video_mem_entry));
                             virtio_video_resource_desc_from_guest_page(&res->desc[plane][desc_idx]);
+                            memory_region_ref(res->desc[plane][desc_idx].mr);
                             // Move to next virtio_video_mem_entry by entry and plane increment
                             // It's supposed that the total number of entries after req is the sum of num_entries for all num_planes
                             src += sizeof(virtio_video_mem_entry);
@@ -628,13 +629,16 @@ size_t virtio_video_dec_cmd_resource_destroy_all(VirtIODevice *vdev,
 
     QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
-            uint32_t plane;
+            uint32_t plane, desc;
 
             // TODO: Drain codec
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
             if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
                 QLIST_FOREACH_SAFE(res, &node->in_list, next, next_res) {
                     for (plane = 0; plane < res->num_planes; plane++) {
+                        for (desc = 0; desc < res->num_entries[plane]; desc++) {
+                            memory_region_unref(res->desc[plane][desc].mr);
+                        }
                         g_free(res->desc[plane]);
                     }
                     QLIST_SAFE_REMOVE(res, next);
