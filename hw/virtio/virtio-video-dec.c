@@ -68,10 +68,14 @@ static void *virtio_video_decode_thread(void *arg)
 {
     VirtIOVideoStream *stream = arg;
     sigset_t sigmask, old;
-    int err;
+    int err, i;
     bool running = TRUE, decoding = TRUE;
     mfxStatus sts = MFX_ERR_NONE;
-    mfxFrameSurface1 *surface_out;
+    mfxFrameAllocRequest allocRequest;
+    mfxU16 numSurfaces;
+    mfxU8* surfaceBuffers;
+    mfxFrameSurface1 *surface_work;
+    mfxFrameSurface1 *surface_nv12;
     mfxSyncPoint syncp;
 
     sigemptyset(&sigmask);
@@ -93,10 +97,41 @@ static void *virtio_video_decode_thread(void *arg)
         VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_GetVideoParam failed with err %d", stream->stream_id, sts);
     }
 
-    memcpy(&((mfxFrameSurface1*)stream->mfxSurfWork)->Info, &((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo, sizeof(mfxFrameInfo));
+    // Query and allocate working surface
+    memset(&allocRequest, 0, sizeof(allocRequest));
+    sts = MFXVideoDECODE_QueryIOSurf(stream->mfx_session, stream->mfxParams, &allocRequest);
+    if (sts != MFX_ERR_NONE && sts != MFX_WRN_PARTIAL_ACCELERATION) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_QueryIOSurf failed with err %d", stream->stream_id, sts);
+        running = FALSE;
+    } else {
+        mfxU16 width = (mfxU16) MSDK_ALIGN32(allocRequest.Info.Width);
+        mfxU16 height = (mfxU16) MSDK_ALIGN32(allocRequest.Info.Height);
+        mfxU8 bitsPerPixel = 12; // NV12 format is a 12 bits per pixel format
+        mfxU32 surfaceSize = width * height * bitsPerPixel / 8;
+
+        numSurfaces = allocRequest.NumFrameSuggested;
+        surfaceBuffers = g_malloc0(surfaceSize * numSurfaces);
+        surface_work = g_malloc0(numSurfaces * sizeof(mfxFrameSurface1));
+        if (surfaceBuffers && surface_work) {
+            for (i = 0; i < numSurfaces; i++) {
+                surface_work[i].Info = ((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo;
+                surface_work[i].Data.Y = &surfaceBuffers[surfaceSize * i];
+                surface_work[i].Data.U = surface_work[i].Data.Y + width * height;
+                surface_work[i].Data.V = surface_work[i].Data.U + 1;
+                surface_work[i].Data.Pitch = width;
+            }
+        } else {
+            VIRTVID_ERROR("stream 0x%x allocate working surface failed", stream->stream_id);
+            running = FALSE;
+        }
+    }
+
+    //memcpy(&((mfxFrameSurface1*)stream->mfxSurfWork)->Info, &((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo, sizeof(mfxFrameInfo));
 
     VIRTVID_DEBUG("%s thread 0x%0x running", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id);
     while (running) {
+        mfxFrameSurface1 *surf = NULL;
+
         decoding = FALSE;
 
         qemu_event_wait(&stream->signal_in);
@@ -118,7 +153,7 @@ static void *virtio_video_decode_thread(void *arg)
             case VirtIOVideoStreamEventStreamDrain:
                 //set bs to NULL to signal end of stream to drain the decoding
                 do {
-                    sts = MFXVideoDECODE_DecodeFrameAsync(stream->mfx_session, NULL, stream->mfxSurfWork, &surface_out, &syncp);
+                    sts = MFXVideoDECODE_DecodeFrameAsync(stream->mfx_session, NULL, surface_work, &surface_nv12, &syncp);
                     MFXVideoCORE_SyncOperation(stream->mfx_session, syncp, stream->mfxWaitMs);
                 } while (sts != MFX_ERR_MORE_DATA && (--stream->retry) > 0);
                 MFXVideoDECODE_Reset(stream->mfx_session, stream->mfxParams);
@@ -151,7 +186,19 @@ static void *virtio_video_decode_thread(void *arg)
             continue;
         }
 
-        sts = MFXVideoDECODE_DecodeFrameAsync(stream->mfx_session, stream->mfxBs, stream->mfxSurfWork, &surface_out, &syncp);
+        for (i = 0; i < numSurfaces; i++) {
+            if (!surface_work[i].Data.Locked) {
+                surf = &surface_work[i];
+                break;
+            }
+        }
+
+        if (!surf) {
+            VIRTVID_ERROR("No free surface_work");
+            continue;
+        }
+
+        sts = MFXVideoDECODE_DecodeFrameAsync(stream->mfx_session, stream->mfxBs, surf, &surface_nv12, &syncp);
         if (sts == MFX_ERR_NONE) {
             sts = MFXVideoCORE_SyncOperation(stream->mfx_session, syncp, stream->mfxWaitMs);
             if (sts == MFX_ERR_NONE) {
@@ -185,6 +232,9 @@ static void *virtio_video_decode_thread(void *arg)
     if (err) {
         VIRTVID_ERROR("%s thread 0x%0x restore old sigmask failed err %d", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id, err);
     }
+
+    g_free(surfaceBuffers);
+    g_free(surface_work);
 
     VIRTVID_DEBUG("%s thread 0x%0x exits", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id);
 
@@ -248,7 +298,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
             node->mfxParams = g_malloc0(sizeof(mfxVideoParam));
             virtio_video_msdk_fill_video_params(req->coded_format, node->mfxParams);
 
-            node->mfxSurfWork = g_malloc(sizeof(mfxFrameSurface1));
+            //node->mfxSurfWork = g_malloc(sizeof(mfxFrameSurface1));
 
             // TODO: Should we use VIDEO_MEMORY for virtio-gpu object?
             ((mfxVideoParam*)node->mfxParams)->IOPattern = MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
@@ -339,13 +389,13 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
                 node->in_params.plane_formats[0].stride = 0;
 
                 // For VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT
+                // Front end doesn't support NV12 but only RGB*, while MediaSDK can only decode to NV12
+                // So we let front end aware of RGB* only, use VPP to convert from NV12 to RGB*
                 node->out_params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT;
-                node->out_params.format = VIRTIO_VIDEO_FORMAT_NV12;
-                node->out_params.num_planes = 2;
-                node->out_params.plane_formats[0].plane_size = node->out_params.frame_width * node->out_params.frame_height;
-                node->out_params.plane_formats[0].stride = node->out_params.frame_width;
-                node->out_params.plane_formats[1].plane_size = node->out_params.frame_width * node->out_params.frame_height / 2;
-                node->out_params.plane_formats[1].stride = node->out_params.frame_width;
+                node->out_params.format = VIRTIO_VIDEO_FORMAT_ARGB8888;
+                node->out_params.num_planes = 1;
+                node->out_params.plane_formats[0].plane_size = node->out_params.frame_width * node->out_params.frame_height * 4;
+                node->out_params.plane_formats[0].stride = node->out_params.frame_width * 4;
             }
 
             ((mfxVideoParam*)node->mfxParams)->mfx.FrameInfo.Width = node->in_params.frame_width;
@@ -437,7 +487,7 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
 
             qemu_mutex_destroy(&node->mutex);
 
-            g_free(node->mfxSurfWork);
+            //g_free(node->mfxSurfWork);
             g_free(node->mfxParams);
             virtio_video_msdk_load_plugin(vdev, node->mfx_session, node->in_format, false, true);
             MFXClose(node->mfx_session);
@@ -572,9 +622,9 @@ size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
                 QLIST_FOREACH_SAFE(res, &node->out_list, next, next_res) {
                     if (req->resource_id == res->resource_id) {
                         // Output is NV12 so only 2 planes for now
-                        ((mfxFrameSurface1*)node->mfxSurfWork)->Data.Y = res->desc[0]->hva;
-                        ((mfxFrameSurface1*)node->mfxSurfWork)->Data.U = res->desc[1]->hva;
-                        ((mfxFrameSurface1*)node->mfxSurfWork)->Data.Pitch = node->out_params.frame_width;
+                        //((mfxFrameSurface1*)node->mfxSurfWork)->Data.Y = res->desc[0]->hva;
+                        //((mfxFrameSurface1*)node->mfxSurfWork)->Data.U = res->desc[1]->hva;
+                        //((mfxFrameSurface1*)node->mfxSurfWork)->Data.Pitch = node->out_params.frame_width;
                         resp->hdr.type = VIRTIO_VIDEO_RESP_OK_RESOURCE_QUEUE;
                     }
                 }

@@ -37,6 +37,8 @@
 #define VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE 16
 #define VIRTIO_VIDEO_MSDK_DIM_STEP_OTHER       32
 
+#define MSDK_ALIGN32(X) (((mfxU32)((X)+31)) & (~ (mfxU32)31))
+
 typedef struct VirtIOVideoMSDKFrameRange {
     virtio_video_format format;
     struct {
