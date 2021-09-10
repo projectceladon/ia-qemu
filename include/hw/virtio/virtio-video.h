@@ -660,7 +660,7 @@ typedef struct VirtIOVideoStream {
     QLIST_HEAD(, VirtIOVideoStreamResource) out_list;
     void *mfxParams;
     void *mfxBs;
-    void *mfxSurfWork;
+    void *mfxSurfOut;
     QemuEvent signal_in;
     QemuEvent signal_out;
     VirtIOVideoStreamStat stat;

@@ -71,12 +71,13 @@ static void *virtio_video_decode_thread(void *arg)
     int err, i;
     bool running = TRUE, decoding = TRUE;
     mfxStatus sts = MFX_ERR_NONE;
-    mfxFrameAllocRequest allocRequest;
+    mfxFrameAllocRequest allocRequest, vppRequest[2];
     mfxU16 numSurfaces;
     mfxU8* surfaceBuffers;
     mfxFrameSurface1 *surface_work;
     mfxFrameSurface1 *surface_nv12;
-    mfxSyncPoint syncp;
+    mfxSyncPoint syncp, syncVpp;
+    mfxVideoParam VPPParams = {0};
 
     sigemptyset(&sigmask);
     sigaddset(&sigmask, SIGTERM);
@@ -126,7 +127,44 @@ static void *virtio_video_decode_thread(void *arg)
         }
     }
 
-    //memcpy(&((mfxFrameSurface1*)stream->mfxSurfWork)->Info, &((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo, sizeof(mfxFrameInfo));
+    // Prepare VPP Params for color space conversion
+    memset(&VPPParams, 0, sizeof(VPPParams));
+    VPPParams.IOPattern = MFX_IOPATTERN_IN_SYSTEM_MEMORY | MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
+    // Input
+    VPPParams.vpp.In.FourCC = MFX_FOURCC_NV12;
+    VPPParams.vpp.In.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
+    VPPParams.vpp.In.CropX = 0;
+    VPPParams.vpp.In.CropY = 0;
+    VPPParams.vpp.In.CropW = ((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo.CropW;
+    VPPParams.vpp.In.CropH = ((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo.CropH;
+    VPPParams.vpp.In.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
+    VPPParams.vpp.In.FrameRateExtN = ((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo.FrameRateExtN;
+    VPPParams.vpp.In.FrameRateExtD = ((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo.FrameRateExtD;
+    VPPParams.vpp.In.Height =
+        (MFX_PICSTRUCT_PROGRESSIVE == VPPParams.vpp.In.PicStruct) ?
+        MSDK_ALIGN16(VPPParams.vpp.In.CropH) :
+        MSDK_ALIGN32(VPPParams.vpp.In.CropH);
+    // Output
+    memcpy(&VPPParams.vpp.Out, &VPPParams.vpp.In, sizeof(VPPParams.vpp.Out));
+    VPPParams.vpp.Out.FourCC = virito_video_format_to_mfx4cc(stream->out_params.format);
+    VPPParams.vpp.Out.ChromaFormat = 0;
+
+    // Query and allocate VPP surface
+    memset(&vppRequest, 0, sizeof(vppRequest));
+    sts = MFXVideoVPP_QueryIOSurf(stream->mfx_session, &VPPParams, vppRequest);
+    if (sts != MFX_ERR_NONE && sts != MFX_WRN_PARTIAL_ACCELERATION) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoVPP_QueryIOSurf failed with err %d", stream->stream_id, sts);
+        running = FALSE;
+    } else {
+        ((mfxFrameSurface1*)stream->mfxSurfOut)->Info = VPPParams.vpp.Out;
+        ((mfxFrameSurface1*)stream->mfxSurfOut)->Data.Pitch =
+            ((mfxU16)MSDK_ALIGN32(vppRequest[1].Info.Width)) * 32 / 8;
+    }
+
+    sts = MFXVideoVPP_Init(stream->mfx_session, &VPPParams);
+    if (sts != MFX_ERR_NONE) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Init failed with err %d", stream->stream_id, sts);
+    }
 
     VIRTVID_DEBUG("%s thread 0x%0x running", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id);
     while (running) {
@@ -156,6 +194,7 @@ static void *virtio_video_decode_thread(void *arg)
                     sts = MFXVideoDECODE_DecodeFrameAsync(stream->mfx_session, NULL, surface_work, &surface_nv12, &syncp);
                     MFXVideoCORE_SyncOperation(stream->mfx_session, syncp, stream->mfxWaitMs);
                 } while (sts != MFX_ERR_MORE_DATA && (--stream->retry) > 0);
+                MFXVideoVPP_Reset(stream->mfx_session, &VPPParams);
                 MFXVideoDECODE_Reset(stream->mfx_session, stream->mfxParams);
                 break;
             case VirtIOVideoStreamEventResourceQueue:
@@ -214,8 +253,31 @@ static void *virtio_video_decode_thread(void *arg)
             VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_DecodeFrameAsync failed with err %d", stream->stream_id, sts);
         }
 
+        for (;;) {
+            sts = MFXVideoVPP_RunFrameVPPAsync(stream->mfx_session, surface_nv12, stream->mfxSurfOut, NULL, &syncVpp);
+            if (sts > MFX_ERR_NONE&& !syncVpp) {
+                if (sts == MFX_WRN_DEVICE_BUSY) {
+                    g_usleep(1000);
+                }
+            } else if (sts > MFX_ERR_NONE && syncVpp) {
+                sts = MFX_ERR_NONE;
+                break;
+            } else
+            break;
+        }
+
         // Notify CMD_RESOURCE_QUEUE, it's waiting for virtio_video_resource_queue_resp
         qemu_event_set(&stream->signal_out);
+    }
+
+    sts = MFXVideoVPP_Reset(stream->mfx_session, &VPPParams);
+    if (sts != MFX_ERR_NONE) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Reset failed with err %d", stream->stream_id, sts);
+    }
+
+    sts = MFXVideoVPP_Close(stream->mfx_session);
+    if (sts != MFX_ERR_NONE) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Close failed with err %d", stream->stream_id, sts);
     }
 
     sts = MFXVideoDECODE_Reset(stream->mfx_session, stream->mfxParams);
@@ -298,7 +360,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
             node->mfxParams = g_malloc0(sizeof(mfxVideoParam));
             virtio_video_msdk_fill_video_params(req->coded_format, node->mfxParams);
 
-            //node->mfxSurfWork = g_malloc(sizeof(mfxFrameSurface1));
+            node->mfxSurfOut = g_malloc(sizeof(mfxFrameSurface1));
 
             // TODO: Should we use VIDEO_MEMORY for virtio-gpu object?
             ((mfxVideoParam*)node->mfxParams)->IOPattern = MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
@@ -487,7 +549,7 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
 
             qemu_mutex_destroy(&node->mutex);
 
-            //g_free(node->mfxSurfWork);
+            g_free(node->mfxSurfOut);
             g_free(node->mfxParams);
             virtio_video_msdk_load_plugin(vdev, node->mfx_session, node->in_format, false, true);
             MFXClose(node->mfx_session);
@@ -621,10 +683,8 @@ size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
                 resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
                 QLIST_FOREACH_SAFE(res, &node->out_list, next, next_res) {
                     if (req->resource_id == res->resource_id) {
-                        // Output is NV12 so only 2 planes for now
-                        //((mfxFrameSurface1*)node->mfxSurfWork)->Data.Y = res->desc[0]->hva;
-                        //((mfxFrameSurface1*)node->mfxSurfWork)->Data.U = res->desc[1]->hva;
-                        //((mfxFrameSurface1*)node->mfxSurfWork)->Data.Pitch = node->out_params.frame_width;
+                        // Set mfxSurfOut buffer to the request hva, decode thread will fill other parameters
+                        ((mfxFrameSurface1*)node->mfxSurfOut)->Data.Y = res->desc[0]->hva;
                         resp->hdr.type = VIRTIO_VIDEO_RESP_OK_RESOURCE_QUEUE;
                     }
                 }
