@@ -121,13 +121,13 @@ static size_t virtio_video_process_cmd_stream_drain(VirtIODevice *vdev,
 }
 
 static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
-    virtio_video_resource_create *req, virtio_video_cmd_hdr *resp)
+    virtio_video_resource_create *req, virtio_video_mem_entry *entries, virtio_video_cmd_hdr *resp)
 {
     VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
 
     switch (vid->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
-        return virtio_video_dec_cmd_resource_create(vdev, req, resp);
+        return virtio_video_dec_cmd_resource_create(vdev, req, entries, resp);
         break;
     default:
         VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
@@ -409,7 +409,10 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         case VIRTIO_VIDEO_CMD_RESOURCE_CREATE:
         {
             virtio_video_resource_create req = {0};
+            virtio_video_mem_entry *entries = NULL;
             virtio_video_cmd_hdr resp = {0};
+            size_t num_entries = 0;
+            int i;
 
             if (unlikely(iov_to_buf(out_buf, out_num, 0, &req, sizeof(req)) != sizeof(req))) {
                 virtio_error(vdev, "virtio-video insufficient buffer for iov_to_buf in cmd_vq\n");
@@ -418,14 +421,24 @@ static int virtio_video_process_command(VirtIODevice *vdev,
             VIRTVID_DEBUG("    queue_type 0x%x, resource_id 0x%x, planes_layout 0x%x, num_planes 0x%x",
                             req.queue_type, req.resource_id, req.planes_layout, req.num_planes);
 
+            for (i = 0; i < req.num_planes; i++) {
+                num_entries += req.num_entries[i];
+            }
+            entries = g_malloc(sizeof(virtio_video_mem_entry) * num_entries);
+            if (unlikely(iov_to_buf(out_buf, out_num, 1, entries,
+                                    sizeof(virtio_video_mem_entry) * num_entries) !=
+                         sizeof(virtio_video_mem_entry) * num_entries)) {
+                return -1;
+            }
+
             if (in_buf == NULL || in_num != 1) {
                 VIRTVID_ERROR("    invalid in_buf(%p), in_num(%x) in cmd_vq", in_buf, in_num);
                 return -1;
             }
 
-            len = virtio_video_process_cmd_resource_create(vdev, &req, &resp);
+            len = virtio_video_process_cmd_resource_create(vdev, &req, entries, &resp);
             if (unlikely(iov_from_buf(in_buf, in_num, 0, &resp, len) != len)) {
-                virtio_error(vdev, "virtio-gpio insufficient buffer for iov_from_buf in cmd_vq\n");
+                virtio_error(vdev, "virtio-video insufficient buffer for iov_from_buf in cmd_vq\n");
                 return -1;
             }
             VIRTVID_DEBUG("    resp_size 0x%lx", len);
@@ -981,10 +994,10 @@ type_init(virtio_register_types)
 void virtio_video_resource_desc_from_guest_page(VirtIOVideoResourceDesc *desc)
 {
     if (desc) {
-        MemoryRegionSection section = memory_region_find(get_system_memory(), desc->mem_entry.addr, desc->mem_entry.length);
+        MemoryRegionSection section = memory_region_find(get_system_memory(), desc->entry.mem_entry.addr, desc->entry.mem_entry.length);
 
         desc->hva = memory_region_get_ram_ptr(section.mr) + section.offset_within_region;
-        desc->len = desc->mem_entry.length;
+        desc->len = desc->entry.mem_entry.length;
         desc->mr = section.mr;
     }
 }

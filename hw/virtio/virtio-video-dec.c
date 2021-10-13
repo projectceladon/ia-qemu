@@ -598,7 +598,8 @@ size_t virtio_video_dec_cmd_stream_drain(VirtIODevice *vdev,
 }
 
 size_t virtio_video_dec_cmd_resource_create(VirtIODevice *vdev,
-    virtio_video_resource_create *req, virtio_video_cmd_hdr *resp)
+    virtio_video_resource_create *req, virtio_video_mem_entry *entries,
+    virtio_video_cmd_hdr *resp)
 {
     VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
@@ -608,57 +609,55 @@ size_t virtio_video_dec_cmd_resource_create(VirtIODevice *vdev,
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
-
     QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
-            VirtIOVideoStreamResource *res = g_malloc0(sizeof(VirtIOVideoStreamResource));
-
-            resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
-            if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT || req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
-                uint32_t plane;
-                void *src = (void*)req + sizeof(virtio_video_resource_create);
-
-                res->resource_id = req->resource_id;
-                res->mem_type = (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) ?
-                    node->in_mem_type : node->out_mem_type;
-                res->planes_layout = req->planes_layout;
-                res->num_planes = req->num_planes;
-                memcpy(&res->plane_offsets, &req->plane_offsets, sizeof(res->plane_offsets));
-                memcpy(&res->num_entries, &req->num_entries, sizeof(res->num_entries));
-
-                for (plane = 0; plane < req->num_planes; plane++) {
-                    uint32_t desc_idx;
-
-                    res->desc[plane] = g_malloc(res->num_entries[plane] * sizeof(VirtIOVideoResourceDesc));
-                    for (desc_idx = 0; desc_idx < res->num_entries[plane]; desc_idx++) {
-                        if (res->mem_type == VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES) {
-                            memcpy(&res->desc[plane][desc_idx].mem_entry, src, sizeof(virtio_video_mem_entry));
-                            virtio_video_resource_desc_from_guest_page(&res->desc[plane][desc_idx]);
-                            memory_region_ref(res->desc[plane][desc_idx].mr);
-                            // Move to next virtio_video_mem_entry by entry and plane increment
-                            // It's supposed that the total number of entries after req is the sum of num_entries for all num_planes
-                            src += sizeof(virtio_video_mem_entry);
-                        } else {
-                            // TODO: Get from virtio object by uuid
-                            memcpy(&res->desc[plane][desc_idx].mem_entry, src, sizeof(virtio_video_object_entry));
-                            src += sizeof(virtio_video_object_entry);
-                        }
-                    }
-                }
-
-                qemu_mutex_lock(&node->mutex);
-                if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
-                    QLIST_INSERT_HEAD(&node->in_list, res, next);
-                } else {
-                    QLIST_INSERT_HEAD(&node->out_list, res, next);
-                }
-                qemu_mutex_unlock(&node->mutex);
+            if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT ||
+                req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
+                resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
             } else {
                 resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
-                g_free(res);
-                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
+                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x",
+                        __func__, req->hdr.stream_id, req->queue_type);
+            }
+            break;
+        }
+    }
+
+    if (resp->type == VIRTIO_VIDEO_RESP_OK_NODATA) {
+        VirtIOVideoStreamResource *res = g_malloc0(sizeof(VirtIOVideoStreamResource));
+        uint32_t plane;
+
+        res->resource_id = req->resource_id;
+        res->mem_type = (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) ?
+            node->in_mem_type : node->out_mem_type;
+        res->planes_layout = req->planes_layout;
+        res->num_planes = req->num_planes;
+        memcpy(&res->plane_offsets, &req->plane_offsets, sizeof(res->plane_offsets));
+        memcpy(&res->num_entries, &req->num_entries, sizeof(res->num_entries));
+
+        for (plane = 0; plane < req->num_planes; plane++) {
+            int i;
+
+            res->desc[plane] = g_malloc(res->num_entries[plane] * sizeof(VirtIOVideoResourceDesc));
+            for (i = 0; i < res->num_entries[plane]; i++) {
+                if (res->mem_type == VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES) {
+                    memcpy(&res->desc[plane][i].entry.mem_entry, entries++, sizeof(virtio_video_mem_entry));
+                    virtio_video_resource_desc_from_guest_page(&res->desc[plane][i]);
+                    memory_region_ref(res->desc[plane][i].mr);
+                } else {
+                    // TODO: Get from virtio object by uuid
+                    memcpy(&res->desc[plane][i].entry.obj_entry, entries++, sizeof(virtio_video_object_entry));
+                }
             }
         }
+
+        qemu_mutex_lock(&node->mutex);
+        if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
+            QLIST_INSERT_HEAD(&node->in_list, res, next);
+        } else {
+            QLIST_INSERT_HEAD(&node->out_list, res, next);
+        }
+        qemu_mutex_unlock(&node->mutex);
     }
 
     return len;

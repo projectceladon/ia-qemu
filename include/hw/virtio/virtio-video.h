@@ -614,8 +614,10 @@ typedef struct VirtIOVideoStreamEventEntry {
 } VirtIOVideoStreamEventEntry;
 
 typedef struct VirtIOVideoResourceDesc {
-    virtio_video_mem_entry mem_entry;
-    virtio_video_object_entry obj_entry;
+    union {
+        virtio_video_mem_entry mem_entry;
+        virtio_video_object_entry obj_entry;
+    } entry;
     void *hva;
     uint32_t len;
     MemoryRegion *mr;
