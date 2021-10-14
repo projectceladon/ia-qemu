@@ -363,6 +363,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
             virtio_video_msdk_fill_video_params(req->coded_format, node->mfxParams);
 
             node->mfxSurfOut = g_malloc(sizeof(mfxFrameSurface1));
+            node->mfxBs = g_malloc(sizeof(mfxBitstream));
 
             // TODO: Should we use VIDEO_MEMORY for virtio-gpu object?
             ((mfxVideoParam*)node->mfxParams)->IOPattern = MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
@@ -673,7 +674,6 @@ size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
     resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
     resp->hdr.stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
-
 
     QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
