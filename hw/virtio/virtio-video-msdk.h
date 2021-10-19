@@ -1,6 +1,5 @@
 /*
- * VirtIO-Video Backend Driver
- * VirtIO-Video Backend MediaSDK
+ * Virtio Video Device
  *
  * Copyright (C) 2021, Intel Corporation. All rights reserved.
  *
@@ -19,8 +18,8 @@
  * 02110-1301, USA.
  *
  *
- * Author: Colin Xu <Colin.Xu@intel.com>
- *
+ * Authors: Colin Xu <colin.xu@intel.com>
+ *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
 #ifndef QEMU_VIRTIO_VIDEO_MSDK_H
 #define QEMU_VIRTIO_VIDEO_MSDK_H

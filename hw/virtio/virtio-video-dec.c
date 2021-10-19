@@ -1,6 +1,5 @@
 /*
- * VirtIO-Video Backend Driver
- * VirtIO-Video Backend Decoder
+ * Virtio Video Device
  *
  * Copyright (C) 2021, Intel Corporation. All rights reserved.
  *
@@ -18,9 +17,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301, USA.
  *
- *
- * Author: Colin Xu <Colin.Xu@intel.com>
- *
+ * Authors: Colin Xu <colin.xu@intel.com>
+ *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
 #include "qemu/osdep.h"
 #include "virtio-video-dec.h"
