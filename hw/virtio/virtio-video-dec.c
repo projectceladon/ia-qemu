@@ -142,10 +142,10 @@ static void *virtio_video_decode_thread(void *arg)
     VPPParams.vpp.In.FrameRateExtD = ((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo.FrameRateExtD;
     VPPParams.vpp.In.Height = (MFX_PICSTRUCT_PROGRESSIVE == VPPParams.vpp.In.PicStruct) ?
         MSDK_ALIGN16(((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo.Height) :
-        MSDK_ALIGN32(((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo.Height) :
+        MSDK_ALIGN32(((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo.Height);
     VPPParams.vpp.In.Width = (MFX_PICSTRUCT_PROGRESSIVE == VPPParams.vpp.In.PicStruct) ?
         MSDK_ALIGN16(((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo.Width) :
-        MSDK_ALIGN32(((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo.Width) :
+        MSDK_ALIGN32(((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo.Width);
     // Output
     memcpy(&VPPParams.vpp.Out, &VPPParams.vpp.In, sizeof(VPPParams.vpp.Out));
     VPPParams.vpp.Out.FourCC = virito_video_format_to_mfx4cc(stream->out_params.format);
