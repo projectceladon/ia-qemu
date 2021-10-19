@@ -56,7 +56,6 @@
 
 #define VIRTIO_VIDEO_DRM_DEVICE "/dev/dri/by-path/pci-0000:00:02.0-render"
 
-#define VIRTIO_VIDEO_VM_VERSION 1
 #define VIRTIO_VIDEO_VQ_SIZE 256
 
 #define VIRTIO_VIDEO_VERSION 0

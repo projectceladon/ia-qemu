@@ -28,22 +28,6 @@
 #include "virtio-video-dec.h"
 #include "virtio-video-enc.h"
 
-static Property virtio_video_properties[] = {
-    DEFINE_PROP_STRING("model", VirtIOVideo, property.model),
-    DEFINE_PROP_STRING("backend", VirtIOVideo, property.backend),
-    DEFINE_PROP_END_OF_LIST(),
-};
-
-static const VMStateDescription vmstate_virtio_video = {
-    .name = "virtio-video",
-    .minimum_version_id = VIRTIO_VIDEO_VM_VERSION,
-    .version_id = VIRTIO_VIDEO_VM_VERSION,
-    .fields = (VMStateField[]) {
-        VMSTATE_VIRTIO_DEVICE,
-        VMSTATE_END_OF_LIST()
-    },
-};
-
 static VirtIOVideoModel virtio_video_models[] = {
     {VIRTIO_VIDEO_DEVICE_V4L2_DEC, "v4l2-dec"},
     {VIRTIO_VIDEO_DEVICE_V4L2_ENC, "v4l2-enc"},
@@ -960,6 +944,22 @@ static uint64_t virtio_video_get_features(VirtIODevice *vdev, uint64_t features,
     //virtio_add_feature(&features, VIRTIO_VIDEO_F_RESOURCE_NON_CONTIG);
     return features;
 }
+
+static const VMStateDescription vmstate_virtio_video = {
+    .name = "virtio-video",
+    .minimum_version_id = 1,
+    .version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_VIRTIO_DEVICE,
+        VMSTATE_END_OF_LIST()
+    },
+};
+
+static Property virtio_video_properties[] = {
+    DEFINE_PROP_STRING("model", VirtIOVideo, property.model),
+    DEFINE_PROP_STRING("backend", VirtIOVideo, property.backend),
+    DEFINE_PROP_END_OF_LIST(),
+};
 
 static void virtio_video_class_init(ObjectClass *klass, void *data)
 {
