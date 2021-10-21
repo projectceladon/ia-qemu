@@ -31,10 +31,13 @@
 #include "mfx/mfxplugin.h"
 #include "hw/virtio/virtio-video.h"
 
-#define VIRTIO_VIDEO_MSDK_DIMENSION_MAX        8192
-#define VIRTIO_VIDEO_MSDK_DIMENSION_MIN        16
-#define VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE 16
-#define VIRTIO_VIDEO_MSDK_DIM_STEP_OTHER       32
+#define VIRTIO_VIDEO_MSDK_VERSION_MAJOR         1
+#define VIRTIO_VIDEO_MSDK_VERSION_MINOR         0
+
+#define VIRTIO_VIDEO_MSDK_DIMENSION_MAX         8192
+#define VIRTIO_VIDEO_MSDK_DIMENSION_MIN         16
+#define VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE  16
+#define VIRTIO_VIDEO_MSDK_DIM_STEP_OTHER        32
 
 #define MSDK_ALIGN16(value) (((value + 15) >> 4) << 4)
 #define MSDK_ALIGN32(X) (((mfxU32)((X)+31)) & (~ (mfxU32)31))
@@ -59,7 +62,7 @@ void virtio_video_msdk_fill_format_desc(virtio_video_format format, virtio_video
 bool virtio_video_msdk_find_format(VirtIOVideoCaps *caps, virtio_video_format format, virtio_video_format_desc **format_desc);
 bool virtio_video_msdk_find_format_desc(VirtIOVideoCaps *caps, virtio_video_format_desc *format_desc);
 int virtio_video_msdk_get_plugin(virtio_video_format format, bool encode, mfxPluginUID *plugin);
-void virtio_video_msdk_load_plugin(VirtIODevice *vdev, mfxSession mfx_session, virtio_video_format format, bool encode, bool unload);
+void virtio_video_msdk_load_plugin(mfxSession mfx_session, virtio_video_format format, bool encode, bool unload);
 int virito_video_format_to_mfx4cc(virtio_video_format fmt);
 virtio_video_format virito_video_format_from_mfx4cc(int mfx4cc);
 void virtio_video_profile_range(virtio_video_format fmt, int *min, int *max);

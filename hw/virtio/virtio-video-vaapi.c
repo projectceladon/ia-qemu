@@ -28,32 +28,31 @@
 int virtio_video_create_va_env_drm(VirtIODevice *vdev)
 {
     VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
-    int ret = 0;
     VAStatus va_status;
     int ver_major, ver_minor;
 
     vid->drm_fd = open(VIRTIO_VIDEO_DRM_DEVICE, O_RDWR);
     if (vid->drm_fd < 0) {
         VIRTVID_ERROR("error open DRM_DEVICE %s\n", VIRTIO_VIDEO_DRM_DEVICE);
-        ret = -1;
-    } else {
-        vid->va_disp_handle = vaGetDisplayDRM(vid->drm_fd);
-        if (!vid->va_disp_handle) {
-            VIRTVID_ERROR("error vaGetDisplayDRM for %s\n", VIRTIO_VIDEO_DRM_DEVICE);
-            close(vid->drm_fd);
-            ret = -1;
-        } else {
-            va_status = vaInitialize(vid->va_disp_handle, &ver_major, &ver_minor);
-            if (va_status != VA_STATUS_SUCCESS) {
-                VIRTVID_ERROR("error vaInitialize for %s, status %d\n", VIRTIO_VIDEO_DRM_DEVICE, va_status);
-                vaTerminate(vid->va_disp_handle);
-                close(vid->drm_fd);
-                ret = -1;
-            }
-        }
+        return -1;
     }
 
-    return ret;
+    vid->va_disp_handle = vaGetDisplayDRM(vid->drm_fd);
+    if (!vid->va_disp_handle) {
+        VIRTVID_ERROR("error vaGetDisplayDRM for %s\n", VIRTIO_VIDEO_DRM_DEVICE);
+        close(vid->drm_fd);
+        return -1;
+    }
+
+    va_status = vaInitialize(vid->va_disp_handle, &ver_major, &ver_minor);
+    if (va_status != VA_STATUS_SUCCESS) {
+        VIRTVID_ERROR("error vaInitialize for %s, status %d\n", VIRTIO_VIDEO_DRM_DEVICE, va_status);
+        vaTerminate(vid->va_disp_handle);
+        close(vid->drm_fd);
+        return -1;
+    }
+
+    return 0;
 }
 
 void virtio_video_destroy_va_env_drm(VirtIODevice *vdev)
@@ -74,14 +73,13 @@ void virtio_video_destroy_va_env_drm(VirtIODevice *vdev)
 void virtio_video_vaapi_query_caps(virtio_video_format fmt)
 {
     int drm_fd = -1;
-    static const char * drm_dev = "/dev/dri/by-path/pci-0000:00:02.0-render";
     VADisplay va_dpy;
     VAStatus va_status;
     int ver_major, ver_minor;
 
-    drm_fd = open(drm_dev, O_RDWR);
+    drm_fd = open(VIRTIO_VIDEO_DRM_DEVICE, O_RDWR);
     if (drm_fd < 0)
-        printf("error open %s\n", drm_dev);
+        printf("error open %s\n", VIRTIO_VIDEO_DRM_DEVICE);
 
     va_dpy = vaGetDisplayDRM(drm_fd);
     if (va_dpy) {
@@ -109,7 +107,7 @@ void virtio_video_vaapi_query_caps(virtio_video_format fmt)
         free(profile_list);
         vaTerminate(va_dpy);
     } else {
-        printf("error open VADisplay for %s\n", drm_dev);
+        printf("error open VADisplay for %s\n", VIRTIO_VIDEO_DRM_DEVICE);
     }
 
     if (drm_fd < 0)

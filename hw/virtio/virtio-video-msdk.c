@@ -266,9 +266,8 @@ int virtio_video_msdk_get_plugin(virtio_video_format format, bool encode, mfxPlu
     return ret;
 }
 
-void virtio_video_msdk_load_plugin(VirtIODevice *vdev, mfxSession mfx_session, virtio_video_format format, bool encode, bool unload)
+void virtio_video_msdk_load_plugin(mfxSession mfx_session, virtio_video_format format, bool encode, bool unload)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
     mfxStatus sts = MFX_ERR_NONE;
     mfxPluginUID pluginUID = {0};
 
@@ -281,7 +280,7 @@ void virtio_video_msdk_load_plugin(VirtIODevice *vdev, mfxSession mfx_session, v
             sts = MFXVideoUSER_UnLoad(mfx_session, &pluginUID);
             VIRTVID_VERBOSE("Unload MFX plugin for format %x, status %d", format, sts);
         } else {
-            sts = MFXVideoUSER_Load(mfx_session, &pluginUID, vid->mfx_version_major);
+            sts = MFXVideoUSER_Load(mfx_session, &pluginUID, 1);
             VIRTVID_VERBOSE("Load MFX plugin for format %x, status %d", format, sts);
         }
     }

@@ -81,16 +81,6 @@ typedef enum virtio_video_backend {
     VIRTIO_VIDEO_BACKEND_MAX = VIRTIO_VIDEO_BACKEND_MEDIA_SDK,
 } virtio_video_backend;
 
-typedef struct VirtIOVideoModel {
-    virtio_video_device_model id;
-    const char* name;
-} VirtIOVideoModel;
-
-typedef struct VirtIOVideoBackend {
-    virtio_video_backend id;
-    const char* name;
-} VirtIOVideoBackend;
-
 typedef struct VirtIOVideoControl {
     uint32_t value;
     QLIST_ENTRY(VirtIOVideoControl) next;
@@ -198,9 +188,6 @@ typedef struct VirtIOVideo {
     QLIST_HEAD(, VirtIOVideoStream) stream_list;
     int drm_fd;
     void *va_disp_handle;
-    int32_t mfx_impl;
-    uint16_t mfx_version_major;
-    uint16_t mfx_version_minor;
     VirtIOVideoCaps caps_in;
     VirtIOVideoCaps caps_out;
 } VirtIOVideo;

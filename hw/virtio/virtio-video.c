@@ -28,12 +28,18 @@
 #include "virtio-video-dec.h"
 #include "virtio-video-enc.h"
 
-static VirtIOVideoModel virtio_video_models[] = {
+static struct {
+    virtio_video_device_model id;
+    const char *name;
+} virtio_video_models[] = {
     {VIRTIO_VIDEO_DEVICE_V4L2_DEC, "v4l2-dec"},
     {VIRTIO_VIDEO_DEVICE_V4L2_ENC, "v4l2-enc"},
 };
 
-static VirtIOVideoBackend virtio_video_backends[] = {
+static struct {
+    virtio_video_backend id;
+    const char *name;
+} virtio_video_backends[] = {
     {VIRTIO_VIDEO_BACKEND_VAAPI, "vaapi"},
     {VIRTIO_VIDEO_BACKEND_FFMPEG, "ffmpeg"},
     {VIRTIO_VIDEO_BACKEND_GSTREAMER, "gstreamer"},
