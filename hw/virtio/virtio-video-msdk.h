@@ -54,8 +54,10 @@ typedef struct VirtIOVideoMSDKFrameRange {
     } max;
 } VirtIOVideoMSDKFrameRange;
 
-typedef struct VirtIOVideoMediaSdk {
-} VirtIOVideoMediaSdk;
+typedef struct VirtIOVideoMediaSDK {
+    int drm_fd;
+    void *va_disp_handle;
+} VirtIOVideoMediaSDK;
 
 void virtio_video_msdk_fill_video_params(virtio_video_format format, mfxVideoParam *param);
 void virtio_video_msdk_fill_format_desc(virtio_video_format format, virtio_video_format_desc *format_desc);

@@ -25,6 +25,8 @@
 
 #include "hw/virtio/virtio-video.h"
 
+#define VIRTIO_VIDEO_DRM_DEVICE "/dev/dri/by-path/pci-0000:00:02.0-render"
+
 int virtio_video_create_va_env_drm(VirtIODevice *vdev);
 void virtio_video_destroy_va_env_drm(VirtIODevice *vdev);
 void virtio_video_vaapi_query_caps(virtio_video_format fmt);

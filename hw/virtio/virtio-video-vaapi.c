@@ -21,6 +21,7 @@
  *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
 #include "qemu/osdep.h"
+#include "virtio-video-msdk.h"
 #include "virtio-video-vaapi.h"
 #include "va/va.h"
 #include "va/va_drm.h"
@@ -28,46 +29,55 @@
 int virtio_video_create_va_env_drm(VirtIODevice *vdev)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
+    VirtIOVideoMediaSDK *msdk = g_malloc(sizeof(VirtIOVideoMediaSDK));
     VAStatus va_status;
     int ver_major, ver_minor;
 
-    v->drm_fd = open(VIRTIO_VIDEO_DRM_DEVICE, O_RDWR);
-    if (v->drm_fd < 0) {
+    msdk->drm_fd = open(VIRTIO_VIDEO_DRM_DEVICE, O_RDWR);
+    if (msdk->drm_fd < 0) {
         VIRTVID_ERROR("error open DRM_DEVICE %s\n", VIRTIO_VIDEO_DRM_DEVICE);
+        g_free(msdk);
         return -1;
     }
 
-    v->va_disp_handle = vaGetDisplayDRM(v->drm_fd);
-    if (!v->va_disp_handle) {
+    msdk->va_disp_handle = vaGetDisplayDRM(msdk->drm_fd);
+    if (!msdk->va_disp_handle) {
         VIRTVID_ERROR("error vaGetDisplayDRM for %s\n", VIRTIO_VIDEO_DRM_DEVICE);
-        close(v->drm_fd);
+        close(msdk->drm_fd);
+        g_free(msdk);
         return -1;
     }
 
-    va_status = vaInitialize(v->va_disp_handle, &ver_major, &ver_minor);
+    va_status = vaInitialize(msdk->va_disp_handle, &ver_major, &ver_minor);
     if (va_status != VA_STATUS_SUCCESS) {
         VIRTVID_ERROR("error vaInitialize for %s, status %d\n", VIRTIO_VIDEO_DRM_DEVICE, va_status);
-        vaTerminate(v->va_disp_handle);
-        close(v->drm_fd);
+        vaTerminate(msdk->va_disp_handle);
+        close(msdk->drm_fd);
+        g_free(msdk);
         return -1;
     }
 
+    v->opaque = msdk;
     return 0;
 }
 
 void virtio_video_destroy_va_env_drm(VirtIODevice *vdev)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
+    VirtIOVideoMediaSDK *msdk = (VirtIOVideoMediaSDK *) v->opaque;
 
-    if (v->va_disp_handle) {
-        vaTerminate(v->va_disp_handle);
-        v->va_disp_handle = NULL;
+    if (msdk->va_disp_handle) {
+        vaTerminate(msdk->va_disp_handle);
+        msdk->va_disp_handle = NULL;
     }
 
-    if (v->drm_fd) {
-        close(v->drm_fd);
-        v->drm_fd = 0;
+    if (msdk->drm_fd) {
+        close(msdk->drm_fd);
+        msdk->drm_fd = 0;
     }
+
+    g_free(msdk);
+    v->opaque = NULL;
 }
 
 void virtio_video_vaapi_query_caps(virtio_video_format fmt)

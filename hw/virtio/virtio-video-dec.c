@@ -272,6 +272,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
     virtio_video_stream_create *req, virtio_video_cmd_hdr *resp)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
+    VirtIOVideoMediaSDK *msdk = (VirtIOVideoMediaSDK *) v->opaque;
     size_t len = 0;
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
@@ -303,7 +304,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
                 goto OUT;
             }
 
-            sts = MFXVideoCORE_SetHandle(node->mfx_session, MFX_HANDLE_VA_DISPLAY, (mfxHDL)v->va_disp_handle);
+            sts = MFXVideoCORE_SetHandle(node->mfx_session, MFX_HANDLE_VA_DISPLAY, (mfxHDL)msdk->va_disp_handle);
             if (sts != MFX_ERR_NONE) {
                 VIRTVID_ERROR("    %s: MFXVideoCORE_SetHandle returns %d for stream 0x%x", __FUNCTION__, sts, req->hdr.stream_id);
                 MFXClose(node->mfx_session);
@@ -1071,7 +1072,7 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
         return -1;
     }
 
-    sts = MFXVideoCORE_SetHandle(mfx_session, MFX_HANDLE_VA_DISPLAY, (mfxHDL)v->va_disp_handle);
+    sts = MFXVideoCORE_SetHandle(mfx_session, MFX_HANDLE_VA_DISPLAY, (mfxHDL)((VirtIOVideoMediaSDK *)v->opaque)->va_disp_handle);
     if (sts != MFX_ERR_NONE) {
         VIRTVID_ERROR("MFXVideoCORE_SetHandle returns %d", sts);
         MFXClose(mfx_session);

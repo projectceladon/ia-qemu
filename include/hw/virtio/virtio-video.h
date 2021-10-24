@@ -54,8 +54,6 @@
 
 #define TYPE_VIRTIO_VIDEO "virtio-video-device"
 
-#define VIRTIO_VIDEO_DRM_DEVICE "/dev/dri/by-path/pci-0000:00:02.0-render"
-
 #define VIRTIO_VIDEO_VQ_SIZE 256
 
 #define VIRTIO_VIDEO_VERSION 0
@@ -193,8 +191,7 @@ typedef struct VirtIOVideo {
     VirtQueue *cmd_vq, *event_vq;
     QLIST_HEAD(, VirtIOVideoEvent) event_list;
     QLIST_HEAD(, VirtIOVideoStream) stream_list;
-    int drm_fd;
-    void *va_disp_handle;
+    void *opaque;
     VirtIOVideoCaps caps_in;
     VirtIOVideoCaps caps_out;
 } VirtIOVideo;
