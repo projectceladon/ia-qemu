@@ -279,12 +279,8 @@ static size_t virtio_video_process_cmd_set_control(VirtIODevice *vdev,
     }
 }
 
-static int virtio_video_process_command(VirtIODevice *vdev,
-                                        struct iovec *in_buf,
-                                        unsigned int in_num,
-                                        struct iovec *out_buf,
-                                        unsigned int out_num,
-                                        size_t *size)
+static int virtio_video_process_command(VirtIODevice *vdev, struct iovec *in_buf,
+    unsigned int in_num, struct iovec *out_buf, unsigned int out_num, size_t *size)
 {
     virtio_video_cmd_hdr hdr = {0};
     size_t len = 0;
@@ -642,97 +638,44 @@ static void virtio_video_command_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
     }
 }
 
-// static int virtio_video_process_event(VirtIODevice *vdev,
-//                                       struct iovec *in_buf,
-//                                       unsigned int in_num,
-//                                       struct iovec *out_buf,
-//                                       unsigned int out_num,
-//                                       size_t *size)
-// {
-//     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-//     virtio_video_event ev = {0};
-//     size_t len = 0;
-
-//     if (size == NULL) {
-//         VIRTVID_ERROR("Invalid length buf processing event");
-//         return -1;
-//     }
-
-//     *size = 0;
-
-//     if (in_buf == NULL || in_num == 0) {
-//         VIRTVID_ERROR("Invalid in_buf(%p), in_num(%x) in event_vq", in_buf, in_num);
-//         return -1;
-//     }
-
-//     if (unlikely(iov_to_buf(in_buf, in_num, 0, &ev, sizeof(ev)) != sizeof(ev))) {
-//         virtio_error(vdev, "virtio-video insufficient buffer for iov_to_buf in event_vq\n");
-//         return -1;
-//     }
-
-//     VIRTVID_DEBUG("event on device, model %d(%s)", v->model, v->conf.model);
-//     switch (v->model) {
-//     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
-//         len = virtio_video_dec_event(vdev, &ev);
-//         break;
-//     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
-//         len = virtio_video_enc_event(vdev, &ev);
-//         break;
-//     default:
-//         VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
-//         return 0;
-//     }
-
-//     if (unlikely(iov_from_buf(in_buf, in_num, 0, &ev, sizeof(ev)) != sizeof(ev))) {
-//         virtio_error(vdev, "virtio-video insufficient buffer for iov_from_buf in event_vq\n");
-//         return -1;
-//     }
-
-//     VIRTVID_DEBUG("    resp_size 0x%lx", len);
-//     *size = len;
-
-//     return 0;
-// }
-
 static void virtio_video_event_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
 {
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
+
     if (!virtio_queue_ready(vq)) {
         VIRTVID_ERROR("event_vq isn't ready");
         return;
     }
 
     for (;;) {
+        VirtIOVideoEvent *ev;
         VirtQueueElement *elem;
-        size_t len = 0;
 
         elem = virtqueue_pop(vq, sizeof(VirtQueueElement));
         if (!elem)
-            break;
+            return;
 
         VIRTVID_VERBOSE("event_vq index(%d) len(%d) ndescs(%d) out_num(%d) in_num(%d)",
                 elem->index, elem->len, elem->ndescs, elem->out_num, elem->in_num);
 
-        virtqueue_push(vq, elem, len);
-        virtio_notify(vdev, vq);
-        g_free(elem);
+        if (elem->in_num != 1 || elem->out_num != 0) {
+            virtio_error(vdev, "virtio-video unsupported buffer number in event_vq in(%d) out(%d)\n",
+                         elem->in_num, elem->out_num);
+            virtqueue_detach_element(vq, elem, 0);
+            g_free(elem);
+            return;
+        }
 
-        // if (elem->in_num == 1 && elem->out_num == 0) {
-        //     if (virtio_video_process_event(vdev, elem->in_sg, elem->in_num, elem->out_sg, elem->out_num, &len)) {
-        //         virtqueue_detach_element(vq, elem, 0);
-        //         g_free(elem);
-        //         return;
-        //     }
+        if (elem->in_sg[0].iov_len < sizeof(virtio_video_event)) {
+            virtio_error(vdev, "virtio-video insufficient buffer for iov_from_buf in event_vq\n");
+            virtqueue_detach_element(vq, elem, 0);
+            g_free(elem);
+            return;
+        }
 
-        //     virtqueue_push(vq, elem, len);
-        //     virtio_notify(vdev, vq);
-        //     g_free(elem);
-        // } else {
-        //     virtio_error(vdev, "virtio-video unsupported buffer number in event_vq in(%d) out(%d)\n",
-        //                  elem->in_num, elem->out_num);
-        //     virtqueue_detach_element(vq, elem, 0);
-        //     g_free(elem);
-        //     return;
-        // }
+        ev = g_malloc(sizeof(VirtIOVideoEvent));
+        ev->elem = elem;
+        QLIST_INSERT_HEAD(&v->event_list, ev, next);
     }
 }
 
@@ -802,8 +745,6 @@ static void virtio_video_init_framework(VirtIODevice *vdev, Error **errp)
     if (v->event_vq == NULL) {
         error_setg(errp, "Fail to initialize virtio-video event_vq");
     }
-
-    qemu_mutex_init(&v->ev_mutex);
 }
 
 static void virtio_video_destroy_framework(VirtIODevice *vdev)
@@ -830,8 +771,6 @@ static void virtio_video_destroy_framework(VirtIODevice *vdev)
         return;
     }
 
-    qemu_mutex_destroy(&v->ev_mutex);
-
     virtio_del_queue(vdev, 0);
     virtio_del_queue(vdev, 1);
     virtio_cleanup(vdev);
@@ -844,6 +783,7 @@ static void virtio_video_init_internal(VirtIODevice *vdev, Error **errp)
     v->config.version = VIRTIO_VIDEO_VERSION;
     v->config.max_caps_length = VIRTIO_VIDEO_CAPS_LENGTH_MAX;
     v->config.max_resp_length = VIRTIO_VIDEO_RESPONSE_LENGTH_MAX;
+    QLIST_INIT(&v->event_list);
     QLIST_INIT(&v->stream_list);
 }
 

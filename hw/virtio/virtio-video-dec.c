@@ -1045,22 +1045,6 @@ size_t virtio_video_dec_cmd_set_control(VirtIODevice *vdev,
     return len;
 }
 
-size_t virtio_video_dec_event(VirtIODevice *vdev, virtio_video_event *ev)
-{
-    //VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-    size_t len = 0;
-
-    if (ev) {
-        //ev->stream_id = ++v->stream_id;
-        len = sizeof(*ev);
-        VIRTVID_DEBUG("    %s: event_type 0x%x, stream_id 0x%x", __FUNCTION__, ev->event_type, ev->stream_id);
-    } else {
-        VIRTVID_ERROR("Invalid virtio_video_event buffer");
-    }
-
-    return len;
-}
-
 static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);

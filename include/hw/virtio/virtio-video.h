@@ -179,6 +179,11 @@ typedef struct VirtIOVideoConf {
     char *backend;
 } VirtIOVideoConf;
 
+typedef struct VirtIOVideoEvent {
+    VirtQueueElement *elem;
+    QLIST_ENTRY(VirtIOVideoEvent) next;
+} VirtIOVideoEvent;
+
 typedef struct VirtIOVideo {
     VirtIODevice parent_obj;
     VirtIOVideoConf conf;
@@ -186,7 +191,7 @@ typedef struct VirtIOVideo {
     virtio_video_backend backend;
     virtio_video_config config;
     VirtQueue *cmd_vq, *event_vq;
-    QemuMutex ev_mutex;
+    QLIST_HEAD(, VirtIOVideoEvent) event_list;
     QLIST_HEAD(, VirtIOVideoStream) stream_list;
     int drm_fd;
     void *va_disp_handle;

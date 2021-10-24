@@ -27,6 +27,5 @@
 
 size_t virtio_video_enc_cmd_get_params(VirtIODevice *vdev,
     virtio_video_get_params *req, virtio_video_get_params_resp *resp);
-size_t virtio_video_enc_event(VirtIODevice *vdev, virtio_video_event *ev);
 
 #endif /* QEMU_VIRTIO_VIDEO_ENC_H */
