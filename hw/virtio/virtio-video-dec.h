@@ -53,7 +53,7 @@ size_t virtio_video_dec_cmd_set_control(VirtIODevice *vdev,
     virtio_video_set_control *req, virtio_video_set_control_resp *resp);
 size_t virtio_video_dec_event(VirtIODevice *vdev, virtio_video_event *ev);
 
-// Media-SDK wrapper
+/* Media-SDK wrapper */
 int virtio_video_decode_init(VirtIODevice *vdev);
 void virtio_video_decode_destroy(VirtIODevice *vdev);
 

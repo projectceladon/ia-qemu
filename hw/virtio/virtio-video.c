@@ -49,7 +49,7 @@ static struct {
 static size_t virtio_video_process_cmd_query_capability(VirtIODevice *vdev,
     virtio_video_query_capability *req, virtio_video_query_capability_resp **resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     size_t len = 0;
     void *src;
     VIRTVID_DEBUG("    %s: stream 0x%x, queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
@@ -57,12 +57,12 @@ static size_t virtio_video_process_cmd_query_capability(VirtIODevice *vdev,
     if (req != NULL && *resp == NULL) {
         switch (req->queue_type) {
         case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
-            len = vid->caps_in.size;
-            src = vid->caps_in.ptr;
+            len = v->caps_in.size;
+            src = v->caps_in.ptr;
             break;
         case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
-            len = vid->caps_out.size;
-            src = vid->caps_out.ptr;
+            len = v->caps_out.size;
+            src = v->caps_out.ptr;
             break;
         default:
             break;
@@ -84,14 +84,14 @@ static size_t virtio_video_process_cmd_query_capability(VirtIODevice *vdev,
 static size_t virtio_video_process_cmd_stream_create(VirtIODevice *vdev,
     virtio_video_stream_create *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
-    switch (vid->model) {
+    switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_stream_create(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
         return 0;
     }
 }
@@ -99,14 +99,14 @@ static size_t virtio_video_process_cmd_stream_create(VirtIODevice *vdev,
 static size_t virtio_video_process_cmd_stream_destroy(VirtIODevice *vdev,
     virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
-    switch (vid->model) {
+    switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_stream_destroy(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
         return 0;
     }
 }
@@ -114,14 +114,14 @@ static size_t virtio_video_process_cmd_stream_destroy(VirtIODevice *vdev,
 static size_t virtio_video_process_cmd_stream_drain(VirtIODevice *vdev,
     virtio_video_stream_drain *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
-    switch (vid->model) {
+    switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_stream_drain(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
         return 0;
     }
 }
@@ -129,14 +129,14 @@ static size_t virtio_video_process_cmd_stream_drain(VirtIODevice *vdev,
 static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     virtio_video_resource_create *req, virtio_video_mem_entry *entries, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
-    switch (vid->model) {
+    switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_resource_create(vdev, req, entries, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
         return 0;
     }
 }
@@ -144,14 +144,14 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
 static size_t virtio_video_process_cmd_resource_queue(VirtIODevice *vdev,
     virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
-    switch (vid->model) {
+    switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_resource_queue(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
         return 0;
     }
 }
@@ -159,14 +159,14 @@ static size_t virtio_video_process_cmd_resource_queue(VirtIODevice *vdev,
 static size_t virtio_video_process_cmd_resource_destroy_all(VirtIODevice *vdev,
     virtio_video_resource_destroy_all *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
-    switch (vid->model) {
+    switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_resource_destroy_all(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
         return 0;
     }
 }
@@ -174,14 +174,14 @@ static size_t virtio_video_process_cmd_resource_destroy_all(VirtIODevice *vdev,
 static size_t virtio_video_process_cmd_queue_clear(VirtIODevice *vdev,
     virtio_video_queue_clear *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
-    switch (vid->model) {
+    switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_queue_clear(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
         return 0;
     }
 }
@@ -189,12 +189,12 @@ static size_t virtio_video_process_cmd_queue_clear(VirtIODevice *vdev,
 static size_t virtio_video_process_cmd_get_params(VirtIODevice *vdev,
     virtio_video_get_params *req, virtio_video_get_params_resp *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
     if (req == NULL || resp == NULL)
         return 0;
 
-    switch (vid->model) {
+    switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_get_params(vdev, req, resp);
         break;
@@ -202,7 +202,7 @@ static size_t virtio_video_process_cmd_get_params(VirtIODevice *vdev,
         return virtio_video_enc_cmd_get_params(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
         return 0;
     }
 }
@@ -210,17 +210,17 @@ static size_t virtio_video_process_cmd_get_params(VirtIODevice *vdev,
 static size_t virtio_video_process_cmd_set_params(VirtIODevice *vdev,
     virtio_video_set_params *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
     if (req == NULL || resp == NULL)
         return 0;
 
-    switch (vid->model) {
+    switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_set_params(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
         return 0;
     }
 }
@@ -228,17 +228,17 @@ static size_t virtio_video_process_cmd_set_params(VirtIODevice *vdev,
 static size_t virtio_video_process_cmd_query_control(VirtIODevice *vdev,
     virtio_video_query_control *req, virtio_video_query_control_resp **resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
     if (req == NULL || resp == NULL)
         return 0;
 
-    switch (vid->model) {
+    switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_query_control(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
         return 0;
     }
 }
@@ -246,17 +246,17 @@ static size_t virtio_video_process_cmd_query_control(VirtIODevice *vdev,
 static size_t virtio_video_process_cmd_get_control(VirtIODevice *vdev,
     virtio_video_get_control *req, virtio_video_get_control_resp **resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
     if (req == NULL || resp == NULL)
         return 0;
 
-    switch (vid->model) {
+    switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_get_control(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
         return 0;
     }
 }
@@ -264,17 +264,17 @@ static size_t virtio_video_process_cmd_get_control(VirtIODevice *vdev,
 static size_t virtio_video_process_cmd_set_control(VirtIODevice *vdev,
     virtio_video_set_control *req, virtio_video_set_control_resp *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
     if (req == NULL || resp == NULL)
         return 0;
 
-    switch (vid->model) {
+    switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_set_control(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
         return 0;
     }
 }
@@ -649,7 +649,7 @@ static void virtio_video_command_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
 //                                       unsigned int out_num,
 //                                       size_t *size)
 // {
-//     VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+//     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 //     virtio_video_event ev = {0};
 //     size_t len = 0;
 
@@ -670,8 +670,8 @@ static void virtio_video_command_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
 //         return -1;
 //     }
 
-//     VIRTVID_DEBUG("event on device, model %d(%s)", vid->model, vid->property.model);
-//     switch (vid->model) {
+//     VIRTVID_DEBUG("event on device, model %d(%s)", v->model, v->conf.model);
+//     switch (v->model) {
 //     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
 //         len = virtio_video_dec_event(vdev, &ev);
 //         break;
@@ -679,7 +679,7 @@ static void virtio_video_command_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
 //         len = virtio_video_enc_event(vdev, &ev);
 //         break;
 //     default:
-//         VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, vid->model);
+//         VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
 //         return 0;
 //     }
 
@@ -738,52 +738,52 @@ static void virtio_video_event_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
 
 static void virtio_video_init_framework(VirtIODevice *vdev, Error **errp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     int i;
 
-    if (!vid->property.model) {
+    if (!v->conf.model) {
         error_setg(errp, "virtio-video model isn't set");
         return;
     } else {
         for (i = 0; i < ARRAY_SIZE(virtio_video_models); i++) {
-            if (!strcmp(vid->property.model, virtio_video_models[i].name)) {
-                vid->model = virtio_video_models[i].id;
+            if (!strcmp(v->conf.model, virtio_video_models[i].name)) {
+                v->model = virtio_video_models[i].id;
                 break;
             }
         }
         if (i == ARRAY_SIZE(virtio_video_models)) {
-            error_setg(errp, "Unknown virtio-video model %s", vid->property.model);
+            error_setg(errp, "Unknown virtio-video model %s", v->conf.model);
             return;
         }
     }
 
-    if (!vid->property.backend) {
+    if (!v->conf.backend) {
         error_setg(errp, "virtio-video backend isn't set");
         return;
     } else {
         for (i = 0; i < ARRAY_SIZE(virtio_video_backends); i++) {
-            if (!strcmp(vid->property.backend, virtio_video_backends[i].name)) {
-                vid->backend = virtio_video_backends[i].id;
+            if (!strcmp(v->conf.backend, virtio_video_backends[i].name)) {
+                v->backend = virtio_video_backends[i].id;
                 break;
             }
         }
         if (i == ARRAY_SIZE(virtio_video_backends)) {
-            error_setg(errp, "Unknown virtio-video backend %s", vid->property.backend);
+            error_setg(errp, "Unknown virtio-video backend %s", v->conf.backend);
             return;
         }
     }
-    VIRTVID_DEBUG("model %d(%s), backend %d(%s)", vid->model, vid->property.model, vid->backend, vid->property.backend);
+    VIRTVID_DEBUG("model %d(%s), backend %d(%s)", v->model, v->conf.model, v->backend, v->conf.backend);
 
-    vid->caps_in.size = sizeof(virtio_video_query_capability_resp);
-    vid->caps_in.ptr = g_malloc0(vid->caps_in.size);
-    vid->caps_out.size = sizeof(virtio_video_query_capability_resp);
-    vid->caps_out.ptr = g_malloc0(vid->caps_out.size);
+    v->caps_in.size = sizeof(virtio_video_query_capability_resp);
+    v->caps_in.ptr = g_malloc0(v->caps_in.size);
+    v->caps_out.size = sizeof(virtio_video_query_capability_resp);
+    v->caps_out.ptr = g_malloc0(v->caps_out.size);
 
-    switch (vid->model) {
+    switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         virtio_init(vdev, "virtio-video", VIRTIO_ID_VIDEO_DEC, sizeof(virtio_video_config));
         if (virtio_video_decode_init(vdev)) {
-            error_setg(errp, "Fail to initialize %s:%s", vid->property.model, vid->property.backend);
+            error_setg(errp, "Fail to initialize %s:%s", v->conf.model, v->conf.backend);
         }
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
@@ -793,34 +793,34 @@ static void virtio_video_init_framework(VirtIODevice *vdev, Error **errp)
         return;
     }
 
-    vid->cmd_vq = virtio_add_queue(vdev, VIRTIO_VIDEO_VQ_SIZE, virtio_video_command_vq_cb);
-    if (vid->cmd_vq == NULL) {
+    v->cmd_vq = virtio_add_queue(vdev, VIRTIO_VIDEO_VQ_SIZE, virtio_video_command_vq_cb);
+    if (v->cmd_vq == NULL) {
         error_setg(errp, "Fail to initialize virtio-video cmd_vq");
     }
 
-    vid->event_vq = virtio_add_queue(vdev, VIRTIO_VIDEO_VQ_SIZE, virtio_video_event_vq_cb);
-    if (vid->event_vq == NULL) {
+    v->event_vq = virtio_add_queue(vdev, VIRTIO_VIDEO_VQ_SIZE, virtio_video_event_vq_cb);
+    if (v->event_vq == NULL) {
         error_setg(errp, "Fail to initialize virtio-video event_vq");
     }
 
-    qemu_mutex_init(&vid->ev_mutex);
+    qemu_mutex_init(&v->ev_mutex);
 }
 
 static void virtio_video_destroy_framework(VirtIODevice *vdev)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
-    vid->caps_in.size = 0;
-    if (vid->caps_in.ptr) {
-        g_free(vid->caps_in.ptr);
+    v->caps_in.size = 0;
+    if (v->caps_in.ptr) {
+        g_free(v->caps_in.ptr);
     }
 
-    vid->caps_out.size = 0;
-    if (vid->caps_out.ptr) {
-        g_free(vid->caps_out.ptr);
+    v->caps_out.size = 0;
+    if (v->caps_out.ptr) {
+        g_free(v->caps_out.ptr);
     }
 
-    switch (vid->model) {
+    switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         virtio_video_decode_destroy(vdev);
         break;
@@ -830,7 +830,7 @@ static void virtio_video_destroy_framework(VirtIODevice *vdev)
         return;
     }
 
-    qemu_mutex_destroy(&vid->ev_mutex);
+    qemu_mutex_destroy(&v->ev_mutex);
 
     virtio_del_queue(vdev, 0);
     virtio_del_queue(vdev, 1);
@@ -839,12 +839,12 @@ static void virtio_video_destroy_framework(VirtIODevice *vdev)
 
 static void virtio_video_init_internal(VirtIODevice *vdev, Error **errp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
-    vid->config.version = VIRTIO_VIDEO_VERSION;
-    vid->config.max_caps_length = VIRTIO_VIDEO_CAPS_LENGTH_MAX;
-    vid->config.max_resp_length = VIRTIO_VIDEO_RESPONSE_LENGTH_MAX;
-    QLIST_INIT(&vid->stream_list);
+    v->config.version = VIRTIO_VIDEO_VERSION;
+    v->config.max_caps_length = VIRTIO_VIDEO_CAPS_LENGTH_MAX;
+    v->config.max_resp_length = VIRTIO_VIDEO_RESPONSE_LENGTH_MAX;
+    QLIST_INIT(&v->stream_list);
 }
 
 static void virtio_video_destroy_internal(VirtIODevice *vdev)
@@ -880,14 +880,14 @@ static void virtio_video_device_unrealize(DeviceState *dev)
 
 static void virtio_video_get_config(VirtIODevice *vdev, uint8_t *config)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
-    memcpy(config, &vid->config, sizeof(vid->config));
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
+    memcpy(config, &v->config, sizeof(v->config));
 }
 
 static void virtio_video_set_config(VirtIODevice *vdev, const uint8_t *config)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
-    memcpy(&vid->config, config, sizeof(vid->config));
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
+    memcpy(&v->config, config, sizeof(v->config));
 }
 
 static uint64_t virtio_video_get_features(VirtIODevice *vdev, uint64_t features,
@@ -914,8 +914,8 @@ static const VMStateDescription vmstate_virtio_video = {
 };
 
 static Property virtio_video_properties[] = {
-    DEFINE_PROP_STRING("model", VirtIOVideo, property.model),
-    DEFINE_PROP_STRING("backend", VirtIOVideo, property.backend),
+    DEFINE_PROP_STRING("model", VirtIOVideo, conf.model),
+    DEFINE_PROP_STRING("backend", VirtIOVideo, conf.backend),
     DEFINE_PROP_END_OF_LIST(),
 };
 

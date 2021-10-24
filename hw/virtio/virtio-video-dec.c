@@ -55,13 +55,13 @@ static void *virtio_video_decode_thread(void *arg)
         VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Init failed with err %d", stream->stream_id, sts);
     }
 
-    // Retrieve current working mfxVideoParam
+    /* Retrieve current working mfxVideoParam */
     sts = MFXVideoDECODE_GetVideoParam(stream->mfx_session, stream->mfxParams);
     if (sts != MFX_ERR_NONE) {
         VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_GetVideoParam failed with err %d", stream->stream_id, sts);
     }
 
-    // Query and allocate working surface
+    /* Query and allocate working surface */
     memset(&allocRequest, 0, sizeof(allocRequest));
     sts = MFXVideoDECODE_QueryIOSurf(stream->mfx_session, stream->mfxParams, &allocRequest);
     if (sts != MFX_ERR_NONE && sts != MFX_WRN_PARTIAL_ACCELERATION) {
@@ -70,7 +70,7 @@ static void *virtio_video_decode_thread(void *arg)
     } else {
         mfxU16 width = (mfxU16) MSDK_ALIGN32(allocRequest.Info.Width);
         mfxU16 height = (mfxU16) MSDK_ALIGN32(allocRequest.Info.Height);
-        mfxU8 bitsPerPixel = 12; // NV12 format is a 12 bits per pixel format
+        mfxU8 bitsPerPixel = 12; /* NV12 format is a 12 bits per pixel format */
         mfxU32 surfaceSize = width * height * bitsPerPixel / 8;
 
         numSurfaces = allocRequest.NumFrameSuggested;
@@ -90,10 +90,10 @@ static void *virtio_video_decode_thread(void *arg)
         }
     }
 
-    // Prepare VPP Params for color space conversion
+    /* Prepare VPP Params for color space conversion */
     memset(&VPPParams, 0, sizeof(VPPParams));
     VPPParams.IOPattern = MFX_IOPATTERN_IN_SYSTEM_MEMORY | MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
-    // Input
+    /* Input */
     VPPParams.vpp.In.FourCC = MFX_FOURCC_NV12;
     VPPParams.vpp.In.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
     VPPParams.vpp.In.CropX = 0;
@@ -109,12 +109,12 @@ static void *virtio_video_decode_thread(void *arg)
     VPPParams.vpp.In.Width = (MFX_PICSTRUCT_PROGRESSIVE == VPPParams.vpp.In.PicStruct) ?
         MSDK_ALIGN16(((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo.Width) :
         MSDK_ALIGN32(((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo.Width);
-    // Output
+    /* Output */
     memcpy(&VPPParams.vpp.Out, &VPPParams.vpp.In, sizeof(VPPParams.vpp.Out));
     VPPParams.vpp.Out.FourCC = virito_video_format_to_mfx4cc(stream->out_params.format);
     VPPParams.vpp.Out.ChromaFormat = 0;
 
-    // Query and allocate VPP surface
+    /* Query and allocate VPP surface */
     memset(&vppRequest, 0, sizeof(vppRequest));
     sts = MFXVideoVPP_QueryIOSurf(stream->mfx_session, &VPPParams, vppRequest);
     if (sts != MFX_ERR_NONE && sts != MFX_WRN_PARTIAL_ACCELERATION) {
@@ -154,7 +154,7 @@ static void *virtio_video_decode_thread(void *arg)
                 }
                 break;
             case VirtIOVideoStreamEventStreamDrain:
-                //set bs to NULL to signal end of stream to drain the decoding
+                /* set bs to NULL to signal end of stream to drain the decoding */
                 do {
                     sts = MFXVideoDECODE_DecodeFrameAsync(stream->mfx_session, NULL, surface_work, &surface_nv12, &syncp);
                     MFXVideoCORE_SyncOperation(stream->mfx_session, syncp, stream->mfxWaitMs);
@@ -168,10 +168,10 @@ static void *virtio_video_decode_thread(void *arg)
             case VirtIOVideoStreamEventQueueClear:
                 decoding = FALSE;
                 running = FALSE;
-                // TODO: How to clear queue?
+                /* TODO: How to clear queue? */
                 if (*(uint32_t*)(entry->data) == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
 
-                } else { // VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT
+                } else { /* VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT */
 
                 }
                 break;
@@ -231,7 +231,7 @@ static void *virtio_video_decode_thread(void *arg)
             break;
         }
 
-        // Notify CMD_RESOURCE_QUEUE, it's waiting for virtio_video_resource_queue_resp
+        /* Notify CMD_RESOURCE_QUEUE, it's waiting for virtio_video_resource_queue_resp */
         qemu_event_set(&stream->signal_out);
     }
 
@@ -271,13 +271,13 @@ static void *virtio_video_decode_thread(void *arg)
 size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
     virtio_video_stream_create *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     size_t len = 0;
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
-    if (virtio_video_msdk_find_format(&(vid->caps_in), req->coded_format, NULL)) {
+    if (virtio_video_msdk_find_format(&(v->caps_in), req->coded_format, NULL)) {
         mfxStatus sts = MFX_ERR_NONE;
         VirtIOVideoStream *node = NULL;
         mfxInitParam par = {
@@ -303,7 +303,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
                 goto OUT;
             }
 
-            sts = MFXVideoCORE_SetHandle(node->mfx_session, MFX_HANDLE_VA_DISPLAY, (mfxHDL)vid->va_disp_handle);
+            sts = MFXVideoCORE_SetHandle(node->mfx_session, MFX_HANDLE_VA_DISPLAY, (mfxHDL)v->va_disp_handle);
             if (sts != MFX_ERR_NONE) {
                 VIRTVID_ERROR("    %s: MFXVideoCORE_SetHandle returns %d for stream 0x%x", __FUNCTION__, sts, req->hdr.stream_id);
                 MFXClose(node->mfx_session);
@@ -321,17 +321,17 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
 
             QLIST_INIT(&node->ev_list);
 
-            // Prepare an initial mfxVideoParam for decode
+            /* Prepare an initial mfxVideoParam for decode */
             node->mfxParams = g_malloc0(sizeof(mfxVideoParam));
             virtio_video_msdk_fill_video_params(req->coded_format, node->mfxParams);
 
             node->mfxSurfOut = g_malloc(sizeof(mfxFrameSurface1));
             node->mfxBs = g_malloc(sizeof(mfxBitstream));
 
-            // TODO: Should we use VIDEO_MEMORY for virtio-gpu object?
+            /* TODO: Should we use VIDEO_MEMORY for virtio-gpu object? */
             ((mfxVideoParam*)node->mfxParams)->IOPattern = MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
 
-            // Try query all profiles
+            /* Try query all profiles */
             QLIST_INIT(&node->control_caps.profile.list);
             virtio_video_msdk_fill_video_params(req->coded_format, &inParam);
             memset(&outParam, 0, sizeof(outParam));
@@ -357,7 +357,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
                 ((mfxVideoParam*)node->mfxParams)->mfx.CodecProfile = virtio_video_profile_to_mfx(req->coded_format, QLIST_FIRST(&node->control_caps.profile.list)->value);
             }
 
-            // Try query all levels
+            /* Try query all levels */
             QLIST_INIT(&node->control_caps.level.list);
             virtio_video_msdk_fill_video_params(req->coded_format, &inParam);
             memset(&outParam, 0, sizeof(outParam));
@@ -386,7 +386,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
             virtio_video_msdk_fill_video_params(req->coded_format, &inParam);
             memset(&outParam, 0, sizeof(outParam));
             outParam.mfx.CodecId = inParam.mfx.CodecId;
-            inParam.mfx.TargetKbps = 10000; //TODO: Determine the max bitrage
+            inParam.mfx.TargetKbps = 10000; /* TODO: Determine the max bitrage */
             sts = MFXVideoDECODE_Query(node->mfx_session, &inParam, &outParam);
             if (sts == MFX_ERR_NONE || sts == MFX_WRN_PARTIAL_ACCELERATION) {
                 node->control.bitrate = inParam.mfx.TargetKbps;
@@ -395,7 +395,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
 
             memset(&node->in_params, 0, sizeof(node->in_params));
 
-            if (virtio_video_msdk_find_format(&(vid->caps_in), node->in_format, &desc)) {
+            if (virtio_video_msdk_find_format(&(v->caps_in), node->in_format, &desc)) {
                 node->in_params.frame_width = ((virtio_video_format_frame*)((void*)desc + sizeof(virtio_video_format_desc)))->width.max;
                 node->in_params.frame_height = ((virtio_video_format_frame*)((void*)desc + sizeof(virtio_video_format_desc)))->height.max;
                 node->in_params.min_buffers = 1;
@@ -408,17 +408,19 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
 
                 memcpy(&node->out_params, &node->in_params, sizeof(node->in_params));
 
-                // For VIRTIO_VIDEO_QUEUE_TYPE_INPUT
+                /* For VIRTIO_VIDEO_QUEUE_TYPE_INPUT */
                 node->in_params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_INPUT;
                 node->in_params.format = node->in_format;
-                // TODO: what's the definition of plane number, size and stride for coded format?
+                /* TODO: what's the definition of plane number, size and stride for coded format? */
                 node->in_params.num_planes = 1;
                 node->in_params.plane_formats[0].plane_size = 0;
                 node->in_params.plane_formats[0].stride = 0;
 
-                // For VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT
-                // Front end doesn't support NV12 but only RGB*, while MediaSDK can only decode to NV12
-                // So we let front end aware of RGB* only, use VPP to convert from NV12 to RGB*
+                /*
+                 * For VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT
+                 * Front end doesn't support NV12 but only RGB*, while MediaSDK can only decode to NV12
+                 * So we let front end aware of RGB* only, use VPP to convert from NV12 to RGB*
+                 */
                 node->out_params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT;
                 node->out_params.format = VIRTIO_VIDEO_FORMAT_ARGB8888;
                 node->out_params.num_planes = 1;
@@ -439,11 +441,11 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
             node->stat = VirtIOVideoStreamStatNone;
 
             qemu_mutex_init(&node->mutex);
-            node->event_vq = vid->event_vq;
+            node->event_vq = v->event_vq;
 
             qemu_thread_create(&node->thread, VIRTIO_VIDEO_DECODE_THREAD, virtio_video_decode_thread, node, QEMU_THREAD_JOINABLE);
 
-            QLIST_INSERT_HEAD(&vid->stream_list, node, next);
+            QLIST_INSERT_HEAD(&v->stream_list, node, next);
 
             VIRTVID_DEBUG("    %s: stream 0x%x created", __FUNCTION__, req->hdr.stream_id);
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
@@ -459,7 +461,7 @@ OUT:
 size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
     virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
     VirtIOVideoControl *control, *next_ctrl = NULL;
     VirtIOVideoStreamEventEntry *entry, *next_entry = NULL;
@@ -470,7 +472,7 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
-    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+    QLIST_FOREACH_SAFE(node, &v->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
 
@@ -490,7 +492,7 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
             qemu_mutex_unlock(&node->mutex);
             qemu_event_set(&node->signal_in);
 
-            // May need send SIGTERM if the thread is dead
+            /* May need send SIGTERM if the thread is dead */
             //pthread_kill(node->thread.thread, SIGTERM);
             qemu_thread_join(&node->thread);
             node->thread.thread = 0;
@@ -533,7 +535,7 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
 size_t virtio_video_dec_cmd_stream_drain(VirtIODevice *vdev,
     virtio_video_stream_drain *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
     size_t len = 0;
 
@@ -541,14 +543,14 @@ size_t virtio_video_dec_cmd_stream_drain(VirtIODevice *vdev,
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
-    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+    QLIST_FOREACH_SAFE(node, &v->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
             VirtIOVideoStreamEventEntry *entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
 
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
             entry->ev = VirtIOVideoStreamEventStreamDrain;
             qemu_mutex_lock(&node->mutex);
-            // Set retry count for drain
+            /* Set retry count for drain */
             node->retry = 10;
             QLIST_INSERT_HEAD(&node->ev_list, entry, next);
             qemu_mutex_unlock(&node->mutex);
@@ -565,7 +567,7 @@ size_t virtio_video_dec_cmd_resource_create(VirtIODevice *vdev,
     virtio_video_resource_create *req, virtio_video_mem_entry *entries,
     virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
     size_t len = 0;
 
@@ -573,7 +575,7 @@ size_t virtio_video_dec_cmd_resource_create(VirtIODevice *vdev,
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
-    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+    QLIST_FOREACH_SAFE(node, &v->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
             if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT ||
                 req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
@@ -609,7 +611,7 @@ size_t virtio_video_dec_cmd_resource_create(VirtIODevice *vdev,
                     virtio_video_resource_desc_from_guest_page(&res->desc[plane][i]);
                     memory_region_ref(res->desc[plane][i].mr);
                 } else {
-                    // TODO: Get from virtio object by uuid
+                    /* TODO: Get from virtio object by uuid */
                     memcpy(&res->desc[plane][i].entry.obj_entry, entries++, sizeof(virtio_video_object_entry));
                 }
             }
@@ -630,7 +632,7 @@ size_t virtio_video_dec_cmd_resource_create(VirtIODevice *vdev,
 size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
     virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
     size_t len = 0;
 
@@ -638,7 +640,7 @@ size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
     resp->hdr.stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
-    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+    QLIST_FOREACH_SAFE(node, &v->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
             VirtIOVideoStreamResource *res, *next_res = NULL;
             VirtIOVideoStreamEventEntry *entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
@@ -647,7 +649,7 @@ size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
                 resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
                 QLIST_FOREACH_SAFE(res, &node->out_list, next, next_res) {
                     if (req->resource_id == res->resource_id) {
-                        // Set mfxSurfOut buffer to the request hva, decode thread will fill other parameters
+                        /* Set mfxSurfOut buffer to the request hva, decode thread will fill other parameters */
                         ((mfxFrameSurface1*)node->mfxSurfOut)->Data.Y = res->desc[0]->hva;
                         resp->hdr.type = VIRTIO_VIDEO_RESP_OK_RESOURCE_QUEUE;
                     }
@@ -656,19 +658,19 @@ size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
                 resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
                 QLIST_FOREACH_SAFE(res, &node->in_list, next, next_res) {
                     if (req->resource_id == res->resource_id) {
-                        // bitstream shouldn't have plane concept
+                        /* bitstream shouldn't have plane concept */
                         ((mfxBitstream*)node->mfxBs)->MaxLength = req->data_sizes[0];
                         ((mfxBitstream*)node->mfxBs)->Data = res->desc[0]->hva;
                         resp->hdr.type = VIRTIO_VIDEO_RESP_OK_RESOURCE_QUEUE;
 
-                        // Notify decode thread to start on new input resource queued
+                        /* Notify decode thread to start on new input resource queued */
                         entry->ev = VirtIOVideoStreamEventResourceQueue;
                         qemu_mutex_lock(&node->mutex);
                         QLIST_INSERT_HEAD(&node->ev_list, entry, next);
                         qemu_mutex_unlock(&node->mutex);
                         qemu_event_set(&node->signal_in);
 
-                        // Wait for decode thread work done
+                        /* Wait for decode thread work done */
                         qemu_event_wait(&node->signal_out);
                         qemu_event_reset(&node->signal_out);
                     }
@@ -679,7 +681,7 @@ size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
             }
 
             resp->timestamp = req->timestamp;
-            resp->size = 0; // Only for encode
+            resp->size = 0; /* Only for encode */
             if (node->stat == VirtIOVideoStreamStatError) {
                 resp->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
             }
@@ -692,7 +694,7 @@ size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
 size_t virtio_video_dec_cmd_resource_destroy_all(VirtIODevice *vdev,
     virtio_video_resource_destroy_all *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
     VirtIOVideoStreamResource *res, *next_res = NULL;
     size_t len = 0;
@@ -701,11 +703,11 @@ size_t virtio_video_dec_cmd_resource_destroy_all(VirtIODevice *vdev,
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
-    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+    QLIST_FOREACH_SAFE(node, &v->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
             uint32_t plane, desc;
 
-            // TODO: Drain codec
+            /* TODO: Drain codec */
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
             if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
                 QLIST_FOREACH_SAFE(res, &node->in_list, next, next_res) {
@@ -741,7 +743,7 @@ size_t virtio_video_dec_cmd_resource_destroy_all(VirtIODevice *vdev,
 size_t virtio_video_dec_cmd_queue_clear(VirtIODevice *vdev,
     virtio_video_queue_clear *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
     size_t len = 0;
 
@@ -749,7 +751,7 @@ size_t virtio_video_dec_cmd_queue_clear(VirtIODevice *vdev,
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
-    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+    QLIST_FOREACH_SAFE(node, &v->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
             VirtIOVideoStreamEventEntry *entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
 
@@ -780,7 +782,7 @@ size_t virtio_video_dec_cmd_queue_clear(VirtIODevice *vdev,
 size_t virtio_video_dec_cmd_get_params(VirtIODevice *vdev,
     virtio_video_get_params *req, virtio_video_get_params_resp *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
     size_t len = 0;
 
@@ -788,7 +790,7 @@ size_t virtio_video_dec_cmd_get_params(VirtIODevice *vdev,
     resp->hdr.stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
-    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+    QLIST_FOREACH_SAFE(node, &v->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
             resp->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_PARAMS;
             if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
@@ -810,7 +812,7 @@ size_t virtio_video_dec_cmd_get_params(VirtIODevice *vdev,
 size_t virtio_video_dec_cmd_set_params(VirtIODevice *vdev,
     virtio_video_set_params *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
     size_t len = 0;
 
@@ -818,7 +820,7 @@ size_t virtio_video_dec_cmd_set_params(VirtIODevice *vdev,
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
-    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+    QLIST_FOREACH_SAFE(node, &v->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
             if (req->params.queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
@@ -855,12 +857,12 @@ size_t virtio_video_dec_cmd_set_params(VirtIODevice *vdev,
 size_t virtio_video_dec_cmd_query_control(VirtIODevice *vdev,
     virtio_video_query_control *req, virtio_video_query_control_resp **resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
     size_t len = 0;
 
     *resp = NULL;
-    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+    QLIST_FOREACH_SAFE(node, &v->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
             if (req->control == VIRTIO_VIDEO_CONTROL_PROFILE) {
                 virtio_video_format format = ((virtio_video_query_control_profile*)((void*)req + sizeof(virtio_video_query_control)))->format;
@@ -946,7 +948,7 @@ size_t virtio_video_dec_cmd_query_control(VirtIODevice *vdev,
 size_t virtio_video_dec_cmd_get_control(VirtIODevice *vdev,
     virtio_video_get_control *req, virtio_video_get_control_resp **resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
     size_t len = 0;
 
@@ -970,7 +972,7 @@ size_t virtio_video_dec_cmd_get_control(VirtIODevice *vdev,
     if (*resp != NULL) {
         (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
         (*resp)->hdr.stream_id = req->hdr.stream_id;
-        QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+        QLIST_FOREACH_SAFE(node, &v->stream_list, next, next) {
             if (node->stream_id == req->hdr.stream_id) {
                 (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_CONTROL;
                 if (req->control == VIRTIO_VIDEO_CONTROL_BITRATE) {
@@ -999,7 +1001,7 @@ size_t virtio_video_dec_cmd_get_control(VirtIODevice *vdev,
 size_t virtio_video_dec_cmd_set_control(VirtIODevice *vdev,
     virtio_video_set_control *req, virtio_video_set_control_resp *resp)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
     size_t len = 0;
 
@@ -1007,7 +1009,7 @@ size_t virtio_video_dec_cmd_set_control(VirtIODevice *vdev,
     resp->hdr.stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
-    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+    QLIST_FOREACH_SAFE(node, &v->stream_list, next, next) {
         if (node->stream_id == req->hdr.stream_id) {
             resp->hdr.type = VIRTIO_VIDEO_RESP_OK_NODATA;
             if (req->control == VIRTIO_VIDEO_CONTROL_BITRATE) {
@@ -1045,11 +1047,11 @@ size_t virtio_video_dec_cmd_set_control(VirtIODevice *vdev,
 
 size_t virtio_video_dec_event(VirtIODevice *vdev, virtio_video_event *ev)
 {
-    //VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    //VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     size_t len = 0;
 
     if (ev) {
-        //ev->stream_id = ++vid->stream_id;
+        //ev->stream_id = ++v->stream_id;
         len = sizeof(*ev);
         VIRTVID_DEBUG("    %s: event_type 0x%x, stream_id 0x%x", __FUNCTION__, ev->event_type, ev->stream_id);
     } else {
@@ -1061,7 +1063,7 @@ size_t virtio_video_dec_event(VirtIODevice *vdev, virtio_video_event *ev)
 
 static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     mfxStatus sts = MFX_ERR_NONE;
     virtio_video_format coded_format;
     mfxSession mfx_session;
@@ -1085,7 +1087,7 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
         return -1;
     }
 
-    sts = MFXVideoCORE_SetHandle(mfx_session, MFX_HANDLE_VA_DISPLAY, (mfxHDL)vid->va_disp_handle);
+    sts = MFXVideoCORE_SetHandle(mfx_session, MFX_HANDLE_VA_DISPLAY, (mfxHDL)v->va_disp_handle);
     if (sts != MFX_ERR_NONE) {
         VIRTVID_ERROR("MFXVideoCORE_SetHandle returns %d", sts);
         MFXClose(mfx_session);
@@ -1097,7 +1099,7 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
         if (coded_mfx4cc == 0)
             continue;
 
-        // Query CodecId to fill virtio_video_format_desc
+        /* Query CodecId to fill virtio_video_format_desc */
         memset(&outParam, 0, sizeof(outParam));
         outParam.mfx.CodecId = coded_mfx4cc;
         sts = MFXVideoDECODE_Query(mfx_session, NULL, &outParam);
@@ -1105,23 +1107,23 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
             void *buf = NULL;
             uint32_t w_min = 0, h_min = 0, w_max = 0, h_max = 0;
 
-            // Add a new virtio_video_format_desc block since current format is supported
-            ++((virtio_video_query_capability_resp*)vid->caps_in.ptr)->num_descs;
+            /* Add a new virtio_video_format_desc block since current format is supported */
+            ++((virtio_video_query_capability_resp*)v->caps_in.ptr)->num_descs;
 
-            // Save old caps, allocate a larger buffer, copy it back
-            buf = g_malloc0(vid->caps_in.size);
-            memcpy(buf, vid->caps_in.ptr, vid->caps_in.size);
-            g_free(vid->caps_in.ptr);
-            vid->caps_in.size += sizeof(virtio_video_format_desc);
-            vid->caps_in.ptr = g_malloc0(vid->caps_in.size);
-            memcpy(vid->caps_in.ptr, buf, vid->caps_in.size - sizeof(virtio_video_format_desc));
+            /* Save old caps, allocate a larger buffer, copy it back */
+            buf = g_malloc0(v->caps_in.size);
+            memcpy(buf, v->caps_in.ptr, v->caps_in.size);
+            g_free(v->caps_in.ptr);
+            v->caps_in.size += sizeof(virtio_video_format_desc);
+            v->caps_in.ptr = g_malloc0(v->caps_in.size);
+            memcpy(v->caps_in.ptr, buf, v->caps_in.size - sizeof(virtio_video_format_desc));
             g_free(buf);
 
-            // Append the newly added virtio_video_format_desc
-            buf = (char*)vid->caps_in.ptr + vid->caps_in.size - sizeof(virtio_video_format_desc);
+            /* Append the newly added virtio_video_format_desc */
+            buf = (char*)v->caps_in.ptr + v->caps_in.size - sizeof(virtio_video_format_desc);
             virtio_video_msdk_fill_format_desc(coded_format, (virtio_video_format_desc*)buf);
 
-            // Try query max & min size for a coded format
+            /* Try query max & min size for a coded format */
             virtio_video_msdk_fill_video_params(coded_format, &inParam);
             memset(&outParam, 0, sizeof(outParam));
             outParam.mfx.CodecId = inParam.mfx.CodecId;
@@ -1163,28 +1165,28 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
             } while (inParam.mfx.FrameInfo.Width <= w_max && inParam.mfx.FrameInfo.Height <= h_max);
             virtio_video_msdk_load_plugin(mfx_session, coded_format, false, true);
 
-            // Add one virtio_video_format_frame and virtio_video_format_range block to last added virtio_video_format_desc
+            /* Add one virtio_video_format_frame and virtio_video_format_range block to last added virtio_video_format_desc */
             if (w_min && w_max && h_min && h_max) {
                 void *buf_out = NULL;
                 uint32_t pos = 0;
                 uint32_t desc_size = 0;
 
-                buf = (char*)vid->caps_in.ptr + vid->caps_in.size - sizeof(virtio_video_format_desc);
+                buf = (char*)v->caps_in.ptr + v->caps_in.size - sizeof(virtio_video_format_desc);
                 ((virtio_video_format_desc*)buf)->num_frames = 1;
 
-                // Save old caps, allocate a larger buffer, copy it back
-                buf = g_malloc0(vid->caps_in.size);
-                memcpy(buf, vid->caps_in.ptr, vid->caps_in.size);
-                g_free(vid->caps_in.ptr);
-                vid->caps_in.size += sizeof(virtio_video_format_frame);
-                vid->caps_in.size += sizeof(virtio_video_format_range);
-                vid->caps_in.ptr = g_malloc0(vid->caps_in.size);
-                memcpy(vid->caps_in.ptr, buf,
-                       vid->caps_in.size - sizeof(virtio_video_format_frame) - sizeof(virtio_video_format_range));
+                /* Save old caps, allocate a larger buffer, copy it back */
+                buf = g_malloc0(v->caps_in.size);
+                memcpy(buf, v->caps_in.ptr, v->caps_in.size);
+                g_free(v->caps_in.ptr);
+                v->caps_in.size += sizeof(virtio_video_format_frame);
+                v->caps_in.size += sizeof(virtio_video_format_range);
+                v->caps_in.ptr = g_malloc0(v->caps_in.size);
+                memcpy(v->caps_in.ptr, buf,
+                       v->caps_in.size - sizeof(virtio_video_format_frame) - sizeof(virtio_video_format_range));
                 g_free(buf);
 
-                // Append the newly added virtio_video_format_frame and virtio_video_format_range
-                buf = (char*)vid->caps_in.ptr + vid->caps_in.size;
+                /* Append the newly added virtio_video_format_frame and virtio_video_format_range */
+                buf = (char*)v->caps_in.ptr + v->caps_in.size;
                 buf -= sizeof(virtio_video_format_frame);
                 buf -= sizeof(virtio_video_format_range);
                 ((virtio_video_format_frame*)buf)->width.min = w_min;
@@ -1198,7 +1200,7 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
                 ((virtio_video_format_frame*)buf)->num_rates = 1;
 
                 buf += sizeof(virtio_video_format_frame);
-                // For decoding, frame rate may be unspecified, so always set range [1,60]
+                /* For decoding, frame rate may be unspecified, so always set range [1,60] */
                 ((virtio_video_format_range*)buf)->min = 1;
                 ((virtio_video_format_range*)buf)->max = 60;
                 ((virtio_video_format_range*)buf)->step = 1;
@@ -1211,7 +1213,7 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
                               ((virtio_video_format_range*)buf)->max,
                               ((virtio_video_format_range*)buf)->step);
 
-                // Allocate a new block for output cap, copy format_frame format_desc from latest input cap
+                /* Allocate a new block for output cap, copy format_frame format_desc from latest input cap */
                 desc_size = sizeof(virtio_video_format_desc) + sizeof(virtio_video_format_frame) + sizeof(virtio_video_format_range);
                 buf_out = g_malloc0(desc_size);
                 virtio_video_msdk_fill_format_desc(VIRTIO_VIDEO_FORMAT_NV12, (virtio_video_format_desc*)buf_out);
@@ -1219,22 +1221,22 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
                 buf -= sizeof(virtio_video_format_frame);
                 memcpy(buf_out + sizeof(virtio_video_format_desc), buf, sizeof(virtio_video_format_frame) + sizeof(virtio_video_format_range));
 
-                // Check if caps_out already have the format, add if not exist
-                if (!virtio_video_msdk_find_format_desc(&(vid->caps_out), (virtio_video_format_desc*)buf_out)) {
-                    pos = vid->caps_out.size;
+                /* Check if caps_out already have the format, add if not exist */
+                if (!virtio_video_msdk_find_format_desc(&(v->caps_out), (virtio_video_format_desc*)buf_out)) {
+                    pos = v->caps_out.size;
 
-                    ++((virtio_video_query_capability_resp*)vid->caps_out.ptr)->num_descs;
-                    // Save old caps, allocate a larger buffer, copy it back
-                    buf = g_malloc0(vid->caps_out.size);
-                    memcpy(buf, vid->caps_out.ptr, vid->caps_out.size);
-                    g_free(vid->caps_out.ptr);
-                    vid->caps_out.size += desc_size;
-                    vid->caps_out.ptr = g_malloc0(vid->caps_out.size);
-                    memcpy(vid->caps_out.ptr, buf, pos);
+                    ++((virtio_video_query_capability_resp*)v->caps_out.ptr)->num_descs;
+                    /* Save old caps, allocate a larger buffer, copy it back */
+                    buf = g_malloc0(v->caps_out.size);
+                    memcpy(buf, v->caps_out.ptr, v->caps_out.size);
+                    g_free(v->caps_out.ptr);
+                    v->caps_out.size += desc_size;
+                    v->caps_out.ptr = g_malloc0(v->caps_out.size);
+                    memcpy(v->caps_out.ptr, buf, pos);
                     g_free(buf);
 
-                    // Append the newly added virtio_video_format_desc, virtio_video_format_frame and virtio_video_format_range
-                    memcpy(vid->caps_out.ptr + pos, buf_out, desc_size);
+                    /* Append the newly added virtio_video_format_desc, virtio_video_format_frame and virtio_video_format_range */
+                    memcpy(v->caps_out.ptr + pos, buf_out, desc_size);
 
                     VIRTVID_DEBUG("Add output caps for format %x, width [%d, %d]@%d, height [%d, %d]@%d, rate [%d, %d]@%d",
                                   VIRTIO_VIDEO_FORMAT_NV12,
@@ -1263,14 +1265,14 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
 
 static void virtio_video_decode_destroy_msdk(VirtIODevice *vdev)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
 
-    QLIST_FOREACH_SAFE(node, &vid->stream_list, next, next) {
+    QLIST_FOREACH_SAFE(node, &v->stream_list, next, next) {
         virtio_video_stream_destroy req = {0};
         virtio_video_cmd_hdr resp = {0};
 
-        // Destroy all in case CMD_STREAM_DESTROY not called on some stream
+        /* Destroy all in case CMD_STREAM_DESTROY not called on some stream */
         req.hdr.stream_id = node->stream_id;
         virtio_video_dec_cmd_stream_destroy(vdev, &req, &resp);
     }
@@ -1280,26 +1282,26 @@ static void virtio_video_decode_destroy_msdk(VirtIODevice *vdev)
 
 int virtio_video_decode_init(VirtIODevice *vdev)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     int ret = -1;
 
-    switch (vid->backend) {
+    switch (v->backend) {
     case VIRTIO_VIDEO_BACKEND_MEDIA_SDK:
         ret = virtio_video_decode_init_msdk(vdev);
     default:
         break;
     }
 
-    VIRTVID_DEBUG("Decoder %s:%s initialized %d", vid->property.model, vid->property.backend, ret);
+    VIRTVID_DEBUG("Decoder %s:%s initialized %d", v->conf.model, v->conf.backend, ret);
 
     return ret;
 }
 
 void virtio_video_decode_destroy(VirtIODevice *vdev)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
-    switch (vid->backend) {
+    switch (v->backend) {
     case VIRTIO_VIDEO_BACKEND_MEDIA_SDK:
         virtio_video_decode_destroy_msdk(vdev);
     default:

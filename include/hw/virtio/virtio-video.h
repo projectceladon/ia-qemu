@@ -174,12 +174,14 @@ typedef struct VirtIOVideoCaps {
     uint32_t size;
 } VirtIOVideoCaps;
 
+typedef struct VirtIOVideoConf {
+    char *model;
+    char *backend;
+} VirtIOVideoConf;
+
 typedef struct VirtIOVideo {
     VirtIODevice parent_obj;
-    struct {
-        char *model;
-        char *backend;
-    } property;
+    VirtIOVideoConf conf;
     virtio_video_device_model model;
     virtio_video_backend backend;
     virtio_video_config config;

@@ -52,7 +52,7 @@ void virtio_video_msdk_fill_video_params(virtio_video_format format, mfxVideoPar
     case VIRTIO_VIDEO_FORMAT_HEVC:
     case VIRTIO_VIDEO_FORMAT_VP8:
     case VIRTIO_VIDEO_FORMAT_VP9:
-        // Only support NV12 for now
+        /* Only support NV12 for now */
         param->mfx.FrameInfo.FourCC = MFX_FOURCC_NV12;
         param->mfx.FrameInfo.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
         if (format == VIRTIO_VIDEO_FORMAT_HEVC) {
@@ -90,7 +90,7 @@ bool virtio_video_msdk_find_format(VirtIOVideoCaps *caps, virtio_video_format fo
     num_format = ((virtio_video_query_capability_resp*)caps->ptr)->num_descs;
     src = caps->ptr + sizeof(virtio_video_query_capability_resp);
     for (idx_format = 0; idx_format < num_format; idx_format++) {
-        // Compare the virtio_video_format_desc part
+        /* Compare the virtio_video_format_desc part */
         found = false;
         if (((virtio_video_format_desc*)src)->format == format) {
             found = true;
@@ -102,10 +102,10 @@ bool virtio_video_msdk_find_format(VirtIOVideoCaps *caps, virtio_video_format fo
         } else {
             VIRTVID_VERBOSE("format %x NOT equal at %d", format, idx_format);
             num_frame = ((virtio_video_format_desc*)src)->num_frames;
-            // Skip current format_desc
+            /* Skip current format_desc */
             src += sizeof(virtio_video_format_desc);
             if (num_frame != 0) {
-                // Skip remaining format_frame
+                /* Skip remaining format_frame */
                 for (idx_frame = 0; idx_frame < num_frame; idx_frame++) {
                     num_rate = ((virtio_video_format_frame*)src)->num_rates;
                     src += sizeof(virtio_video_format_frame);
@@ -128,7 +128,7 @@ bool virtio_video_msdk_find_format_desc(VirtIOVideoCaps *caps, virtio_video_form
     uint32_t idx_format, idx_frame, idx_rate, num_format, num_frame, num_rate;
     void *src1, *src2;
 
-    // Assume the format_desc only have 1 format_desc, 1 format_frame and 1 format_range
+    /* Assume the format_desc only have 1 format_desc, 1 format_frame and 1 format_range */
     if (format_desc->num_frames > 1) {
         VIRTVID_ERROR("Not support finding virtio_video_format_desc with num_frames %d", format_desc->num_frames);
         return false;
@@ -145,39 +145,39 @@ bool virtio_video_msdk_find_format_desc(VirtIOVideoCaps *caps, virtio_video_form
         num_format = ((virtio_video_query_capability_resp*)caps->ptr)->num_descs;
         src1 = caps->ptr + sizeof(virtio_video_query_capability_resp);
         for (idx_format = 0; idx_format < num_format; idx_format++) {
-            // Compare the virtio_video_format_desc part
+            /* Compare the virtio_video_format_desc part */
             found = false;
             src2 = format_desc;
             num_frame = ((virtio_video_format_desc*)src1)->num_frames;
             if (memcmp(src1, src2, sizeof(virtio_video_format_desc)) == 0) {
                 VIRTVID_VERBOSE("format_desc equal at %d", idx_format);
                 if (num_frame == 0) {
-                    // Same format_desc but no frame
+                    /* Same format_desc but no frame */
                     found = true;
                     idx_format = num_format;
                 } else {
-                    // Advance to compare format_frame
+                    /* Advance to compare format_frame */
                     src1 += sizeof(virtio_video_format_desc);
                     for (idx_frame = 0; idx_frame < num_frame; idx_frame++) {
-                        // Compare the virtio_video_format_frame part
+                        /* Compare the virtio_video_format_frame part */
                         src2 = (void*)format_desc + sizeof(virtio_video_format_desc);
                         num_rate = ((virtio_video_format_frame*)src1)->num_rates;
                         if (memcmp(src1, src2, sizeof(virtio_video_format_frame)) == 0) {
                             VIRTVID_VERBOSE("format_frame equal at %d-%d", idx_format, idx_frame);
                             if (num_rate == 0) {
-                                // Same format_frame but no rate
+                                /* Same format_frame but no rate */
                                 found = true;
                                 idx_frame = num_frame;
                                 idx_format = num_format;
                             } else {
-                                // Advance to compare format_range
+                                /* Advance to compare format_range */
                                 src1 += sizeof(virtio_video_format_frame);
                                 for (idx_rate = 0; idx_rate < num_rate; idx_rate++) {
-                                    // Compare the virtio_video_format_range part
+                                    /* Compare the virtio_video_format_range part */
                                     src2 = (void*)format_desc + sizeof(virtio_video_format_desc) + sizeof(virtio_video_format_frame);
                                     if (memcmp(src1, src2, sizeof(virtio_video_format_range)) == 0) {
                                         VIRTVID_VERBOSE("format_range equal at %d-%d-%d", idx_format, idx_frame, idx_rate);
-                                        // Same format_range, format_frame format_desc
+                                        /* Same format_range, format_frame format_desc */
                                         found = true;
                                         idx_rate = num_rate;
                                         idx_frame = num_frame;
@@ -185,16 +185,16 @@ bool virtio_video_msdk_find_format_desc(VirtIOVideoCaps *caps, virtio_video_form
                                     } else {
                                         VIRTVID_VERBOSE("format_range NOT equal at %d-%d-%d", idx_format, idx_frame, idx_rate);
                                     }
-                                    // Advance to next format_range
+                                    /* Advance to next format_range */
                                     src1 += sizeof(virtio_video_format_range);
                                 }
                             }
                         } else {
                             VIRTVID_VERBOSE("format_frame NOT equal at %d-%d", idx_format, idx_frame);
-                            // Skip current format_frame
+                            /* Skip current format_frame */
                             src1 += sizeof(virtio_video_format_frame);
                             if (num_rate != 0) {
-                                // Skip remaining format_range
+                                /* Skip remaining format_range */
                                 for (idx_rate = 0; idx_rate < num_rate; idx_rate++) {
                                     src1 += sizeof(virtio_video_format_range);
                                 }
@@ -204,10 +204,10 @@ bool virtio_video_msdk_find_format_desc(VirtIOVideoCaps *caps, virtio_video_form
                 }
             } else {
                 VIRTVID_VERBOSE("format_desc NOT equal at %d", idx_format);
-                // Skip current format_desc
+                /* Skip current format_desc */
                 src1 += sizeof(virtio_video_format_desc);
                 if (num_frame != 0) {
-                    // Skip remaining format_frame
+                    /* Skip remaining format_frame */
                     for (idx_frame = 0; idx_frame < num_frame; idx_frame++) {
                         num_rate = ((virtio_video_format_frame*)src1)->num_rates;
                         src1 += sizeof(virtio_video_format_frame);
@@ -291,7 +291,7 @@ int virito_video_format_to_mfx4cc(virtio_video_format fmt)
     int mfx4cc = 0;
 
     switch (fmt) {
-    // Raw format
+    /* Raw format */
     case VIRTIO_VIDEO_FORMAT_ARGB8888:
         mfx4cc = MFX_FOURCC_RGB4;
         break;
@@ -307,7 +307,7 @@ int virito_video_format_to_mfx4cc(virtio_video_format fmt)
     case VIRTIO_VIDEO_FORMAT_YVU420:
         mfx4cc = MFX_FOURCC_YV12;
         break;
-    // Coded format
+    /* Coded format */
     case VIRTIO_VIDEO_FORMAT_MPEG2:
         mfx4cc = MFX_CODEC_MPEG2;
         break;
@@ -338,7 +338,7 @@ virtio_video_format virito_video_format_from_mfx4cc(int mfx4cc)
     virtio_video_format fmt = VIRTIO_VIDEO_FORMAT_RAW_MAX;
 
     switch (mfx4cc) {
-    // Raw format
+    /* Raw format */
     case MFX_FOURCC_RGB4:
         fmt = VIRTIO_VIDEO_FORMAT_ARGB8888;
         break;
@@ -351,7 +351,7 @@ virtio_video_format virito_video_format_from_mfx4cc(int mfx4cc)
     case MFX_FOURCC_YV12:
         fmt = VIRTIO_VIDEO_FORMAT_YVU420;
         break;
-    // Coded format
+    /* Coded format */
     case MFX_CODEC_MPEG2:
         fmt = VIRTIO_VIDEO_FORMAT_MPEG2;
         break;

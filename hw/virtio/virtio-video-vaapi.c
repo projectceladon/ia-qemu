@@ -27,28 +27,28 @@
 
 int virtio_video_create_va_env_drm(VirtIODevice *vdev)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VAStatus va_status;
     int ver_major, ver_minor;
 
-    vid->drm_fd = open(VIRTIO_VIDEO_DRM_DEVICE, O_RDWR);
-    if (vid->drm_fd < 0) {
+    v->drm_fd = open(VIRTIO_VIDEO_DRM_DEVICE, O_RDWR);
+    if (v->drm_fd < 0) {
         VIRTVID_ERROR("error open DRM_DEVICE %s\n", VIRTIO_VIDEO_DRM_DEVICE);
         return -1;
     }
 
-    vid->va_disp_handle = vaGetDisplayDRM(vid->drm_fd);
-    if (!vid->va_disp_handle) {
+    v->va_disp_handle = vaGetDisplayDRM(v->drm_fd);
+    if (!v->va_disp_handle) {
         VIRTVID_ERROR("error vaGetDisplayDRM for %s\n", VIRTIO_VIDEO_DRM_DEVICE);
-        close(vid->drm_fd);
+        close(v->drm_fd);
         return -1;
     }
 
-    va_status = vaInitialize(vid->va_disp_handle, &ver_major, &ver_minor);
+    va_status = vaInitialize(v->va_disp_handle, &ver_major, &ver_minor);
     if (va_status != VA_STATUS_SUCCESS) {
         VIRTVID_ERROR("error vaInitialize for %s, status %d\n", VIRTIO_VIDEO_DRM_DEVICE, va_status);
-        vaTerminate(vid->va_disp_handle);
-        close(vid->drm_fd);
+        vaTerminate(v->va_disp_handle);
+        close(v->drm_fd);
         return -1;
     }
 
@@ -57,16 +57,16 @@ int virtio_video_create_va_env_drm(VirtIODevice *vdev)
 
 void virtio_video_destroy_va_env_drm(VirtIODevice *vdev)
 {
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
-    if (vid->va_disp_handle) {
-        vaTerminate(vid->va_disp_handle);
-        vid->va_disp_handle = NULL;
+    if (v->va_disp_handle) {
+        vaTerminate(v->va_disp_handle);
+        v->va_disp_handle = NULL;
     }
 
-    if (vid->drm_fd) {
-        close(vid->drm_fd);
-        vid->drm_fd = 0;
+    if (v->drm_fd) {
+        close(v->drm_fd);
+        v->drm_fd = 0;
     }
 }
 
