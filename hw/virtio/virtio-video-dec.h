@@ -26,8 +26,6 @@
 #include "hw/virtio/virtio-video.h"
 #include "virtio-video-msdk.h"
 
-size_t virtio_video_dec_cmd_query_capability(VirtIODevice *vdev,
-    virtio_video_query_capability *req, virtio_video_query_capability_resp **resp);
 size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
     virtio_video_stream_create *req, virtio_video_cmd_hdr *resp);
 size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,

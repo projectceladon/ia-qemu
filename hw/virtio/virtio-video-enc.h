@@ -25,8 +25,6 @@
 
 #include "hw/virtio/virtio-video.h"
 
-size_t virtio_video_enc_cmd_query_capability(VirtIODevice *vdev,
-    virtio_video_query_capability *req, virtio_video_query_capability_resp **resp);
 size_t virtio_video_enc_cmd_get_params(VirtIODevice *vdev,
     virtio_video_get_params *req, virtio_video_get_params_resp *resp);
 size_t virtio_video_enc_event(VirtIODevice *vdev, virtio_video_event *ev);

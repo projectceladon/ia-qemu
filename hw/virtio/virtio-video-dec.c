@@ -27,41 +27,6 @@
 
 #define VIRTIO_VIDEO_DECODE_THREAD "Virtio-Video-Decode"
 
-size_t virtio_video_dec_cmd_query_capability(VirtIODevice *vdev,
-    virtio_video_query_capability *req, virtio_video_query_capability_resp **resp)
-{
-    VirtIOVideo *vid = VIRTIO_VIDEO(vdev);
-    size_t len = 0;
-    void *src;
-    VIRTVID_DEBUG("    %s: stream 0x%x, queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
-
-    if (req != NULL && *resp == NULL) {
-        switch (req->queue_type) {
-        case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
-            len = vid->caps_in.size;
-            src = vid->caps_in.ptr;
-            break;
-        case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
-            len = vid->caps_out.size;
-            src = vid->caps_out.ptr;
-            break;
-        default:
-            break;
-        }
-
-        *resp = g_malloc0(len);
-        if (*resp != NULL) {
-            memcpy(*resp, src, len);
-            (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_QUERY_CAPABILITY;
-            (*resp)->hdr.stream_id = req->hdr.stream_id;
-        } else {
-            len = 0;
-        }
-    }
-
-    return len;
-}
-
 static void *virtio_video_decode_thread(void *arg)
 {
     VirtIOVideoStream *stream = arg;
