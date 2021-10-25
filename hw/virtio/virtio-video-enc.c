@@ -39,3 +39,13 @@ size_t virtio_video_enc_cmd_get_params(VirtIODevice *vdev,
 
     return len;
 }
+
+int virtio_video_encode_init(VirtIODevice *vdev)
+{
+    return 0;
+}
+
+void virtio_video_encode_destroy(VirtIODevice *vdev)
+{
+
+}

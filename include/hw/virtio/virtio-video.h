@@ -60,6 +60,10 @@
 #define VIRTIO_VIDEO_CAPS_LENGTH_MAX 1024
 #define VIRTIO_VIDEO_RESPONSE_LENGTH_MAX 1024
 
+#define VIRTIO_VIDEO_FORMAT_LIST_NUM    2
+#define VIRTIO_VIDEO_FORMAT_LIST_INPUT  0
+#define VIRTIO_VIDEO_FORMAT_LIST_OUTPUT 1
+
 #define VIRTIO_VIDEO(obj) \
         OBJECT_CHECK(VirtIOVideo, (obj), TYPE_VIRTIO_VIDEO)
 
@@ -167,10 +171,17 @@ typedef struct VirtIOVideoStream {
     QLIST_ENTRY(VirtIOVideoStream) next;
 } VirtIOVideoStream;
 
-typedef struct VirtIOVideoCaps {
-    void *ptr;
-    uint32_t size;
-} VirtIOVideoCaps;
+typedef struct VirtIOVideoFormatFrame {
+    virtio_video_format_frame frame;
+    virtio_video_format_range *frame_rates;
+    QLIST_ENTRY(VirtIOVideoFormatFrame) next;
+} VirtIOVideoFormatFrame;
+
+typedef struct VirtIOVideoFormat {
+    virtio_video_format_desc desc;
+    QLIST_HEAD(, VirtIOVideoFormatFrame) frames;
+    QLIST_ENTRY(VirtIOVideoFormat) next;
+} VirtIOVideoFormat;
 
 typedef struct VirtIOVideoConf {
     char *model;
@@ -191,9 +202,8 @@ typedef struct VirtIOVideo {
     VirtQueue *cmd_vq, *event_vq;
     QLIST_HEAD(, VirtIOVideoEvent) event_list;
     QLIST_HEAD(, VirtIOVideoStream) stream_list;
+    QLIST_HEAD(, VirtIOVideoFormat) format_list[VIRTIO_VIDEO_FORMAT_LIST_NUM];
     void *opaque;
-    VirtIOVideoCaps caps_in;
-    VirtIOVideoCaps caps_out;
 } VirtIOVideo;
 
 void virtio_video_resource_desc_from_guest_page(VirtIOVideoResourceDesc *desc);

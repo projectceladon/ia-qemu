@@ -50,31 +50,62 @@ static size_t virtio_video_process_cmd_query_capability(VirtIODevice *vdev,
     virtio_video_query_capability *req, virtio_video_query_capability_resp **resp)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-    size_t len = 0;
-    void *src;
-    VIRTVID_DEBUG("    %s: stream 0x%x, queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
+    VirtIOVideoFormat *fmt;
+    VirtIOVideoFormatFrame *fmt_frame;
+    int num_descs = 0, idx;
+    size_t len = sizeof(virtio_video_query_capability_resp);
+    void *buf;
 
-    if (req != NULL && *resp == NULL) {
-        switch (req->queue_type) {
-        case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
-            len = v->caps_in.size;
-            src = v->caps_in.ptr;
-            break;
-        case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
-            len = v->caps_out.size;
-            src = v->caps_out.ptr;
-            break;
-        default:
-            break;
+    if (req == NULL || *resp != NULL)
+        return 0;
+    VIRTVID_DEBUG("    %s: stream 0x%x, queue_type 0x%x", __FUNCTION__,
+            req->hdr.stream_id, req->queue_type);
+
+    switch(req->queue_type) {
+    case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
+        idx = VIRTIO_VIDEO_FORMAT_LIST_INPUT;
+        break;
+    case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
+        idx = VIRTIO_VIDEO_FORMAT_LIST_OUTPUT;
+        break;
+    default:
+        /* The request is invalid, respond with an error */
+        *resp = g_malloc0(sizeof(virtio_video_cmd_hdr));
+        if (*resp == NULL)
+            return 0;
+        ((virtio_video_cmd_hdr *)(*resp))->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+        ((virtio_video_cmd_hdr *)(*resp))->stream_id = req->hdr.stream_id;
+        return sizeof(virtio_video_cmd_hdr);
+    }
+
+    QLIST_FOREACH(fmt, &v->format_list[idx], next) {
+        num_descs++;
+        len += sizeof(fmt->desc);
+        QLIST_FOREACH(fmt_frame, &fmt->frames, next) {
+            len += sizeof(fmt_frame->frame) + fmt_frame->frame.num_rates *
+                   sizeof(virtio_video_format_range);
         }
+    }
+    *resp = g_malloc0(len);
+    if (*resp == NULL)
+        return 0;
 
-        *resp = g_malloc0(len);
-        if (*resp != NULL) {
-            memcpy(*resp, src, len);
-            (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_QUERY_CAPABILITY;
-            (*resp)->hdr.stream_id = req->hdr.stream_id;
-        } else {
-            len = 0;
+    (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_QUERY_CAPABILITY;
+    (*resp)->hdr.stream_id = req->hdr.stream_id;
+    (*resp)->num_descs = num_descs;
+
+    buf = (char *)(*resp) + sizeof(virtio_video_query_capability_resp);
+    QLIST_FOREACH(fmt, &v->format_list[idx], next) {
+        memcpy(buf, &fmt->desc, sizeof(fmt->desc));
+        buf += sizeof(fmt->desc);
+        QLIST_FOREACH(fmt_frame, &fmt->frames, next) {
+            memcpy(buf, &fmt_frame->frame, sizeof(fmt_frame->frame));
+            buf += sizeof(fmt_frame->frame);
+            for (idx = 0; idx < fmt_frame->frame.num_rates; idx++) {
+                memcpy(buf, &fmt_frame->frame_rates[idx],
+                       sizeof(virtio_video_format_range));
+                buf += sizeof(virtio_video_format_range);
+            }
         }
     }
 
@@ -321,16 +352,18 @@ static int virtio_video_process_command(VirtIODevice *vdev, struct iovec *in_buf
 
         len = virtio_video_process_cmd_query_capability(vdev, &req, &resp);
 
+        if (len == 0 || resp == NULL) {
+            virtio_error(vdev, "virtio-video unexpected error while processing cmd_vq\n");
+            return -1;
+        }
         if (unlikely(iov_from_buf(in_buf, in_num, 0, resp, len) != len)) {
-            if (resp)
-                g_free(resp);
+            g_free(resp);
             virtio_error(vdev, "virtio-video insufficient buffer for iov_from_buf in cmd_vq\n");
             return -1;
         }
         VIRTVID_DEBUG("    resp_size 0x%lx", len);
         *size = len;
-        if (resp)
-            g_free(resp);
+        g_free(resp);
         break;
     }
     case VIRTIO_VIDEO_CMD_STREAM_CREATE:
@@ -687,40 +720,36 @@ static void virtio_video_init_framework(VirtIODevice *vdev, Error **errp)
     if (!v->conf.model) {
         error_setg(errp, "virtio-video model isn't set");
         return;
-    } else {
-        for (i = 0; i < ARRAY_SIZE(virtio_video_models); i++) {
-            if (!strcmp(v->conf.model, virtio_video_models[i].name)) {
-                v->model = virtio_video_models[i].id;
-                break;
-            }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(virtio_video_models); i++) {
+        if (!strcmp(v->conf.model, virtio_video_models[i].name)) {
+            v->model = virtio_video_models[i].id;
+            break;
         }
-        if (i == ARRAY_SIZE(virtio_video_models)) {
-            error_setg(errp, "Unknown virtio-video model %s", v->conf.model);
-            return;
-        }
+    }
+    if (i == ARRAY_SIZE(virtio_video_models)) {
+        error_setg(errp, "Unknown virtio-video model %s", v->conf.model);
+        return;
     }
 
     if (!v->conf.backend) {
         error_setg(errp, "virtio-video backend isn't set");
         return;
-    } else {
-        for (i = 0; i < ARRAY_SIZE(virtio_video_backends); i++) {
-            if (!strcmp(v->conf.backend, virtio_video_backends[i].name)) {
-                v->backend = virtio_video_backends[i].id;
-                break;
-            }
-        }
-        if (i == ARRAY_SIZE(virtio_video_backends)) {
-            error_setg(errp, "Unknown virtio-video backend %s", v->conf.backend);
-            return;
+    }
+
+    for (i = 0; i < ARRAY_SIZE(virtio_video_backends); i++) {
+        if (!strcmp(v->conf.backend, virtio_video_backends[i].name)) {
+            v->backend = virtio_video_backends[i].id;
+            break;
         }
     }
-    VIRTVID_DEBUG("model %d(%s), backend %d(%s)", v->model, v->conf.model, v->backend, v->conf.backend);
+    if (i == ARRAY_SIZE(virtio_video_backends)) {
+        error_setg(errp, "Unknown virtio-video backend %s", v->conf.backend);
+        return;
+    }
 
-    v->caps_in.size = sizeof(virtio_video_query_capability_resp);
-    v->caps_in.ptr = g_malloc0(v->caps_in.size);
-    v->caps_out.size = sizeof(virtio_video_query_capability_resp);
-    v->caps_out.ptr = g_malloc0(v->caps_out.size);
+    VIRTVID_DEBUG("model %d(%s), backend %d(%s)", v->model, v->conf.model, v->backend, v->conf.backend);
 
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
@@ -731,6 +760,9 @@ static void virtio_video_init_framework(VirtIODevice *vdev, Error **errp)
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
         virtio_init(vdev, "virtio-video", VIRTIO_ID_VIDEO_ENC, sizeof(virtio_video_config));
+        if (virtio_video_encode_init(vdev)) {
+            error_setg(errp, "Fail to initialize %s:%s", v->conf.model, v->conf.backend);
+        }
         break;
     default:
         return;
@@ -751,21 +783,12 @@ static void virtio_video_destroy_framework(VirtIODevice *vdev)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
-    v->caps_in.size = 0;
-    if (v->caps_in.ptr) {
-        g_free(v->caps_in.ptr);
-    }
-
-    v->caps_out.size = 0;
-    if (v->caps_out.ptr) {
-        g_free(v->caps_out.ptr);
-    }
-
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         virtio_video_decode_destroy(vdev);
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
+        virtio_video_encode_destroy(vdev);
         break;
     default:
         return;
@@ -785,11 +808,34 @@ static void virtio_video_init_internal(VirtIODevice *vdev, Error **errp)
     v->config.max_resp_length = VIRTIO_VIDEO_RESPONSE_LENGTH_MAX;
     QLIST_INIT(&v->event_list);
     QLIST_INIT(&v->stream_list);
+    QLIST_INIT(&v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT]);
+    QLIST_INIT(&v->format_list[VIRTIO_VIDEO_FORMAT_LIST_OUTPUT]);
+}
+
+static void virtio_video_destroy_format(VirtIOVideoFormat *fmt)
+{
+    VirtIOVideoFormatFrame *fmt_frame;
+
+    QLIST_FOREACH(fmt_frame, &fmt->frames, next) {
+        g_free(fmt_frame->frame_rates);
+        QLIST_REMOVE(fmt_frame, next);
+        g_free(fmt_frame);
+    }
+    QLIST_REMOVE(fmt, next);
+    g_free(fmt);
 }
 
 static void virtio_video_destroy_internal(VirtIODevice *vdev)
 {
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
+    VirtIOVideoFormat *fmt;
 
+    QLIST_FOREACH(fmt, &v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT], next) {
+        virtio_video_destroy_format(fmt);
+    }
+    QLIST_FOREACH(fmt, &v->format_list[VIRTIO_VIDEO_FORMAT_LIST_OUTPUT], next) {
+        virtio_video_destroy_format(fmt);
+    }
 }
 
 static void virtio_video_device_realize(DeviceState *dev, Error **errp)
