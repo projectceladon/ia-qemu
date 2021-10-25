@@ -24,7 +24,6 @@
 #define QEMU_VIRTIO_VIDEO_DEC_H
 
 #include "hw/virtio/virtio-video.h"
-#include "virtio-video-msdk.h"
 
 size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
     virtio_video_stream_create *req, virtio_video_cmd_hdr *resp);
@@ -52,7 +51,6 @@ size_t virtio_video_dec_cmd_get_control(VirtIODevice *vdev,
 size_t virtio_video_dec_cmd_set_control(VirtIODevice *vdev,
     virtio_video_set_control *req, virtio_video_set_control_resp *resp);
 
-/* Media-SDK wrapper */
 int virtio_video_decode_init(VirtIODevice *vdev);
 void virtio_video_decode_destroy(VirtIODevice *vdev);
 
