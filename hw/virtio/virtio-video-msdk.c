@@ -25,205 +25,144 @@
 #include "virtio-video-vaapi.h"
 #include "virtio-video-msdk.h"
 
-void virtio_video_msdk_fill_video_params(virtio_video_format format, mfxVideoParam *param)
+struct virtio_video_convert_table {
+    uint32_t virtio_value;
+    uint32_t msdk_value;
+};
+
+static struct virtio_video_convert_table format_table[] = {
+    /* Raw Formats */
+    { VIRTIO_VIDEO_FORMAT_ARGB8888, MFX_FOURCC_RGB4 },
+    { VIRTIO_VIDEO_FORMAT_BGRA8888, 0 },
+    { VIRTIO_VIDEO_FORMAT_NV12, MFX_FOURCC_NV12 },
+    { VIRTIO_VIDEO_FORMAT_YUV420, MFX_FOURCC_IYUV },
+    { VIRTIO_VIDEO_FORMAT_YVU420, MFX_FOURCC_YV12 },
+    /* Coded Formats */
+    { VIRTIO_VIDEO_FORMAT_MPEG2, MFX_CODEC_MPEG2 },
+    { VIRTIO_VIDEO_FORMAT_MPEG4, 0 },
+    { VIRTIO_VIDEO_FORMAT_H264, MFX_CODEC_AVC },
+    { VIRTIO_VIDEO_FORMAT_HEVC, MFX_CODEC_HEVC },
+    { VIRTIO_VIDEO_FORMAT_VP8, MFX_CODEC_VP8 },
+    { VIRTIO_VIDEO_FORMAT_VP9, MFX_CODEC_VP9 },
+    { 0 },
+};
+
+uint32_t virtio_video_format_to_msdk(uint32_t format)
 {
-    if (param == NULL) {
+    int i;
+
+    for (i = 0; i < ARRAY_SIZE(format_table); i++) {
+        if (format_table[i].virtio_value == format)
+            return format_table[i].msdk_value;
+    }
+
+    return 0;
+}
+
+uint32_t virtio_video_msdk_format_to_virtio(uint32_t msdk_format)
+{
+    int i;
+    for (i = 0; i < ARRAY_SIZE(format_table); i++) {
+        if (format_table[i].msdk_value == msdk_format)
+            return format_table[i].virtio_value;
+    }
+
+    return 0;
+}
+
+void virtio_video_msdk_init_video_params(mfxVideoParam *param, uint32_t format)
+{
+    uint32_t msdk_format = virtio_video_format_to_msdk(format);
+
+    if (param == NULL || msdk_format == 0) {
         return;
     }
 
-    if (virito_video_format_to_mfx4cc(format) == 0) {
-        return;
-    }
-
+    /* Hardware usually only supports NV12 pixel format */
     memset(param, 0, sizeof(*param));
-    param->mfx.CodecId = virito_video_format_to_mfx4cc(format);
+    param->mfx.CodecId = msdk_format;
+    param->mfx.FrameInfo.FourCC = MFX_FOURCC_NV12;
     param->mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
-
-    switch (format) {
-    case VIRTIO_VIDEO_FORMAT_ARGB8888:
-    case VIRTIO_VIDEO_FORMAT_BGRA8888:
-    case VIRTIO_VIDEO_FORMAT_NV12:
-    case VIRTIO_VIDEO_FORMAT_YUV420:
-    case VIRTIO_VIDEO_FORMAT_YVU420:
-        break;
-    case VIRTIO_VIDEO_FORMAT_MPEG2:
-    case VIRTIO_VIDEO_FORMAT_MPEG4:
-    case VIRTIO_VIDEO_FORMAT_H264:
-    case VIRTIO_VIDEO_FORMAT_HEVC:
-    case VIRTIO_VIDEO_FORMAT_VP8:
-    case VIRTIO_VIDEO_FORMAT_VP9:
-        /* Only support NV12 for now */
-        param->mfx.FrameInfo.FourCC = MFX_FOURCC_NV12;
-        param->mfx.FrameInfo.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
-        if (format == VIRTIO_VIDEO_FORMAT_HEVC) {
-            param->mfx.CodecProfile = MFX_PROFILE_HEVC_MAIN;
-        }
-        break;
-    default:
-        break;
+    param->mfx.FrameInfo.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
+    if (msdk_format == MFX_CODEC_HEVC) {
+        param->mfx.CodecProfile = MFX_PROFILE_HEVC_MAIN;
     }
 }
 
-void virtio_video_msdk_init_format(virtio_video_format format, virtio_video_format_desc *format_desc)
+void virtio_video_msdk_init_format(VirtIOVideoFormat *fmt, uint32_t format)
 {
-    if (format_desc == NULL) {
+    if (fmt == NULL) {
         return;
     }
 
-    memset(format_desc, 0, sizeof(*format_desc));
-    format_desc->mask = 0;
-    format_desc->format = format;
-    format_desc->planes_layout = VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER;
-    format_desc->plane_align = 0;
+    QLIST_INIT(&fmt->frames);
+    fmt->desc.mask = 0;
+    fmt->desc.format = format;
+    fmt->desc.planes_layout = VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER;
+    fmt->desc.plane_align = 0;
+    fmt->desc.num_frames = 0;
 }
 
-int virtio_video_msdk_get_plugin(virtio_video_format format, bool encode, mfxPluginUID *plugin)
+static const mfxPluginUID* virtio_video_msdk_find_plugin(uint32_t format, bool encode)
 {
-    int ret = -1;
-
-    if (plugin != NULL) {
-        if (encode) {
-            switch (format) {
-            case VIRTIO_VIDEO_FORMAT_HEVC:
-                *plugin = MFX_PLUGINID_HEVCE_HW;
-                ret = 0;
-                break;
-            case VIRTIO_VIDEO_FORMAT_VP9:
-                *plugin = MFX_PLUGINID_VP9E_HW;
-                ret = 0;
-                break;
-            default:
-                break;
-            }
-        } else {
-            switch (format) {
-            case VIRTIO_VIDEO_FORMAT_HEVC:
-                *plugin = MFX_PLUGINID_HEVCD_HW;
-                ret = 0;
-                break;
-            case VIRTIO_VIDEO_FORMAT_VP8:
-                *plugin = MFX_PLUGINID_VP8D_HW;
-                ret = 0;
-                break;
-            case VIRTIO_VIDEO_FORMAT_VP9:
-                *plugin = MFX_PLUGINID_VP9D_HW;
-                ret = 0;
-                break;
-            default:
-                break;
-            }
+    if (encode) {
+        switch (format) {
+        case VIRTIO_VIDEO_FORMAT_HEVC:
+            return &MFX_PLUGINID_HEVCE_HW;
+        case VIRTIO_VIDEO_FORMAT_VP8:
+            return &MFX_PLUGINID_VP8E_HW;
+        case VIRTIO_VIDEO_FORMAT_VP9:
+            return &MFX_PLUGINID_VP9E_HW;
+        default:
+            break;
+        }
+    } else {
+        switch (format) {
+        case VIRTIO_VIDEO_FORMAT_HEVC:
+            return &MFX_PLUGINID_HEVCD_HW;
+        case VIRTIO_VIDEO_FORMAT_VP8:
+            return &MFX_PLUGINID_VP8D_HW;
+        case VIRTIO_VIDEO_FORMAT_VP9:
+            return &MFX_PLUGINID_VP9D_HW;
+        default:
+            break;
         }
     }
 
-    return ret;
+    return NULL;
 }
 
-void virtio_video_msdk_load_plugin(mfxSession mfx_session, virtio_video_format format, bool encode, bool unload)
+/* Load plugin if required */
+void virtio_video_msdk_load_plugin(mfxSession session, uint32_t format, bool encode)
 {
-    mfxStatus sts = MFX_ERR_NONE;
-    mfxPluginUID pluginUID = {0};
+    mfxStatus status;
+    const mfxPluginUID *pluginUID;
 
-    if (mfx_session == NULL) {
+    if (session == NULL) {
         return;
     }
 
-    if (virtio_video_msdk_get_plugin(format, encode, &pluginUID) == 0) {
-        if (unload) {
-            sts = MFXVideoUSER_UnLoad(mfx_session, &pluginUID);
-            VIRTVID_VERBOSE("Unload MFX plugin for format %x, status %d", format, sts);
-        } else {
-            sts = MFXVideoUSER_Load(mfx_session, &pluginUID, 1);
-            VIRTVID_VERBOSE("Load MFX plugin for format %x, status %d", format, sts);
-        }
+    pluginUID = virtio_video_msdk_find_plugin(format, encode);
+    if (pluginUID != NULL) {
+        status = MFXVideoUSER_Load(session, pluginUID, 1);
+        VIRTVID_VERBOSE("Load MFX plugin for format %x, status %d", format, status);
     }
 }
 
-int virito_video_format_to_mfx4cc(virtio_video_format fmt)
+void virtio_video_msdk_unload_plugin(mfxSession session, uint32_t format, bool encode)
 {
-    int mfx4cc = 0;
+    mfxStatus status;
+    const mfxPluginUID *pluginUID;
 
-    switch (fmt) {
-    /* Raw format */
-    case VIRTIO_VIDEO_FORMAT_ARGB8888:
-        mfx4cc = MFX_FOURCC_RGB4;
-        break;
-    case VIRTIO_VIDEO_FORMAT_BGRA8888:
-        /* Unsupported */
-        break;
-    case VIRTIO_VIDEO_FORMAT_NV12:
-        mfx4cc = MFX_FOURCC_NV12;
-        break;
-    case VIRTIO_VIDEO_FORMAT_YUV420:
-        mfx4cc = MFX_FOURCC_IYUV;
-        break;
-    case VIRTIO_VIDEO_FORMAT_YVU420:
-        mfx4cc = MFX_FOURCC_YV12;
-        break;
-    /* Coded format */
-    case VIRTIO_VIDEO_FORMAT_MPEG2:
-        mfx4cc = MFX_CODEC_MPEG2;
-        break;
-    case VIRTIO_VIDEO_FORMAT_MPEG4:
-        /* Unsupported */
-        break;
-    case VIRTIO_VIDEO_FORMAT_H264:
-        mfx4cc = MFX_CODEC_AVC;
-        break;
-    case VIRTIO_VIDEO_FORMAT_HEVC:
-        mfx4cc = MFX_CODEC_HEVC;
-        break;
-    case VIRTIO_VIDEO_FORMAT_VP8:
-        mfx4cc = MFX_CODEC_VP8;
-        break;
-    case VIRTIO_VIDEO_FORMAT_VP9:
-        mfx4cc = MFX_CODEC_VP9;
-        break;
-    default:
-        break;
+    if (session == NULL) {
+        return;
     }
 
-    return mfx4cc;
-}
-
-virtio_video_format virito_video_format_from_mfx4cc(int mfx4cc)
-{
-    virtio_video_format fmt = VIRTIO_VIDEO_FORMAT_RAW_MAX;
-
-    switch (mfx4cc) {
-    /* Raw format */
-    case MFX_FOURCC_RGB4:
-        fmt = VIRTIO_VIDEO_FORMAT_ARGB8888;
-        break;
-    case MFX_FOURCC_NV12:
-        fmt = VIRTIO_VIDEO_FORMAT_NV12;
-        break;
-    case MFX_FOURCC_IYUV:
-        fmt = VIRTIO_VIDEO_FORMAT_YUV420;
-        break;
-    case MFX_FOURCC_YV12:
-        fmt = VIRTIO_VIDEO_FORMAT_YVU420;
-        break;
-    /* Coded format */
-    case MFX_CODEC_MPEG2:
-        fmt = VIRTIO_VIDEO_FORMAT_MPEG2;
-        break;
-    case MFX_CODEC_AVC:
-        fmt = VIRTIO_VIDEO_FORMAT_H264;
-        break;
-    case MFX_CODEC_HEVC:
-        fmt = VIRTIO_VIDEO_FORMAT_HEVC;
-        break;
-    case MFX_CODEC_VP8:
-        fmt = VIRTIO_VIDEO_FORMAT_VP8;
-        break;
-    case MFX_CODEC_VP9:
-        fmt = VIRTIO_VIDEO_FORMAT_VP9;
-        break;
-    default:
-        break;
+    pluginUID = virtio_video_msdk_find_plugin(format, encode);
+    if (pluginUID != NULL) {
+        status = MFXVideoUSER_UnLoad(session, pluginUID);
+        VIRTVID_VERBOSE("Unload MFX plugin for format %x, status %d", format, status);
     }
-
-    return fmt;
 }
 
 void virtio_video_profile_range(virtio_video_format fmt, int *min, int *max)

@@ -111,7 +111,7 @@ static void *virtio_video_decode_thread(void *arg)
         MSDK_ALIGN32(((mfxVideoParam*)stream->mfxParams)->mfx.FrameInfo.Width);
     /* Output */
     memcpy(&VPPParams.vpp.Out, &VPPParams.vpp.In, sizeof(VPPParams.vpp.Out));
-    VPPParams.vpp.Out.FourCC = virito_video_format_to_mfx4cc(stream->out_params.format);
+    VPPParams.vpp.Out.FourCC = virtio_video_format_to_msdk(stream->out_params.format);
     VPPParams.vpp.Out.ChromaFormat = 0;
 
     /* Query and allocate VPP surface */
@@ -324,7 +324,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
         goto OUT;
     }
 
-    virtio_video_msdk_load_plugin(node->mfx_session, req->coded_format, false, false);
+    virtio_video_msdk_load_plugin(node->mfx_session, req->coded_format, false);
 
     node->stream_id = req->hdr.stream_id;
     node->in_mem_type = req->in_mem_type;
@@ -336,7 +336,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
 
     /* Prepare an initial mfxVideoParam for decode */
     node->mfxParams = g_malloc0(sizeof(mfxVideoParam));
-    virtio_video_msdk_fill_video_params(req->coded_format, node->mfxParams);
+    virtio_video_msdk_init_video_params(node->mfxParams, req->coded_format);
 
     node->mfxSurfOut = g_malloc(sizeof(mfxFrameSurface1));
     node->mfxBs = g_malloc(sizeof(mfxBitstream));
@@ -346,7 +346,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
 
     /* Try query all profiles */
     QLIST_INIT(&node->control_caps.profile.list);
-    virtio_video_msdk_fill_video_params(req->coded_format, &inParam);
+    virtio_video_msdk_init_video_params(&inParam, req->coded_format);
     memset(&outParam, 0, sizeof(outParam));
     outParam.mfx.CodecId = inParam.mfx.CodecId;
     virtio_video_profile_range(req->coded_format, &min, &max);
@@ -372,7 +372,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
 
     /* Try query all levels */
     QLIST_INIT(&node->control_caps.level.list);
-    virtio_video_msdk_fill_video_params(req->coded_format, &inParam);
+    virtio_video_msdk_init_video_params(&inParam, req->coded_format);
     memset(&outParam, 0, sizeof(outParam));
     outParam.mfx.CodecId = inParam.mfx.CodecId;
     virtio_video_level_range(req->coded_format, &min, &max);
@@ -396,7 +396,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
         ((mfxVideoParam*)node->mfxParams)->mfx.CodecLevel = virtio_video_level_to_mfx(req->coded_format, QLIST_FIRST(&node->control_caps.level.list)->value);
     }
 
-    virtio_video_msdk_fill_video_params(req->coded_format, &inParam);
+    virtio_video_msdk_init_video_params(&inParam, req->coded_format);
     memset(&outParam, 0, sizeof(outParam));
     outParam.mfx.CodecId = inParam.mfx.CodecId;
     inParam.mfx.TargetKbps = 10000; /* TODO: Determine the max bitrage */
@@ -536,7 +536,7 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
 
             g_free(node->mfxSurfOut);
             g_free(node->mfxParams);
-            virtio_video_msdk_load_plugin(node->mfx_session, node->in_format, false, true);
+            virtio_video_msdk_unload_plugin(node->mfx_session, node->in_format, false);
             MFXClose(node->mfx_session);
 
             QLIST_SAFE_REMOVE(node, next);
@@ -1065,34 +1065,34 @@ size_t virtio_video_dec_cmd_set_control(VirtIODevice *vdev,
 static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-    mfxStatus status;
     virtio_video_format format;
-    mfxSession mfx_session;
+    mfxStatus status;
+    mfxSession session;
 
-    mfxInitParam par = {
+    mfxInitParam init_param = {
         .Implementation = MFX_IMPL_AUTO_ANY,
         .Version.Major = VIRTIO_VIDEO_MSDK_VERSION_MAJOR,
         .Version.Minor = VIRTIO_VIDEO_MSDK_VERSION_MINOR,
     };
 
-    mfxVideoParam inParam = {0}, outParam = {0};
+    mfxVideoParam param = {0}, corrected_param = {0};
 
     if (virtio_video_create_va_env_drm(vdev)) {
         VIRTVID_ERROR("Fail to create VA environment on DRM");
         return -1;
     }
 
-    status = MFXInitEx(par, &mfx_session);
+    status = MFXInitEx(init_param, &session);
     if (status != MFX_ERR_NONE) {
         VIRTVID_ERROR("MFXInitEx returns %d", status);
         return -1;
     }
 
-    status = MFXVideoCORE_SetHandle(mfx_session, MFX_HANDLE_VA_DISPLAY,
+    status = MFXVideoCORE_SetHandle(session, MFX_HANDLE_VA_DISPLAY,
                                     ((VirtIOVideoMediaSDK *)v->opaque)->va_disp_handle);
     if (status != MFX_ERR_NONE) {
         VIRTVID_ERROR("MFXVideoCORE_SetHandle returns %d", status);
-        MFXClose(mfx_session);
+        MFXClose(session);
         return -1;
     }
 
@@ -1100,64 +1100,62 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
          format <= VIRTIO_VIDEO_FORMAT_CODED_MAX; format++) {
         VirtIOVideoFormat *fmt = NULL;
         uint32_t w_min = 0, h_min = 0, w_max = 0, h_max = 0;
-        int coded_mfx4cc = virito_video_format_to_mfx4cc(format);
-        if (coded_mfx4cc == 0)
+        int msdk_format = virtio_video_format_to_msdk(format);
+        if (msdk_format == 0)
             continue;
 
-        /* Query CodecId to fill virtio_video_format_desc */
-        memset(&outParam, 0, sizeof(outParam));
-        outParam.mfx.CodecId = coded_mfx4cc;
-        status = MFXVideoDECODE_Query(mfx_session, NULL, &outParam);
+        /* Check whether the format is supported */
+        param.mfx.CodecId = msdk_format;
+        status = MFXVideoDECODE_Query(session, NULL, &param);
         if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
             VIRTVID_DEBUG("format %x isn't supported by MSDK, status %d", format, status);
             continue;
         }
 
         fmt = g_malloc0(sizeof(VirtIOVideoFormat));
-        QLIST_INIT(&fmt->frames);
-        virtio_video_msdk_init_format(format, &fmt->desc);
+        virtio_video_msdk_init_format(fmt, format);
 
         /* Try query max & min size for a coded format */
-        virtio_video_msdk_fill_video_params(format, &inParam);
-        memset(&outParam, 0, sizeof(outParam));
-        outParam.mfx.CodecId = inParam.mfx.CodecId;
+        virtio_video_msdk_init_video_params(&param, format);
+        corrected_param.mfx.CodecId = param.mfx.CodecId;
 
-        inParam.mfx.FrameInfo.Width = VIRTIO_VIDEO_MSDK_DIMENSION_MAX;
-        inParam.mfx.FrameInfo.Height = VIRTIO_VIDEO_MSDK_DIMENSION_MAX;
+        param.mfx.FrameInfo.Width = VIRTIO_VIDEO_MSDK_DIMENSION_MAX;
+        param.mfx.FrameInfo.Height = VIRTIO_VIDEO_MSDK_DIMENSION_MAX;
 
-        virtio_video_msdk_load_plugin(mfx_session, format, false, false);
+        virtio_video_msdk_load_plugin(session, format, false);
         do {
-            status = MFXVideoDECODE_Query(mfx_session, &inParam, &outParam);
+            status = MFXVideoDECODE_Query(session, &param, &corrected_param);
             if (status == MFX_ERR_NONE || status == MFX_WRN_PARTIAL_ACCELERATION) {
-                w_max = outParam.mfx.FrameInfo.Width;
-                h_max = outParam.mfx.FrameInfo.Height;
+                w_max = corrected_param.mfx.FrameInfo.Width;
+                h_max = corrected_param.mfx.FrameInfo.Height;
                 break;
             }
-            inParam.mfx.FrameInfo.Width -= VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE;
-            if (inParam.mfx.FrameInfo.PicStruct == MFX_PICSTRUCT_PROGRESSIVE) {
-                inParam.mfx.FrameInfo.Height -= VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE;
+            param.mfx.FrameInfo.Width -= VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE;
+            if (param.mfx.FrameInfo.PicStruct == MFX_PICSTRUCT_PROGRESSIVE) {
+                param.mfx.FrameInfo.Height -= VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE;
             } else {
-                inParam.mfx.FrameInfo.Height -= VIRTIO_VIDEO_MSDK_DIM_STEP_OTHER;
+                param.mfx.FrameInfo.Height -= VIRTIO_VIDEO_MSDK_DIM_STEP_OTHER;
             }
-        } while (inParam.mfx.FrameInfo.Width >= VIRTIO_VIDEO_MSDK_DIMENSION_MIN && inParam.mfx.FrameInfo.Height >= VIRTIO_VIDEO_MSDK_DIMENSION_MIN);
+        } while (param.mfx.FrameInfo.Width >= VIRTIO_VIDEO_MSDK_DIMENSION_MIN &&
+                 param.mfx.FrameInfo.Height >= VIRTIO_VIDEO_MSDK_DIMENSION_MIN);
 
-        inParam.mfx.FrameInfo.Width = VIRTIO_VIDEO_MSDK_DIMENSION_MIN;
-        inParam.mfx.FrameInfo.Height = VIRTIO_VIDEO_MSDK_DIMENSION_MIN;
+        param.mfx.FrameInfo.Width = VIRTIO_VIDEO_MSDK_DIMENSION_MIN;
+        param.mfx.FrameInfo.Height = VIRTIO_VIDEO_MSDK_DIMENSION_MIN;
         do {
-            status = MFXVideoDECODE_Query(mfx_session, &inParam, &outParam);
+            status = MFXVideoDECODE_Query(session, &param, &corrected_param);
             if (status == MFX_ERR_NONE || status == MFX_WRN_PARTIAL_ACCELERATION) {
-                w_min = outParam.mfx.FrameInfo.Width;
-                h_min = outParam.mfx.FrameInfo.Height;
+                w_min = corrected_param.mfx.FrameInfo.Width;
+                h_min = corrected_param.mfx.FrameInfo.Height;
                 break;
             }
-            inParam.mfx.FrameInfo.Width += VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE;
-            if (inParam.mfx.FrameInfo.PicStruct == MFX_PICSTRUCT_PROGRESSIVE) {
-                inParam.mfx.FrameInfo.Height += VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE;
+            param.mfx.FrameInfo.Width += VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE;
+            if (param.mfx.FrameInfo.PicStruct == MFX_PICSTRUCT_PROGRESSIVE) {
+                param.mfx.FrameInfo.Height += VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE;
             } else {
-                inParam.mfx.FrameInfo.Height += VIRTIO_VIDEO_MSDK_DIM_STEP_OTHER;
+                param.mfx.FrameInfo.Height += VIRTIO_VIDEO_MSDK_DIM_STEP_OTHER;
             }
-        } while (inParam.mfx.FrameInfo.Width <= w_max && inParam.mfx.FrameInfo.Height <= h_max);
-        virtio_video_msdk_load_plugin(mfx_session, format, false, true);
+        } while (param.mfx.FrameInfo.Width <= w_max && param.mfx.FrameInfo.Height <= h_max);
+        virtio_video_msdk_unload_plugin(session, format, false);
 
         /* Add one virtio_video_format_frame and virtio_video_format_range block to last added virtio_video_format_desc */
         if (w_min && w_max && h_min && h_max) {
@@ -1172,7 +1170,7 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
             fmt_frame->frame.width.step = VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE;
             fmt_frame->frame.height.min = h_min;
             fmt_frame->frame.height.max = h_max;
-            fmt_frame->frame.height.step = (inParam.mfx.FrameInfo.PicStruct == MFX_PICSTRUCT_PROGRESSIVE) ?
+            fmt_frame->frame.height.step = (param.mfx.FrameInfo.PicStruct == MFX_PICSTRUCT_PROGRESSIVE) ?
                 VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE : VIRTIO_VIDEO_MSDK_DIM_STEP_OTHER;
 
             /* For decoding, frame rate may be unspecified, so always set range [1,60] */
@@ -1193,8 +1191,7 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
 
             // TODO: Should check if duplicate, and add new leaf to existing node instead creating new nodes
             out_fmt = g_malloc0(sizeof(VirtIOVideoFormat));
-            QLIST_INIT(&out_fmt->frames);
-            virtio_video_msdk_init_format(VIRTIO_VIDEO_FORMAT_NV12, &out_fmt->desc);
+            virtio_video_msdk_init_format(out_fmt, VIRTIO_VIDEO_FORMAT_NV12);
 
             out_fmt->desc.num_frames = 1;
             out_fmt_frame = g_malloc0(sizeof(VirtIOVideoFormatFrame));
@@ -1221,7 +1218,7 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
         }
     }
 
-    MFXClose(mfx_session);
+    MFXClose(session);
 
     return 0;
 }

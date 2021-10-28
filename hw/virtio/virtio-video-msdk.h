@@ -47,12 +47,12 @@ typedef struct VirtIOVideoMediaSDK {
     void *va_disp_handle;
 } VirtIOVideoMediaSDK;
 
-void virtio_video_msdk_fill_video_params(virtio_video_format format, mfxVideoParam *param);
-void virtio_video_msdk_init_format(virtio_video_format format, virtio_video_format_desc *format_desc);
-int virtio_video_msdk_get_plugin(virtio_video_format format, bool encode, mfxPluginUID *plugin);
-void virtio_video_msdk_load_plugin(mfxSession mfx_session, virtio_video_format format, bool encode, bool unload);
-int virito_video_format_to_mfx4cc(virtio_video_format fmt);
-virtio_video_format virito_video_format_from_mfx4cc(int mfx4cc);
+uint32_t virtio_video_format_to_msdk(uint32_t format);
+uint32_t virtio_video_msdk_format_to_virtio(uint32_t msdk_format);
+void virtio_video_msdk_init_video_params(mfxVideoParam *param, uint32_t format);
+void virtio_video_msdk_init_format(VirtIOVideoFormat *fmt, uint32_t format);
+void virtio_video_msdk_load_plugin(mfxSession session, uint32_t format, bool encode);
+void virtio_video_msdk_unload_plugin(mfxSession session, uint32_t format, bool encode);
 void virtio_video_profile_range(virtio_video_format fmt, int *min, int *max);
 void virtio_video_level_range(virtio_video_format fmt, int *min, int *max);
 int virtio_video_profile_to_mfx(virtio_video_format fmt, virtio_video_profile profile);
