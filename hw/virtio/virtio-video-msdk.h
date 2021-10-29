@@ -37,7 +37,7 @@
 #define VIRTIO_VIDEO_MSDK_DIMENSION_MAX         8192
 #define VIRTIO_VIDEO_MSDK_DIMENSION_MIN         16
 #define VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE  16
-#define VIRTIO_VIDEO_MSDK_DIM_STEP_OTHER        32
+#define VIRTIO_VIDEO_MSDK_DIM_STEP_OTHERS       32
 
 #define MSDK_ALIGN16(value) (((value + 15) >> 4) << 4)
 #define MSDK_ALIGN32(X) (((mfxU32)((X)+31)) & (~ (mfxU32)31))
