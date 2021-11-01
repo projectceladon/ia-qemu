@@ -30,6 +30,7 @@
 static void *virtio_video_decode_thread(void *arg)
 {
     VirtIOVideoStream *stream = arg;
+    VirtIOVideoStreamMediaSDK *msdk = stream->opaque;
     sigset_t sigmask, old;
     int err, i;
     bool running = TRUE, decoding = TRUE;
@@ -50,20 +51,20 @@ static void *virtio_video_decode_thread(void *arg)
         VIRTVID_ERROR("%s thread 0x%0x change SIG_BLOCK failed err %d", VIRTIO_VIDEO_DECODE_THREAD, stream->stream_id, err);
     }
 
-    sts = MFXVideoDECODE_Init(stream->mfx_session, stream->mfxParams);
+    sts = MFXVideoDECODE_Init(msdk->session, stream->mfxParams);
     if (sts != MFX_ERR_NONE) {
         VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Init failed with err %d", stream->stream_id, sts);
     }
 
     /* Retrieve current working mfxVideoParam */
-    sts = MFXVideoDECODE_GetVideoParam(stream->mfx_session, stream->mfxParams);
+    sts = MFXVideoDECODE_GetVideoParam(msdk->session, stream->mfxParams);
     if (sts != MFX_ERR_NONE) {
         VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_GetVideoParam failed with err %d", stream->stream_id, sts);
     }
 
     /* Query and allocate working surface */
     memset(&allocRequest, 0, sizeof(allocRequest));
-    sts = MFXVideoDECODE_QueryIOSurf(stream->mfx_session, stream->mfxParams, &allocRequest);
+    sts = MFXVideoDECODE_QueryIOSurf(msdk->session, stream->mfxParams, &allocRequest);
     if (sts != MFX_ERR_NONE && sts != MFX_WRN_PARTIAL_ACCELERATION) {
         VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_QueryIOSurf failed with err %d", stream->stream_id, sts);
         running = FALSE;
@@ -116,7 +117,7 @@ static void *virtio_video_decode_thread(void *arg)
 
     /* Query and allocate VPP surface */
     memset(&vppRequest, 0, sizeof(vppRequest));
-    sts = MFXVideoVPP_QueryIOSurf(stream->mfx_session, &VPPParams, vppRequest);
+    sts = MFXVideoVPP_QueryIOSurf(msdk->session, &VPPParams, vppRequest);
     if (sts != MFX_ERR_NONE && sts != MFX_WRN_PARTIAL_ACCELERATION) {
         VIRTVID_ERROR("stream 0x%x MFXVideoVPP_QueryIOSurf failed with err %d", stream->stream_id, sts);
         running = FALSE;
@@ -126,7 +127,7 @@ static void *virtio_video_decode_thread(void *arg)
             ((mfxU16)MSDK_ALIGN32(vppRequest[1].Info.Width)) * 32 / 8;
     }
 
-    sts = MFXVideoVPP_Init(stream->mfx_session, &VPPParams);
+    sts = MFXVideoVPP_Init(msdk->session, &VPPParams);
     if (sts != MFX_ERR_NONE) {
         VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Init failed with err %d", stream->stream_id, sts);
     }
@@ -148,7 +149,7 @@ static void *virtio_video_decode_thread(void *arg)
 
             switch (entry->ev) {
             case VirtIOVideoStreamEventParamChange:
-                sts = MFXVideoDECODE_Reset(stream->mfx_session, stream->mfxParams);
+                sts = MFXVideoDECODE_Reset(msdk->session, stream->mfxParams);
                 if (sts != MFX_ERR_NONE) {
                     running = FALSE;
                 }
@@ -156,11 +157,11 @@ static void *virtio_video_decode_thread(void *arg)
             case VirtIOVideoStreamEventStreamDrain:
                 /* set bs to NULL to signal end of stream to drain the decoding */
                 do {
-                    sts = MFXVideoDECODE_DecodeFrameAsync(stream->mfx_session, NULL, surface_work, &surface_nv12, &syncp);
-                    MFXVideoCORE_SyncOperation(stream->mfx_session, syncp, stream->mfxWaitMs);
+                    sts = MFXVideoDECODE_DecodeFrameAsync(msdk->session, NULL, surface_work, &surface_nv12, &syncp);
+                    MFXVideoCORE_SyncOperation(msdk->session, syncp, stream->mfxWaitMs);
                 } while (sts != MFX_ERR_MORE_DATA && (--stream->retry) > 0);
-                MFXVideoVPP_Reset(stream->mfx_session, &VPPParams);
-                MFXVideoDECODE_Reset(stream->mfx_session, stream->mfxParams);
+                MFXVideoVPP_Reset(msdk->session, &VPPParams);
+                MFXVideoDECODE_Reset(msdk->session, stream->mfxParams);
                 break;
             case VirtIOVideoStreamEventResourceQueue:
                 decoding = TRUE;
@@ -202,9 +203,9 @@ static void *virtio_video_decode_thread(void *arg)
             continue;
         }
 
-        sts = MFXVideoDECODE_DecodeFrameAsync(stream->mfx_session, stream->mfxBs, surf, &surface_nv12, &syncp);
+        sts = MFXVideoDECODE_DecodeFrameAsync(msdk->session, stream->mfxBs, surf, &surface_nv12, &syncp);
         if (sts == MFX_ERR_NONE) {
-            sts = MFXVideoCORE_SyncOperation(stream->mfx_session, syncp, stream->mfxWaitMs);
+            sts = MFXVideoCORE_SyncOperation(msdk->session, syncp, stream->mfxWaitMs);
             if (sts == MFX_ERR_NONE) {
                 stream->stat = VirtIOVideoStreamStatNone;
             } else {
@@ -219,7 +220,7 @@ static void *virtio_video_decode_thread(void *arg)
         }
 
         for (;;) {
-            sts = MFXVideoVPP_RunFrameVPPAsync(stream->mfx_session, surface_nv12, stream->mfxSurfOut, NULL, &syncVpp);
+            sts = MFXVideoVPP_RunFrameVPPAsync(msdk->session, surface_nv12, stream->mfxSurfOut, NULL, &syncVpp);
             if (sts > MFX_ERR_NONE&& !syncVpp) {
                 if (sts == MFX_WRN_DEVICE_BUSY) {
                     g_usleep(1000);
@@ -235,22 +236,22 @@ static void *virtio_video_decode_thread(void *arg)
         qemu_event_set(&stream->signal_out);
     }
 
-    sts = MFXVideoVPP_Reset(stream->mfx_session, &VPPParams);
+    sts = MFXVideoVPP_Reset(msdk->session, &VPPParams);
     if (sts != MFX_ERR_NONE) {
         VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Reset failed with err %d", stream->stream_id, sts);
     }
 
-    sts = MFXVideoVPP_Close(stream->mfx_session);
+    sts = MFXVideoVPP_Close(msdk->session);
     if (sts != MFX_ERR_NONE) {
         VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Close failed with err %d", stream->stream_id, sts);
     }
 
-    sts = MFXVideoDECODE_Reset(stream->mfx_session, stream->mfxParams);
+    sts = MFXVideoDECODE_Reset(msdk->session, stream->mfxParams);
     if (sts != MFX_ERR_NONE) {
         VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Reset failed with err %d", stream->stream_id, sts);
     }
 
-    sts = MFXVideoDECODE_Close(stream->mfx_session);
+    sts = MFXVideoDECODE_Close(msdk->session);
     if (sts != MFX_ERR_NONE) {
         VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Close failed with err %d", stream->stream_id, sts);
     }
@@ -273,58 +274,78 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoFormat *fmt;
-    VirtIOVideoMediaSDK *msdk = (VirtIOVideoMediaSDK *) v->opaque;
-    bool found = false;
-    size_t len = 0;
-    mfxStatus sts = MFX_ERR_NONE;
-    VirtIOVideoStream *node = NULL;
-    mfxInitParam par = {
+    VirtIOVideoStream *node;
+    VirtIOVideoStreamMediaSDK *msdk;
+    VirtIOVideoControl *control = NULL;
+    mfxStatus status;
+    size_t len;
+    int min, max;
+
+    mfxInitParam param = {
         .Implementation = MFX_IMPL_AUTO_ANY,
         .Version.Major = VIRTIO_VIDEO_MSDK_VERSION_MAJOR,
         .Version.Minor = VIRTIO_VIDEO_MSDK_VERSION_MINOR,
     };
-    VirtIOVideoControl *control = NULL;
+
     mfxVideoParam inParam = {0}, outParam = {0};
-    int min, max;
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
+    QLIST_FOREACH(node, &v->stream_list, next) {
+        if (node->stream_id == resp->stream_id) {
+            resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+            VIRTVID_ERROR("    %s: stream id 0x%x is already used", __FUNCTION__, resp->stream_id);
+            return len;
+        }
+    }
+
+    if (req->in_mem_type == VIRTIO_VIDEO_MEM_TYPE_VIRTIO_OBJECT ||
+            req->out_mem_type == VIRTIO_VIDEO_MEM_TYPE_VIRTIO_OBJECT) {
+        VIRTVID_ERROR("    %s: stream 0x%x, unsupported mem type", __FUNCTION__, resp->stream_id);
+        return len;
+    }
+
     QLIST_FOREACH(fmt, &v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT], next) {
         if (fmt->desc.format == req->coded_format) {
-            found = true;
             break;
         }
     }
-    if (!found) {
-        VIRTVID_ERROR("    %s: stream 0x%x, unsupported format 0x%x", __FUNCTION__, req->hdr.stream_id, req->coded_format);
+    if (fmt == NULL) {
+        VIRTVID_ERROR("    %s: stream 0x%x, unsupported format 0x%x", __FUNCTION__,
+                resp->stream_id, req->coded_format);
+        return len;
+    }
+
+    msdk = g_malloc(sizeof(VirtIOVideoStreamMediaSDK));
+    if (msdk == NULL)
+        return len;
+
+    status = MFXInitEx(param, &msdk->session);
+    if (status != MFX_ERR_NONE) {
+        VIRTVID_ERROR("    %s: MFXInitEx returns %d for stream 0x%x", __FUNCTION__, status, resp->stream_id);
+        g_free(msdk);
+        return len;
+    }
+
+    status = MFXVideoCORE_SetHandle(msdk->session, MFX_HANDLE_VA_DISPLAY,
+                                    ((VirtIOVideoMediaSDK *)v->opaque)->va_disp_handle);
+    if (status != MFX_ERR_NONE) {
+        VIRTVID_ERROR("    %s: MFXVideoCORE_SetHandle returns %d for stream 0x%x", __FUNCTION__, status, resp->stream_id);
+        MFXClose(msdk->session);
+        g_free(msdk);
         return len;
     }
 
     node = g_malloc0(sizeof(VirtIOVideoStream));
-    if (node == NULL)
+    if (node == NULL) {
+        g_free(msdk);
         return len;
-
+    }
     node->mfxWaitMs = 60000;
-    node->stream_id = ~0L;
 
-    sts = MFXInitEx(par, (mfxSession*)&node->mfx_session);
-    if (sts != MFX_ERR_NONE) {
-        VIRTVID_ERROR("    %s: MFXInitEx returns %d for stream 0x%x", __FUNCTION__, sts, req->hdr.stream_id);
-        g_free(node);
-        goto OUT;
-    }
-
-    sts = MFXVideoCORE_SetHandle(node->mfx_session, MFX_HANDLE_VA_DISPLAY, (mfxHDL)msdk->va_disp_handle);
-    if (sts != MFX_ERR_NONE) {
-        VIRTVID_ERROR("    %s: MFXVideoCORE_SetHandle returns %d for stream 0x%x", __FUNCTION__, sts, req->hdr.stream_id);
-        MFXClose(node->mfx_session);
-        g_free(node);
-        goto OUT;
-    }
-
-    virtio_video_msdk_load_plugin(node->mfx_session, req->coded_format, false);
+    virtio_video_msdk_load_plugin(msdk->session, req->coded_format, false);
 
     node->stream_id = req->hdr.stream_id;
     node->in_mem_type = req->in_mem_type;
@@ -355,8 +376,8 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
         for (profile = min; profile <= max; profile++) {
             inParam.mfx.CodecProfile = virtio_video_profile_to_mfx(req->coded_format, profile);
             if (inParam.mfx.CodecProfile != MFX_PROFILE_UNKNOWN) {
-                sts = MFXVideoDECODE_Query(node->mfx_session, &inParam, &outParam);
-                if (sts == MFX_ERR_NONE || sts == MFX_WRN_PARTIAL_ACCELERATION) {
+                status = MFXVideoDECODE_Query(msdk->session, &inParam, &outParam);
+                if (status == MFX_ERR_NONE || status == MFX_WRN_PARTIAL_ACCELERATION) {
                     node->control.profile = profile;
                     control = g_malloc0(sizeof(VirtIOVideoControl));
                     if (control) {
@@ -381,8 +402,8 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
         for (level = min; level <= max; level++) {
             inParam.mfx.CodecLevel = virtio_video_level_to_mfx(req->coded_format, level);
             if (inParam.mfx.CodecLevel != MFX_LEVEL_UNKNOWN) {
-                sts = MFXVideoDECODE_Query(node->mfx_session, &inParam, &outParam);
-                if (sts == MFX_ERR_NONE || sts == MFX_WRN_PARTIAL_ACCELERATION) {
+                status = MFXVideoDECODE_Query(msdk->session, &inParam, &outParam);
+                if (status == MFX_ERR_NONE || status == MFX_WRN_PARTIAL_ACCELERATION) {
                     node->control.level = level;
                     control = g_malloc0(sizeof(VirtIOVideoControl));
                     if (control) {
@@ -400,54 +421,44 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
     memset(&outParam, 0, sizeof(outParam));
     outParam.mfx.CodecId = inParam.mfx.CodecId;
     inParam.mfx.TargetKbps = 10000; /* TODO: Determine the max bitrage */
-    sts = MFXVideoDECODE_Query(node->mfx_session, &inParam, &outParam);
-    if (sts == MFX_ERR_NONE || sts == MFX_WRN_PARTIAL_ACCELERATION) {
+    status = MFXVideoDECODE_Query(msdk->session, &inParam, &outParam);
+    if (status == MFX_ERR_NONE || status == MFX_WRN_PARTIAL_ACCELERATION) {
         node->control.bitrate = inParam.mfx.TargetKbps;
         ((mfxVideoParam*)node->mfxParams)->mfx.TargetKbps = node->control.bitrate;
     }
 
     memset(&node->in_params, 0, sizeof(node->in_params));
 
-    found = false;
-    QLIST_FOREACH(fmt, &v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT], next) {
-        if (fmt->desc.format == node->in_format) {
-            found = true;
-            break;
-        }
-    }
+    node->in_params.frame_width = fmt->frames.lh_first->frame.width.max;
+    node->in_params.frame_height = fmt->frames.lh_first->frame.height.max;
+    node->in_params.min_buffers = 1;
+    node->in_params.max_buffers = 1;
+    node->in_params.crop.left = 0;
+    node->in_params.crop.top = 0;
+    node->in_params.crop.width = node->in_params.frame_width;
+    node->in_params.crop.height = node->in_params.frame_height;
+    node->in_params.frame_rate = fmt->frames.lh_first->frame_rates->max;
 
-    if (found) {
-        node->in_params.frame_width = fmt->frames.lh_first->frame.width.max;
-        node->in_params.frame_height = fmt->frames.lh_first->frame.height.max;
-        node->in_params.min_buffers = 1;
-        node->in_params.max_buffers = 1;
-        node->in_params.crop.left = 0;
-        node->in_params.crop.top = 0;
-        node->in_params.crop.width = node->in_params.frame_width;
-        node->in_params.crop.height = node->in_params.frame_height;
-        node->in_params.frame_rate = fmt->frames.lh_first->frame_rates->max;
+    memcpy(&node->out_params, &node->in_params, sizeof(node->in_params));
 
-        memcpy(&node->out_params, &node->in_params, sizeof(node->in_params));
+    /* For VIRTIO_VIDEO_QUEUE_TYPE_INPUT */
+    node->in_params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_INPUT;
+    node->in_params.format = node->in_format;
+    /* TODO: what's the definition of plane number, size and stride for coded format? */
+    node->in_params.num_planes = 1;
+    node->in_params.plane_formats[0].plane_size = 0;
+    node->in_params.plane_formats[0].stride = 0;
 
-        /* For VIRTIO_VIDEO_QUEUE_TYPE_INPUT */
-        node->in_params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_INPUT;
-        node->in_params.format = node->in_format;
-        /* TODO: what's the definition of plane number, size and stride for coded format? */
-        node->in_params.num_planes = 1;
-        node->in_params.plane_formats[0].plane_size = 0;
-        node->in_params.plane_formats[0].stride = 0;
-
-        /*
-         * For VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT
-         * Front end doesn't support NV12 but only RGB*, while MediaSDK can only decode to NV12
-         * So we let front end aware of RGB* only, use VPP to convert from NV12 to RGB*
-         */
-        node->out_params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT;
-        node->out_params.format = VIRTIO_VIDEO_FORMAT_ARGB8888;
-        node->out_params.num_planes = 1;
-        node->out_params.plane_formats[0].plane_size = node->out_params.frame_width * node->out_params.frame_height * 4;
-        node->out_params.plane_formats[0].stride = node->out_params.frame_width * 4;
-    }
+    /*
+     * For VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT
+     * Front end doesn't support NV12 but only RGB*, while MediaSDK can only decode to NV12
+     * So we let front end aware of RGB* only, use VPP to convert from NV12 to RGB*
+     */
+    node->out_params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT;
+    node->out_params.format = VIRTIO_VIDEO_FORMAT_ARGB8888;
+    node->out_params.num_planes = 1;
+    node->out_params.plane_formats[0].plane_size = node->out_params.frame_width * node->out_params.frame_height * 4;
+    node->out_params.plane_formats[0].stride = node->out_params.frame_width * 4;
 
     ((mfxVideoParam*)node->mfxParams)->mfx.FrameInfo.Width = node->in_params.frame_width;
     ((mfxVideoParam*)node->mfxParams)->mfx.FrameInfo.Height = node->in_params.frame_height;
@@ -468,10 +479,9 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
 
     QLIST_INSERT_HEAD(&v->stream_list, node, next);
 
-    VIRTVID_DEBUG("    %s: stream 0x%x created", __FUNCTION__, req->hdr.stream_id);
+    VIRTVID_DEBUG("    %s: stream 0x%x created", __FUNCTION__, resp->stream_id);
     resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
 
-OUT:
     return len;
 }
 
@@ -480,6 +490,7 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *node, *next = NULL;
+    VirtIOVideoStreamMediaSDK *msdk;
     VirtIOVideoControl *control, *next_ctrl = NULL;
     VirtIOVideoStreamEventEntry *entry, *next_entry = NULL;
     VirtIOVideoStreamResource *res, *next_res = NULL;
@@ -534,10 +545,12 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
 
             qemu_mutex_destroy(&node->mutex);
 
+            msdk = node->opaque;
             g_free(node->mfxSurfOut);
             g_free(node->mfxParams);
-            virtio_video_msdk_unload_plugin(node->mfx_session, node->in_format, false);
-            MFXClose(node->mfx_session);
+            virtio_video_msdk_unload_plugin(msdk->session, node->in_format, false);
+            MFXClose(msdk->session);
+            g_free(msdk);
 
             QLIST_SAFE_REMOVE(node, next);
             g_free(node);

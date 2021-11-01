@@ -131,13 +131,13 @@ typedef struct VirtIOVideoStreamResource {
 } VirtIOVideoStreamResource;
 
 typedef struct VirtIOVideoStream {
-    void *mfx_session;
     uint32_t mfxWaitMs;
     uint32_t retry;
     uint32_t stream_id;
     virtio_video_mem_type in_mem_type;
     virtio_video_mem_type out_mem_type;
     virtio_video_format in_format;
+    void *opaque;
     struct {
         struct {
             uint32_t num;

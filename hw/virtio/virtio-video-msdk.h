@@ -42,6 +42,10 @@
 #define MSDK_ALIGN16(value) (((value + 15) >> 4) << 4)
 #define MSDK_ALIGN32(X) (((mfxU32)((X)+31)) & (~ (mfxU32)31))
 
+typedef struct VirtIOVideoStreamMediaSDK {
+    mfxSession session;
+} VirtIOVideoStreamMediaSDK;
+
 typedef struct VirtIOVideoMediaSDK {
     int drm_fd;
     void *va_disp_handle;
