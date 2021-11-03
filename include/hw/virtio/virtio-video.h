@@ -133,10 +133,10 @@ typedef struct VirtIOVideoStreamResource {
 typedef struct VirtIOVideoStream {
     uint32_t mfxWaitMs;
     uint32_t retry;
-    uint32_t stream_id;
+    uint32_t id;
     virtio_video_mem_type in_mem_type;
     virtio_video_mem_type out_mem_type;
-    virtio_video_format in_format;
+    virtio_video_format codec;
     void *opaque;
     struct {
         struct {
@@ -156,9 +156,6 @@ typedef struct VirtIOVideoStream {
     QLIST_HEAD(, VirtIOVideoStreamEventEntry) ev_list;
     QLIST_HEAD(, VirtIOVideoStreamResource) in_list;
     QLIST_HEAD(, VirtIOVideoStreamResource) out_list;
-    void *mfxParams;
-    void *mfxBs;
-    void *mfxSurfOut;
     QemuEvent signal_in;
     QemuEvent signal_out;
     VirtIOVideoStreamStat stat;

@@ -44,6 +44,9 @@
 
 typedef struct VirtIOVideoStreamMediaSDK {
     mfxSession session;
+    mfxVideoParam param;
+    mfxBitstream bitstream;
+    mfxFrameSurface1 surface;
 } VirtIOVideoStreamMediaSDK;
 
 typedef struct VirtIOVideoMediaSDK {
