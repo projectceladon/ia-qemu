@@ -289,14 +289,16 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
     QLIST_FOREACH(stream, &v->stream_list, next) {
         if (stream->id == resp->stream_id) {
             resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
-            VIRTVID_ERROR("    %s: stream id 0x%x is already used", __FUNCTION__, resp->stream_id);
+            VIRTVID_ERROR("    %s: stream id 0x%x is already used", __func__,
+                    resp->stream_id);
             return len;
         }
     }
 
     if (req->in_mem_type == VIRTIO_VIDEO_MEM_TYPE_VIRTIO_OBJECT ||
             req->out_mem_type == VIRTIO_VIDEO_MEM_TYPE_VIRTIO_OBJECT) {
-        VIRTVID_ERROR("    %s: stream 0x%x, unsupported mem type (object)", __FUNCTION__, resp->stream_id);
+        VIRTVID_ERROR("    %s: stream 0x%x, unsupported mem type (object)",
+                __func__, resp->stream_id);
         return len;
     }
 
@@ -306,7 +308,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
         }
     }
     if (fmt == NULL) {
-        VIRTVID_ERROR("    %s: stream 0x%x, unsupported format 0x%x", __FUNCTION__,
+        VIRTVID_ERROR("    %s: stream 0x%x, unsupported format 0x%x", __func__,
                 resp->stream_id, req->coded_format);
         return len;
     }
@@ -317,7 +319,8 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
 
     status = MFXInitEx(param, &msdk->session);
     if (status != MFX_ERR_NONE) {
-        VIRTVID_ERROR("    %s: MFXInitEx returns %d for stream 0x%x", __FUNCTION__, status, resp->stream_id);
+        VIRTVID_ERROR("    %s: MFXInitEx returns %d for stream 0x%x", __func__,
+                status, resp->stream_id);
         g_free(msdk);
         return len;
     }
@@ -325,7 +328,8 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
     status = MFXVideoCORE_SetHandle(msdk->session, MFX_HANDLE_VA_DISPLAY,
                                     ((VirtIOVideoMediaSDK *)v->opaque)->va_disp_handle);
     if (status != MFX_ERR_NONE) {
-        VIRTVID_ERROR("    %s: MFXVideoCORE_SetHandle returns %d for stream 0x%x", __FUNCTION__, status, resp->stream_id);
+        VIRTVID_ERROR("    %s: MFXVideoCORE_SetHandle returns %d for stream 0x%x",
+                __func__, status, resp->stream_id);
         MFXClose(msdk->session);
         g_free(msdk);
         return len;
@@ -409,7 +413,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
 
     QLIST_INSERT_HEAD(&v->stream_list, stream, next);
 
-    VIRTVID_DEBUG("    %s: stream 0x%x created", __FUNCTION__, resp->stream_id);
+    VIRTVID_DEBUG("    %s: stream 0x%x created", __func__, resp->stream_id);
     resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
 
     return len;
@@ -472,7 +476,7 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
 
             QLIST_SAFE_REMOVE(stream, next);
             g_free(stream);
-            VIRTVID_DEBUG("    %s: stream 0x%x destroyed", __FUNCTION__, req->hdr.stream_id);
+            VIRTVID_DEBUG("    %s: stream 0x%x destroyed", __func__, req->hdr.stream_id);
             break;
         }
     }
@@ -503,7 +507,7 @@ size_t virtio_video_dec_cmd_stream_drain(VirtIODevice *vdev,
             QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
             qemu_mutex_unlock(&stream->mutex);
             qemu_event_set(&stream->signal_in);
-            VIRTVID_DEBUG("    %s: stream 0x%x drained", __FUNCTION__, req->hdr.stream_id);
+            VIRTVID_DEBUG("    %s: stream 0x%x drained", __func__, req->hdr.stream_id);
             break;
         }
     }
@@ -627,7 +631,8 @@ size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
                 }
             } else {
                 resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
-                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
+                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x",
+                        __func__, req->hdr.stream_id, req->queue_type);
             }
 
             resp->timestamp = req->timestamp;
@@ -680,9 +685,11 @@ size_t virtio_video_dec_cmd_resource_destroy_all(VirtIODevice *vdev,
                 }
             } else {
                 resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
-                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
+                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x",
+                        __func__, req->hdr.stream_id, req->queue_type);
             }
-            VIRTVID_DEBUG("    %s: stream 0x%x queue_type 0x%x all resource destroyed", __FUNCTION__, req->hdr.stream_id, req->queue_type);
+            VIRTVID_DEBUG("    %s: stream 0x%x queue_type 0x%x all resource destroyed",
+                    __func__, req->hdr.stream_id, req->queue_type);
             break;
         }
     }
@@ -718,10 +725,12 @@ size_t virtio_video_dec_cmd_queue_clear(VirtIODevice *vdev,
             } else {
                 resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
                 g_free(entry);
-                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
+                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x",
+                        __func__, req->hdr.stream_id, req->queue_type);
             }
 
-            VIRTVID_DEBUG("    %s: stream 0x%x queue_type 0x%x cleared", __FUNCTION__, req->hdr.stream_id, req->queue_type);
+            VIRTVID_DEBUG("    %s: stream 0x%x queue_type 0x%x cleared",
+                    __func__, req->hdr.stream_id, req->queue_type);
             break;
         }
     }
@@ -749,9 +758,10 @@ size_t virtio_video_dec_cmd_get_params(VirtIODevice *vdev,
                 memcpy(&resp->params, &stream->out_params, sizeof(resp->params));
             } else {
                 resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
-                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->queue_type);
+                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x",
+                        __func__, req->hdr.stream_id, req->queue_type);
             }
-            VIRTVID_DEBUG("    %s: stream 0x%x", __FUNCTION__, req->hdr.stream_id);
+            VIRTVID_DEBUG("    %s: stream 0x%x", __func__, req->hdr.stream_id);
             break;
         }
     }
@@ -781,7 +791,8 @@ size_t virtio_video_dec_cmd_set_params(VirtIODevice *vdev,
                 memcpy(&stream->out_params, &req->params, sizeof(req->params));
             } else {
                 resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
-                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x", __FUNCTION__, req->hdr.stream_id, req->params.queue_type);
+                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x",
+                        __func__, req->hdr.stream_id, req->params.queue_type);
             }
 
             if (resp->type == VIRTIO_VIDEO_RESP_OK_NODATA) {
@@ -798,7 +809,7 @@ size_t virtio_video_dec_cmd_set_params(VirtIODevice *vdev,
                 qemu_event_set(&stream->signal_in);
             }
 
-            VIRTVID_DEBUG("    %s: stream 0x%x", __FUNCTION__, req->hdr.stream_id);
+            VIRTVID_DEBUG("    %s: stream 0x%x", __func__, req->hdr.stream_id);
             break;
         }
     }
@@ -827,11 +838,11 @@ size_t virtio_video_dec_cmd_query_control(VirtIODevice *vdev,
             }
         }
         if (fmt == NULL) {
-            VIRTVID_ERROR("    %s: unsupported format 0x%x", __FUNCTION__, query->format);
+            VIRTVID_ERROR("    %s: unsupported format 0x%x", __func__, query->format);
             goto error;
         }
         if (fmt->profile.num == 0) {
-            VIRTVID_ERROR("    %s: format 0x%x does not support profiles", __FUNCTION__, query->format);
+            VIRTVID_ERROR("    %s: format 0x%x does not support profiles", __func__, query->format);
             goto error;
         }
 
@@ -845,7 +856,8 @@ size_t virtio_video_dec_cmd_query_control(VirtIODevice *vdev,
         resp_buf += sizeof(virtio_video_query_control_resp_profile);
         memcpy(resp_buf, fmt->profile.values, sizeof(uint32_t) * fmt->profile.num);
 
-        VIRTVID_DEBUG("    %s: format 0x%x supports %d profiles", __FUNCTION__, query->format, fmt->profile.num);
+        VIRTVID_DEBUG("    %s: format 0x%x supports %d profiles", __func__,
+                query->format, fmt->profile.num);
         break;
     }
     case VIRTIO_VIDEO_CONTROL_LEVEL:
@@ -859,11 +871,11 @@ size_t virtio_video_dec_cmd_query_control(VirtIODevice *vdev,
             }
         }
         if (fmt == NULL) {
-            VIRTVID_ERROR("    %s: unsupported format 0x%x", __FUNCTION__, query->format);
+            VIRTVID_ERROR("    %s: unsupported format 0x%x", __func__, query->format);
             goto error;
         }
         if (fmt->level.num == 0) {
-            VIRTVID_ERROR("    %s: format 0x%x does not support levels", __FUNCTION__, query->format);
+            VIRTVID_ERROR("    %s: format 0x%x does not support levels", __func__, query->format);
             goto error;
         }
 
@@ -877,11 +889,12 @@ size_t virtio_video_dec_cmd_query_control(VirtIODevice *vdev,
         resp_buf += sizeof(virtio_video_query_control_resp_level);
         memcpy(resp_buf, fmt->level.values, sizeof(uint32_t) * fmt->level.num);
 
-        VIRTVID_DEBUG("    %s: format 0x%x supports %d levels", __FUNCTION__, query->format, fmt->level.num);
+        VIRTVID_DEBUG("    %s: format 0x%x supports %d levels", __func__,
+                query->format, fmt->level.num);
         break;
     }
     default:
-        VIRTVID_ERROR("    %s: unsupported control %d", __FUNCTION__, req->control);
+        VIRTVID_ERROR("    %s: unsupported control %d", __func__, req->control);
         goto error;
     }
 
@@ -918,7 +931,8 @@ size_t virtio_video_dec_cmd_get_control(VirtIODevice *vdev,
         break;
     default:
         len = sizeof(virtio_video_get_control_resp);
-        VIRTVID_ERROR("    %s: stream 0x%x unsupported control %d", __FUNCTION__, req->hdr.stream_id, req->control);
+        VIRTVID_ERROR("    %s: stream 0x%x unsupported control %d", __func__,
+                req->hdr.stream_id, req->control);
         break;
     }
 
@@ -931,16 +945,16 @@ size_t virtio_video_dec_cmd_get_control(VirtIODevice *vdev,
                 (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_CONTROL;
                 if (req->control == VIRTIO_VIDEO_CONTROL_BITRATE) {
                     ((virtio_video_control_val_bitrate*)((void*)(*resp) + sizeof(virtio_video_get_control_resp)))->bitrate = stream->control.bitrate;
-                    VIRTVID_DEBUG("    %s: stream 0x%x bitrate %d", __FUNCTION__, req->hdr.stream_id, stream->control.bitrate);
+                    VIRTVID_DEBUG("    %s: stream 0x%x bitrate %d", __func__, req->hdr.stream_id, stream->control.bitrate);
                 } else if (req->control == VIRTIO_VIDEO_CONTROL_PROFILE) {
                     ((virtio_video_control_val_profile*)((void*)(*resp) + sizeof(virtio_video_get_control_resp)))->profile = stream->control.profile;
-                    VIRTVID_DEBUG("    %s: stream 0x%x profile %d", __FUNCTION__, req->hdr.stream_id, stream->control.profile);
+                    VIRTVID_DEBUG("    %s: stream 0x%x profile %d", __func__, req->hdr.stream_id, stream->control.profile);
                 } else if (req->control == VIRTIO_VIDEO_CONTROL_LEVEL) {
                     ((virtio_video_control_val_level*)((void*)(*resp) + sizeof(virtio_video_get_control_resp)))->level = stream->control.level;
-                    VIRTVID_DEBUG("    %s: stream 0x%x level %d", __FUNCTION__, req->hdr.stream_id, stream->control.level);
+                    VIRTVID_DEBUG("    %s: stream 0x%x level %d", __func__, req->hdr.stream_id, stream->control.level);
                 } else {
                     (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_UNSUPPORTED_CONTROL;
-                    VIRTVID_ERROR("    %s: stream 0x%x unsupported control %d", __FUNCTION__, req->hdr.stream_id, req->control);
+                    VIRTVID_ERROR("    %s: stream 0x%x unsupported control %d", __func__, req->hdr.stream_id, req->control);
                 }
                 break;
             }
@@ -970,16 +984,16 @@ size_t virtio_video_dec_cmd_set_control(VirtIODevice *vdev,
             resp->hdr.type = VIRTIO_VIDEO_RESP_OK_NODATA;
             if (req->control == VIRTIO_VIDEO_CONTROL_BITRATE) {
                 stream->control.bitrate = ((virtio_video_control_val_bitrate*)(((void*)req) + sizeof(virtio_video_set_control)))->bitrate;
-                VIRTVID_DEBUG("    %s: stream 0x%x bitrate %d", __FUNCTION__, req->hdr.stream_id, stream->control.bitrate);
+                VIRTVID_DEBUG("    %s: stream 0x%x bitrate %d", __func__, req->hdr.stream_id, stream->control.bitrate);
             } else if (req->control == VIRTIO_VIDEO_CONTROL_PROFILE) {
                 stream->control.profile = ((virtio_video_control_val_profile*)(((void*)req) + sizeof(virtio_video_set_control)))->profile;
-                VIRTVID_DEBUG("    %s: stream 0x%x profile %d", __FUNCTION__, req->hdr.stream_id, stream->control.profile);
+                VIRTVID_DEBUG("    %s: stream 0x%x profile %d", __func__, req->hdr.stream_id, stream->control.profile);
             } else if (req->control == VIRTIO_VIDEO_CONTROL_LEVEL) {
                 stream->control.level = ((virtio_video_control_val_level*)(((void*)req) + sizeof(virtio_video_set_control)))->level;
-                VIRTVID_DEBUG("    %s: stream 0x%x level %d", __FUNCTION__, req->hdr.stream_id, stream->control.level);
+                VIRTVID_DEBUG("    %s: stream 0x%x level %d", __func__, req->hdr.stream_id, stream->control.level);
             } else {
                 resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_UNSUPPORTED_CONTROL;
-                VIRTVID_ERROR("    %s: stream 0x%x unsupported control %d", __FUNCTION__, req->hdr.stream_id, req->control);
+                VIRTVID_ERROR("    %s: stream 0x%x unsupported control %d", __func__, req->hdr.stream_id, req->control);
             }
 
             if (resp->hdr.type == VIRTIO_VIDEO_RESP_OK_NODATA) {

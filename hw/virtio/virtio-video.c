@@ -58,7 +58,7 @@ static size_t virtio_video_process_cmd_query_capability(VirtIODevice *vdev,
 
     if (req == NULL || *resp != NULL)
         return 0;
-    VIRTVID_DEBUG("    %s: stream 0x%x, queue_type 0x%x", __FUNCTION__,
+    VIRTVID_DEBUG("    %s: stream 0x%x, queue_type 0x%x", __func__,
             req->hdr.stream_id, req->queue_type);
 
     switch(req->queue_type) {
@@ -122,7 +122,7 @@ static size_t virtio_video_process_cmd_stream_create(VirtIODevice *vdev,
         return virtio_video_dec_cmd_stream_create(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
     }
 }
@@ -137,7 +137,7 @@ static size_t virtio_video_process_cmd_stream_destroy(VirtIODevice *vdev,
         return virtio_video_dec_cmd_stream_destroy(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
     }
 }
@@ -152,7 +152,7 @@ static size_t virtio_video_process_cmd_stream_drain(VirtIODevice *vdev,
         return virtio_video_dec_cmd_stream_drain(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
     }
 }
@@ -167,7 +167,7 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
         return virtio_video_dec_cmd_resource_create(vdev, req, entries, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
     }
 }
@@ -182,7 +182,7 @@ static size_t virtio_video_process_cmd_resource_queue(VirtIODevice *vdev,
         return virtio_video_dec_cmd_resource_queue(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
     }
 }
@@ -197,7 +197,7 @@ static size_t virtio_video_process_cmd_resource_destroy_all(VirtIODevice *vdev,
         return virtio_video_dec_cmd_resource_destroy_all(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
     }
 }
@@ -212,7 +212,7 @@ static size_t virtio_video_process_cmd_queue_clear(VirtIODevice *vdev,
         return virtio_video_dec_cmd_queue_clear(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
     }
 }
@@ -233,7 +233,7 @@ static size_t virtio_video_process_cmd_get_params(VirtIODevice *vdev,
         return virtio_video_enc_cmd_get_params(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
     }
 }
@@ -251,7 +251,7 @@ static size_t virtio_video_process_cmd_set_params(VirtIODevice *vdev,
         return virtio_video_dec_cmd_set_params(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
     }
 }
@@ -269,7 +269,7 @@ static size_t virtio_video_process_cmd_query_control(VirtIODevice *vdev,
         return virtio_video_dec_cmd_query_control(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
     }
 }
@@ -287,7 +287,7 @@ static size_t virtio_video_process_cmd_get_control(VirtIODevice *vdev,
         return virtio_video_dec_cmd_get_control(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
     }
 }
@@ -305,7 +305,7 @@ static size_t virtio_video_process_cmd_set_control(VirtIODevice *vdev,
         return virtio_video_dec_cmd_set_control(vdev, req, resp);
         break;
     default:
-        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __FUNCTION__, v->model);
+        VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
     }
 }
