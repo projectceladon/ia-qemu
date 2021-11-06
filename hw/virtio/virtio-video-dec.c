@@ -273,18 +273,14 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
     VirtIOVideoFormat *fmt;
     VirtIOVideoStream *stream;
     VirtIOVideoStreamMediaSDK *msdk;
-    VirtIOVideoControl *control = NULL;
     mfxStatus status;
     size_t len;
-    int min, max;
 
     mfxInitParam param = {
         .Implementation = MFX_IMPL_AUTO_ANY,
         .Version.Major = VIRTIO_VIDEO_MSDK_VERSION_MAJOR,
         .Version.Minor = VIRTIO_VIDEO_MSDK_VERSION_MINOR,
     };
-
-    mfxVideoParam inParam = {0}, outParam = {0};
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
     resp->stream_id = req->hdr.stream_id;
@@ -300,7 +296,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
 
     if (req->in_mem_type == VIRTIO_VIDEO_MEM_TYPE_VIRTIO_OBJECT ||
             req->out_mem_type == VIRTIO_VIDEO_MEM_TYPE_VIRTIO_OBJECT) {
-        VIRTVID_ERROR("    %s: stream 0x%x, unsupported mem type", __FUNCTION__, resp->stream_id);
+        VIRTVID_ERROR("    %s: stream 0x%x, unsupported mem type (object)", __FUNCTION__, resp->stream_id);
         return len;
     }
 
@@ -358,70 +354,6 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
 
     /* TODO: Should we use VIDEO_MEMORY for virtio-gpu object? */
     msdk->param.IOPattern = MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
-
-    /* Try query all profiles */
-    QLIST_INIT(&stream->control_caps.profile.list);
-    virtio_video_msdk_init_video_params(&inParam, req->coded_format);
-    memset(&outParam, 0, sizeof(outParam));
-    outParam.mfx.CodecId = inParam.mfx.CodecId;
-    virtio_video_profile_range(req->coded_format, &min, &max);
-    if (min != max) {
-        int profile;
-        for (profile = min; profile <= max; profile++) {
-            inParam.mfx.CodecProfile = virtio_video_profile_to_mfx(req->coded_format, profile);
-            if (inParam.mfx.CodecProfile != MFX_PROFILE_UNKNOWN) {
-                status = MFXVideoDECODE_Query(msdk->session, &inParam, &outParam);
-                if (status == MFX_ERR_NONE || status == MFX_WRN_PARTIAL_ACCELERATION) {
-                    stream->control.profile = profile;
-                    control = g_malloc0(sizeof(VirtIOVideoControl));
-                    if (control) {
-                        stream->control_caps.profile.num++;
-                        control->value = profile;
-                        QLIST_INSERT_HEAD(&stream->control_caps.profile.list, control, next);
-                    }
-                }
-            }
-        }
-        msdk->param.mfx.CodecProfile = virtio_video_profile_to_mfx(req->coded_format,
-                QLIST_FIRST(&stream->control_caps.profile.list)->value);
-    }
-
-    /* Try query all levels */
-    QLIST_INIT(&stream->control_caps.level.list);
-    virtio_video_msdk_init_video_params(&inParam, req->coded_format);
-    memset(&outParam, 0, sizeof(outParam));
-    outParam.mfx.CodecId = inParam.mfx.CodecId;
-    virtio_video_level_range(req->coded_format, &min, &max);
-    if (min != max) {
-        int level;
-        for (level = min; level <= max; level++) {
-            inParam.mfx.CodecLevel = virtio_video_level_to_mfx(req->coded_format, level);
-            if (inParam.mfx.CodecLevel != MFX_LEVEL_UNKNOWN) {
-                status = MFXVideoDECODE_Query(msdk->session, &inParam, &outParam);
-                if (status == MFX_ERR_NONE || status == MFX_WRN_PARTIAL_ACCELERATION) {
-                    stream->control.level = level;
-                    control = g_malloc0(sizeof(VirtIOVideoControl));
-                    if (control) {
-                        stream->control_caps.level.num++;
-                        control->value = level;
-                        QLIST_INSERT_HEAD(&stream->control_caps.level.list, control, next);
-                    }
-                }
-            }
-        }
-        msdk->param.mfx.CodecLevel = virtio_video_level_to_mfx(req->coded_format,
-            QLIST_FIRST(&stream->control_caps.level.list)->value);
-    }
-
-    virtio_video_msdk_init_video_params(&inParam, req->coded_format);
-    memset(&outParam, 0, sizeof(outParam));
-    outParam.mfx.CodecId = inParam.mfx.CodecId;
-    inParam.mfx.TargetKbps = 10000; /* TODO: Determine the max bitrage */
-    status = MFXVideoDECODE_Query(msdk->session, &inParam, &outParam);
-    if (status == MFX_ERR_NONE || status == MFX_WRN_PARTIAL_ACCELERATION) {
-        stream->control.bitrate = inParam.mfx.TargetKbps;
-        msdk->param.mfx.TargetKbps = stream->control.bitrate;
-    }
 
     memset(&stream->in_params, 0, sizeof(stream->in_params));
 
@@ -489,7 +421,6 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *stream, *next = NULL;
     VirtIOVideoStreamMediaSDK *msdk;
-    VirtIOVideoControl *control, *next_ctrl = NULL;
     VirtIOVideoStreamEventEntry *entry, *next_entry = NULL;
     VirtIOVideoStreamResource *res, *next_res = NULL;
     size_t len = 0;
@@ -501,15 +432,6 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
     QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
         if (stream->id == req->hdr.stream_id) {
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
-
-            QLIST_FOREACH_SAFE(control, &stream->control_caps.profile.list, next, next_ctrl) {
-                QLIST_SAFE_REMOVE(control, next);
-                g_free(control);
-            }
-            QLIST_FOREACH_SAFE(control, &stream->control_caps.level.list, next, next_ctrl) {
-                QLIST_SAFE_REMOVE(control, next);
-                g_free(control);
-            }
 
             entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
             entry->ev = VirtIOVideoStreamEventTerminate;
@@ -888,91 +810,93 @@ size_t virtio_video_dec_cmd_query_control(VirtIODevice *vdev,
     virtio_video_query_control *req, virtio_video_query_control_resp **resp)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-    VirtIOVideoStream *stream, *next = NULL;
-    size_t len = 0;
+    VirtIOVideoFormat *fmt;
+    void *req_buf = (char *)req + sizeof(virtio_video_query_control);
+    void *resp_buf;
+    size_t len = sizeof(virtio_video_query_control_resp);
 
-    *resp = NULL;
-    QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
-        if (stream->id == req->hdr.stream_id) {
-            if (req->control == VIRTIO_VIDEO_CONTROL_PROFILE) {
-                virtio_video_format format = ((virtio_video_query_control_profile*)((void*)req + sizeof(virtio_video_query_control)))->format;
+    switch (req->control) {
+    case VIRTIO_VIDEO_CONTROL_PROFILE:
+    {
+        virtio_video_query_control_profile *query = req_buf;
+        virtio_video_query_control_resp_profile *resp_profile;
 
-                if (format == stream->codec) {
-                    len = sizeof(virtio_video_query_control_resp);
-                    len += sizeof(virtio_video_query_control_resp_profile);
-                    len += stream->control_caps.profile.num * sizeof(__le32);
-                } else {
-                    VIRTVID_ERROR("    %s: stream 0x%x format %d mismatch requested %d", __FUNCTION__, req->hdr.stream_id, stream->codec, format);
-                }
-
-                *resp = g_malloc0(len);
-                if (*resp != NULL) {
-                    VirtIOVideoControl *control, *next_ctrl = NULL;
-                    __le32 *profile = (void*)(*resp) + sizeof(virtio_video_query_control_resp) + sizeof(virtio_video_query_control_resp_profile);
-
-                    (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_QUERY_CONTROL;
-                    QLIST_FOREACH_SAFE(control, &stream->control_caps.profile.list, next, next_ctrl) {
-                        *profile = control->value;
-                        ((virtio_video_query_control_resp_profile*)((void*)(*resp) + sizeof(virtio_video_query_control_resp)))->num++;
-                        profile++;
-                    }
-                } else {
-                    len = 0;
-                }
-                VIRTVID_DEBUG("    %s: stream 0x%x support %d profiles", __FUNCTION__, req->hdr.stream_id, stream->control_caps.profile.num);
-            } else if (req->control == VIRTIO_VIDEO_CONTROL_LEVEL) {
-                virtio_video_format format = ((virtio_video_query_control_level*)((void*)req + sizeof(virtio_video_query_control)))->format;
-
-                if (format == stream->codec) {
-                    len = sizeof(virtio_video_query_control_resp);
-                    len += sizeof(virtio_video_query_control_resp_level);
-                    len += stream->control_caps.level.num * sizeof(__le32);
-                } else {
-                    VIRTVID_ERROR("    %s: stream 0x%x format %d mismatch requested %d", __FUNCTION__, req->hdr.stream_id, stream->codec, format);
-                }
-
-                *resp = g_malloc0(len);
-                if (*resp != NULL) {
-                    VirtIOVideoControl *control, *next_ctrl = NULL;
-                    __le32 *level = (void*)(*resp) + sizeof(virtio_video_query_control_resp) + sizeof(virtio_video_query_control_resp_level);
-
-                    (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_QUERY_CONTROL;
-                    QLIST_FOREACH_SAFE(control, &stream->control_caps.level.list, next, next_ctrl) {
-                        *level = control->value;
-                        ((virtio_video_query_control_resp_level*)((void*)(*resp) + sizeof(virtio_video_query_control_resp)))->num++;
-                        level++;
-                    }
-                } else {
-                    len = 0;
-                }
-                VIRTVID_DEBUG("    %s: stream 0x%x support %d levels", __FUNCTION__, req->hdr.stream_id, stream->control_caps.level.num);
-            } else {
-                len = sizeof(virtio_video_query_control_resp);
-                *resp = g_malloc0(len);
-                if (*resp != NULL) {
-                    (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_UNSUPPORTED_CONTROL;
-                    (*resp)->hdr.stream_id = req->hdr.stream_id;
-                } else {
-                    len = 0;
-                }
-                VIRTVID_ERROR("    %s: stream 0x%x unsupported control %d", __FUNCTION__, req->hdr.stream_id, req->control);
+        QLIST_FOREACH(fmt, &v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT], next) {
+            if (fmt->desc.format == query->format) {
+                break;
             }
-            break;
         }
-    }
+        if (fmt == NULL) {
+            VIRTVID_ERROR("    %s: unsupported format 0x%x", __FUNCTION__, query->format);
+            goto error;
+        }
+        if (fmt->profile.num == 0) {
+            VIRTVID_ERROR("    %s: format 0x%x does not support profiles", __FUNCTION__, query->format);
+            goto error;
+        }
 
-    if (*resp == NULL) {
-        len = sizeof(virtio_video_query_control_resp);
+        len += sizeof(virtio_video_query_control_resp_profile) +
+               sizeof(uint32_t) * fmt->profile.num;
         *resp = g_malloc0(len);
-        if (*resp != NULL) {
-            (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
-            (*resp)->hdr.stream_id = req->hdr.stream_id;
-        } else {
-            len = 0;
+        if (*resp == NULL)
+            return 0;
+        resp_profile = resp_buf = (char *)(*resp) + sizeof(virtio_video_query_control_resp);
+        resp_profile->num = fmt->profile.num;
+        resp_buf += sizeof(virtio_video_query_control_resp_profile);
+        memcpy(resp_buf, fmt->profile.values, sizeof(uint32_t) * fmt->profile.num);
+
+        VIRTVID_DEBUG("    %s: format 0x%x supports %d profiles", __FUNCTION__, query->format, fmt->profile.num);
+        break;
+    }
+    case VIRTIO_VIDEO_CONTROL_LEVEL:
+    {
+        virtio_video_query_control_level *query = req_buf;
+        virtio_video_query_control_resp_level *resp_level;
+
+        QLIST_FOREACH(fmt, &v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT], next) {
+            if (fmt->desc.format == query->format) {
+                break;
+            }
         }
+        if (fmt == NULL) {
+            VIRTVID_ERROR("    %s: unsupported format 0x%x", __FUNCTION__, query->format);
+            goto error;
+        }
+        if (fmt->level.num == 0) {
+            VIRTVID_ERROR("    %s: format 0x%x does not support levels", __FUNCTION__, query->format);
+            goto error;
+        }
+
+        len += sizeof(virtio_video_query_control_resp_level) +
+               sizeof(uint32_t) * fmt->level.num;
+        *resp = g_malloc0(len);
+        if (*resp == NULL)
+            return 0;
+        resp_level = resp_buf = (char *)(*resp) + sizeof(virtio_video_query_control_resp);
+        resp_level->num = fmt->level.num;
+        resp_buf += sizeof(virtio_video_query_control_resp_level);
+        memcpy(resp_buf, fmt->level.values, sizeof(uint32_t) * fmt->level.num);
+
+        VIRTVID_DEBUG("    %s: format 0x%x supports %d levels", __FUNCTION__, query->format, fmt->level.num);
+        break;
+    }
+    default:
+        VIRTVID_ERROR("    %s: unsupported control %d", __FUNCTION__, req->control);
+        goto error;
     }
 
+    (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_QUERY_CONTROL;
+    (*resp)->hdr.stream_id = req->hdr.stream_id;
     return len;
+
+error:
+    *resp = g_malloc0(sizeof(virtio_video_cmd_hdr));
+    if (*resp == NULL)
+        return 0;
+    ((virtio_video_cmd_hdr *)(*resp))->type = VIRTIO_VIDEO_RESP_ERR_UNSUPPORTED_CONTROL;
+    ((virtio_video_cmd_hdr *)(*resp))->stream_id = req->hdr.stream_id;
+
+    return sizeof(virtio_video_cmd_hdr);
 }
 
 size_t virtio_video_dec_cmd_get_control(VirtIODevice *vdev,
@@ -1063,8 +987,8 @@ size_t virtio_video_dec_cmd_set_control(VirtIODevice *vdev,
 
                 entry->ev = VirtIOVideoStreamEventParamChange;
                 qemu_mutex_lock(&stream->mutex);
-                msdk->param.mfx.CodecProfile = virtio_video_profile_to_mfx(stream->codec, stream->control.profile);
-                msdk->param.mfx.CodecLevel = virtio_video_level_to_mfx(stream->codec, stream->control.level);
+                msdk->param.mfx.CodecProfile = virtio_video_profile_to_msdk(stream->control.profile);
+                msdk->param.mfx.CodecLevel = virtio_video_level_to_msdk(stream->control.level);
                 msdk->param.mfx.TargetKbps = stream->control.bitrate;
                 QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
                 qemu_mutex_unlock(&stream->mutex);
@@ -1118,6 +1042,7 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
     for (in_format = VIRTIO_VIDEO_FORMAT_CODED_MIN;
             in_format <= VIRTIO_VIDEO_FORMAT_CODED_MAX; in_format++) {
         uint32_t w_min = 0, h_min = 0, w_max = 0, h_max = 0;
+        uint32_t ctrl_min, ctrl_max, ctrl;
         uint32_t msdk_format = virtio_video_format_to_msdk(in_format);
 
         if (msdk_format == 0) {
@@ -1167,12 +1092,10 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
             param.mfx.FrameInfo.Height += (param.mfx.FrameInfo.PicStruct == MFX_PICSTRUCT_PROGRESSIVE) ?
                 VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE : VIRTIO_VIDEO_MSDK_DIM_STEP_OTHERS;
         }
-        virtio_video_msdk_unload_plugin(session, in_format, false);
 
-        /* Add one virtio_video_format_frame and virtio_video_format_range block to last added virtio_video_format_desc */
         if (w_min == 0 || h_min == 0 || w_max == 0 || h_max == 0) {
             VIRTVID_DEBUG("failed to query frame size for format %x", in_format);
-            continue;
+            goto out;
         }
 
         in_fmt = g_malloc0(sizeof(VirtIOVideoFormat));
@@ -1205,6 +1128,36 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
                       in_fmt_frame->frame_rates->min, in_fmt_frame->frame_rates->max,
                       in_fmt_frame->frame_rates->step);
 
+        /* Query supported profiles */
+        if (virtio_video_profile_range(in_format, &ctrl_min, &ctrl_max) < 0)
+            goto out;
+        in_fmt->profile.values = g_malloc0(sizeof(uint32_t) * (ctrl_max - ctrl_min) + 1);
+        for (ctrl = ctrl_min; ctrl <= ctrl_max; ctrl++) {
+            param.mfx.CodecProfile = virtio_video_profile_to_msdk(ctrl);
+            if (param.mfx.CodecProfile == 0)
+                continue;
+            status = MFXVideoDECODE_Query(session, &param, &corrected_param);
+            if (status == MFX_ERR_NONE || status == MFX_WRN_PARTIAL_ACCELERATION) {
+                in_fmt->profile.values[in_fmt->profile.num++] = param.mfx.CodecProfile;
+            }
+        }
+
+        /* Query supported levels */
+        if (virtio_video_level_range(in_format, &ctrl_min, &ctrl_max) < 0)
+            goto out;
+        in_fmt->level.values = g_malloc0(sizeof(uint32_t) * (ctrl_max - ctrl_min) + 1);
+        param.mfx.CodecProfile = 0;
+        for (ctrl = ctrl_min; ctrl <= ctrl_max; ctrl++) {
+            param.mfx.CodecLevel = virtio_video_level_to_msdk(ctrl);
+            if (param.mfx.CodecLevel == 0)
+                continue;
+            status = MFXVideoDECODE_Query(session, &param, &corrected_param);
+            if (status == MFX_ERR_NONE || status == MFX_WRN_PARTIAL_ACCELERATION) {
+                in_fmt->level.values[in_fmt->level.num++] = param.mfx.CodecLevel;
+            }
+        }
+out:
+        virtio_video_msdk_unload_plugin(session, in_format, false);
     }
 
     /*

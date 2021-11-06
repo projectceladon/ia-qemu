@@ -83,11 +83,6 @@ typedef enum virtio_video_backend {
     VIRTIO_VIDEO_BACKEND_MAX = VIRTIO_VIDEO_BACKEND_MEDIA_SDK,
 } virtio_video_backend;
 
-typedef struct VirtIOVideoControl {
-    uint32_t value;
-    QLIST_ENTRY(VirtIOVideoControl) next;
-} VirtIOVideoControl;
-
 typedef enum VirtIOVideoStreamEvent {
     VirtIOVideoStreamEventNone = 0,
     VirtIOVideoStreamEventParamChange,
@@ -139,16 +134,6 @@ typedef struct VirtIOVideoStream {
     virtio_video_format codec;
     void *opaque;
     struct {
-        struct {
-            uint32_t num;
-            QLIST_HEAD(, VirtIOVideoControl) list;
-        } profile;
-        struct {
-            uint32_t num;
-            QLIST_HEAD(, VirtIOVideoControl) list;
-        } level;
-    } control_caps;
-    struct {
         uint32_t bitrate;
         uint32_t profile;
         uint32_t level;
@@ -168,15 +153,23 @@ typedef struct VirtIOVideoStream {
     QLIST_ENTRY(VirtIOVideoStream) next;
 } VirtIOVideoStream;
 
+typedef struct VirtIOVideoControl {
+    uint32_t num;
+    uint32_t *values;
+} VirtIOVideoControl;
+
 typedef struct VirtIOVideoFormatFrame {
     virtio_video_format_frame frame;
     virtio_video_format_range *frame_rates;
     QLIST_ENTRY(VirtIOVideoFormatFrame) next;
 } VirtIOVideoFormatFrame;
 
+/* profile & level only apply to coded format */
 typedef struct VirtIOVideoFormat {
     virtio_video_format_desc desc;
     QLIST_HEAD(, VirtIOVideoFormatFrame) frames;
+    VirtIOVideoControl profile;
+    VirtIOVideoControl level;
     QLIST_ENTRY(VirtIOVideoFormat) next;
 } VirtIOVideoFormat;
 

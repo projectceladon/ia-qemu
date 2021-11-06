@@ -261,7 +261,7 @@ static size_t virtio_video_process_cmd_query_control(VirtIODevice *vdev,
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
-    if (req == NULL || resp == NULL)
+    if (req == NULL || *resp != NULL)
         return 0;
 
     switch (v->model) {
@@ -279,7 +279,7 @@ static size_t virtio_video_process_cmd_get_control(VirtIODevice *vdev,
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
-    if (req == NULL || resp == NULL)
+    if (req == NULL || *resp != NULL)
         return 0;
 
     switch (v->model) {
@@ -572,14 +572,19 @@ static int virtio_video_process_command(VirtIODevice *vdev, struct iovec *in_buf
         VIRTVID_DEBUG("    control 0x%x", req.control);
 
         len = virtio_video_process_cmd_query_control(vdev, &req, &resp);
+
+        if (len == 0 || resp == NULL) {
+            virtio_error(vdev, "virtio-video unexpected error while processing cmd_vq\n");
+            return -1;
+        }
         if (unlikely(iov_from_buf(in_buf, in_num, 0, &resp, len) != len)) {
+            g_free(resp);
             virtio_error(vdev, "virtio-video insufficient buffer for iov_from_buf in cmd_vq\n");
             return -1;
         }
         VIRTVID_DEBUG("    resp_size 0x%lx", len);
         *size = len;
-        if (resp)
-            g_free(resp);
+        g_free(resp);
         break;
     }
     case VIRTIO_VIDEO_CMD_GET_CONTROL:
@@ -594,14 +599,18 @@ static int virtio_video_process_command(VirtIODevice *vdev, struct iovec *in_buf
         VIRTVID_DEBUG("    control 0x%x", req.control);
 
         len = virtio_video_process_cmd_get_control(vdev, &req, &resp);
+        if (len == 0 || resp == NULL) {
+            virtio_error(vdev, "virtio-video unexpected error while processing cmd_vq\n");
+            return -1;
+        }
         if (unlikely(iov_from_buf(in_buf, in_num, 0, &resp, len) != len)) {
+            g_free(resp);
             virtio_error(vdev, "virtio-video insufficient buffer for iov_from_buf in cmd_vq\n");
             return -1;
         }
         VIRTVID_DEBUG("    resp_size 0x%lx", len);
         *size = len;
-        if (resp)
-            g_free(resp);
+        g_free(resp);
         break;
     }
     case VIRTIO_VIDEO_CMD_SET_CONTROL:
