@@ -26,6 +26,8 @@
 #include "standard-headers/linux/virtio_video.h"
 #include "hw/virtio/virtio.h"
 #include "qemu/timer.h"
+#include "sysemu/iothread.h"
+#include "block/aio.h"
 
 #define VIRTIO_VIDEO_DEBUG
 
@@ -72,19 +74,15 @@
         OBJECT_CHECK(VirtIOVideo, (obj), TYPE_VIRTIO_VIDEO)
 
 typedef enum virtio_video_device_model {
-    VIRTIO_VIDEO_DEVICE_MIN = 1,
-    VIRTIO_VIDEO_DEVICE_V4L2_DEC = VIRTIO_VIDEO_DEVICE_MIN,
-    VIRTIO_VIDEO_DEVICE_V4L2_ENC,
-    VIRTIO_VIDEO_DEVICE_MAX = VIRTIO_VIDEO_DEVICE_V4L2_ENC,
+    VIRTIO_VIDEO_DEVICE_V4L2_ENC = 1,
+    VIRTIO_VIDEO_DEVICE_V4L2_DEC,
 } virtio_video_device_model;
 
 typedef enum virtio_video_backend {
-    VIRTIO_VIDEO_BACKEND_MIN = 1,
-    VIRTIO_VIDEO_BACKEND_VAAPI = VIRTIO_VIDEO_BACKEND_MIN,
+    VIRTIO_VIDEO_BACKEND_VAAPI = 1,
     VIRTIO_VIDEO_BACKEND_FFMPEG,
     VIRTIO_VIDEO_BACKEND_GSTREAMER,
     VIRTIO_VIDEO_BACKEND_MEDIA_SDK,
-    VIRTIO_VIDEO_BACKEND_MAX = VIRTIO_VIDEO_BACKEND_MEDIA_SDK,
 } virtio_video_backend;
 
 typedef enum VirtIOVideoStreamEvent {
@@ -182,6 +180,7 @@ typedef struct VirtIOVideoFormat {
 typedef struct VirtIOVideoConf {
     char *model;
     char *backend;
+    IOThread *iothread;
 } VirtIOVideoConf;
 
 typedef struct VirtIOVideoEvent {
@@ -200,6 +199,7 @@ struct VirtIOVideo {
     QLIST_HEAD(, VirtIOVideoStream) stream_list;
     QLIST_HEAD(, VirtIOVideoFormat) format_list[VIRTIO_VIDEO_FORMAT_LIST_NUM];
     void *opaque;
+    AioContext *ctx;
 };
 
 #endif /* QEMU_VIRTIO_VIDEO_H */

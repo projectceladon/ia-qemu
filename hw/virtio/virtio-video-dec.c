@@ -1160,6 +1160,8 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
                 in_fmt->profile.values[in_fmt->profile.num++] = param.mfx.CodecProfile;
             }
         }
+        if (in_fmt->profile.num == 0)
+            g_free(in_fmt->profile.values);
 
         /* Query supported levels */
         if (virtio_video_level_range(in_format, &ctrl_min, &ctrl_max) < 0)
@@ -1175,6 +1177,8 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
                 in_fmt->level.values[in_fmt->level.num++] = param.mfx.CodecLevel;
             }
         }
+        if (in_fmt->level.num == 0)
+            g_free(in_fmt->level.values);
 out:
         virtio_video_msdk_unload_plugin(session, in_format, false);
     }
@@ -1225,9 +1229,9 @@ out:
 static void virtio_video_decode_destroy_msdk(VirtIODevice *vdev)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-    VirtIOVideoStream *stream, *next = NULL;
+    VirtIOVideoStream *stream, *tmp_stream;
 
-    QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
+    QLIST_FOREACH_SAFE(stream, &v->stream_list, next, tmp_stream) {
         virtio_video_stream_destroy req = {0};
         virtio_video_cmd_hdr resp = {0};
 

@@ -22,6 +22,7 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/iov.h"
+#include "qemu/main-loop.h"
 #include "qapi/error.h"
 #include "hw/virtio/virtio-video.h"
 #include "virtio-video-dec.h"
@@ -31,8 +32,8 @@ static struct {
     virtio_video_device_model id;
     const char *name;
 } virtio_video_models[] = {
-    {VIRTIO_VIDEO_DEVICE_V4L2_DEC, "v4l2-dec"},
     {VIRTIO_VIDEO_DEVICE_V4L2_ENC, "v4l2-enc"},
+    {VIRTIO_VIDEO_DEVICE_V4L2_DEC, "v4l2-dec"},
 };
 
 static struct {
@@ -119,7 +120,6 @@ static size_t virtio_video_process_cmd_stream_create(VirtIODevice *vdev,
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_stream_create(vdev, req, resp);
-        break;
     default:
         VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
@@ -134,7 +134,6 @@ static size_t virtio_video_process_cmd_stream_destroy(VirtIODevice *vdev,
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_stream_destroy(vdev, req, resp);
-        break;
     default:
         VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
@@ -149,7 +148,6 @@ static size_t virtio_video_process_cmd_stream_drain(VirtIODevice *vdev,
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_stream_drain(vdev, req, resp);
-        break;
     default:
         VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
@@ -195,7 +193,6 @@ static size_t virtio_video_process_cmd_resource_queue(VirtIODevice *vdev,
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_resource_queue(vdev, req, resp);
-        break;
     default:
         VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
@@ -210,7 +207,6 @@ static size_t virtio_video_process_cmd_resource_destroy_all(VirtIODevice *vdev,
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_resource_destroy_all(vdev, req, resp);
-        break;
     default:
         VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
@@ -225,7 +221,6 @@ static size_t virtio_video_process_cmd_queue_clear(VirtIODevice *vdev,
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_queue_clear(vdev, req, resp);
-        break;
     default:
         VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
@@ -241,12 +236,10 @@ static size_t virtio_video_process_cmd_get_params(VirtIODevice *vdev,
         return 0;
 
     switch (v->model) {
-    case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
-        return virtio_video_dec_cmd_get_params(vdev, req, resp);
-        break;
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
         return virtio_video_enc_cmd_get_params(vdev, req, resp);
-        break;
+    case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
+        return virtio_video_dec_cmd_get_params(vdev, req, resp);
     default:
         VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
@@ -264,7 +257,6 @@ static size_t virtio_video_process_cmd_set_params(VirtIODevice *vdev,
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_set_params(vdev, req, resp);
-        break;
     default:
         VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
@@ -282,7 +274,6 @@ static size_t virtio_video_process_cmd_query_control(VirtIODevice *vdev,
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_query_control(vdev, req, resp);
-        break;
     default:
         VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
@@ -300,7 +291,6 @@ static size_t virtio_video_process_cmd_get_control(VirtIODevice *vdev,
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_get_control(vdev, req, resp);
-        break;
     default:
         VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
@@ -318,7 +308,6 @@ static size_t virtio_video_process_cmd_set_control(VirtIODevice *vdev,
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_dec_cmd_set_control(vdev, req, resp);
-        break;
     default:
         VIRTVID_ERROR("%s: Unknown virtio-device model %d", __func__, v->model);
         return 0;
@@ -789,8 +778,9 @@ static void virtio_video_event_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
     }
 }
 
-static void virtio_video_init_framework(VirtIODevice *vdev, Error **errp)
+static void virtio_video_device_realize(DeviceState *dev, Error **errp)
 {
+    VirtIODevice *vdev = VIRTIO_DEVICE(dev);
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     int i;
 
@@ -829,106 +819,59 @@ static void virtio_video_init_framework(VirtIODevice *vdev, Error **errp)
     VIRTVID_DEBUG("model %d(%s), backend %d(%s)", v->model, v->conf.model, v->backend, v->conf.backend);
 
     switch (v->model) {
-    case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
-        virtio_init(vdev, "virtio-video", VIRTIO_ID_VIDEO_DEC, sizeof(virtio_video_config));
-        if (virtio_video_decode_init(vdev)) {
-            error_setg(errp, "Fail to initialize %s:%s", v->conf.model, v->conf.backend);
-        }
-        break;
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
         virtio_init(vdev, "virtio-video", VIRTIO_ID_VIDEO_ENC, sizeof(virtio_video_config));
-        if (virtio_video_encode_init(vdev)) {
-            error_setg(errp, "Fail to initialize %s:%s", v->conf.model, v->conf.backend);
-        }
         break;
-    default:
-        return;
-    }
-
-    v->cmd_vq = virtio_add_queue(vdev, VIRTIO_VIDEO_VQ_SIZE, virtio_video_command_vq_cb);
-    if (v->cmd_vq == NULL) {
-        error_setg(errp, "Fail to initialize virtio-video cmd_vq");
-    }
-
-    v->event_vq = virtio_add_queue(vdev, VIRTIO_VIDEO_VQ_SIZE, virtio_video_event_vq_cb);
-    if (v->event_vq == NULL) {
-        error_setg(errp, "Fail to initialize virtio-video event_vq");
-    }
-}
-
-static void virtio_video_destroy_framework(VirtIODevice *vdev)
-{
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-
-    switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
-        virtio_video_decode_destroy(vdev);
-        break;
-    case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
-        virtio_video_encode_destroy(vdev);
+        virtio_init(vdev, "virtio-video", VIRTIO_ID_VIDEO_DEC, sizeof(virtio_video_config));
         break;
     default:
         return;
     }
-
-    virtio_del_queue(vdev, 0);
-    virtio_del_queue(vdev, 1);
-    virtio_cleanup(vdev);
-}
-
-static void virtio_video_init_internal(VirtIODevice *vdev, Error **errp)
-{
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
     v->config.version = VIRTIO_VIDEO_VERSION;
     v->config.max_caps_length = VIRTIO_VIDEO_CAPS_LENGTH_MAX;
     v->config.max_resp_length = VIRTIO_VIDEO_RESPONSE_LENGTH_MAX;
+
+    v->cmd_vq = virtio_add_queue(vdev, VIRTIO_VIDEO_VQ_SIZE, virtio_video_command_vq_cb);
+    v->event_vq = virtio_add_queue(vdev, VIRTIO_VIDEO_VQ_SIZE, virtio_video_event_vq_cb);
+
     QLIST_INIT(&v->event_list);
     QLIST_INIT(&v->stream_list);
     QLIST_INIT(&v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT]);
     QLIST_INIT(&v->format_list[VIRTIO_VIDEO_FORMAT_LIST_OUTPUT]);
-}
 
-static void virtio_video_destroy_format(VirtIOVideoFormat *fmt)
-{
-    VirtIOVideoFormatFrame *fmt_frame;
-
-    QLIST_FOREACH(fmt_frame, &fmt->frames, next) {
-        g_free(fmt_frame->frame_rates);
-        QLIST_REMOVE(fmt_frame, next);
-        g_free(fmt_frame);
-    }
-    QLIST_REMOVE(fmt, next);
-    g_free(fmt);
-}
-
-static void virtio_video_destroy_internal(VirtIODevice *vdev)
-{
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-    VirtIOVideoFormat *fmt;
-
-    QLIST_FOREACH(fmt, &v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT], next) {
-        virtio_video_destroy_format(fmt);
-    }
-    QLIST_FOREACH(fmt, &v->format_list[VIRTIO_VIDEO_FORMAT_LIST_OUTPUT], next) {
-        virtio_video_destroy_format(fmt);
-    }
-}
-
-static void virtio_video_device_realize(DeviceState *dev, Error **errp)
-{
-    VirtIODevice *vdev = VIRTIO_DEVICE(dev);
-    Error *err = NULL;
-
-    virtio_video_init_framework(vdev, &err);
-    if (err != NULL) {
-        error_propagate(errp, err);
-        return;
+    if (v->conf.iothread) {
+        object_ref(OBJECT(v->conf.iothread));
+        v->ctx = iothread_get_aio_context(v->conf.iothread);
+    } else {
+        v->ctx = qemu_get_aio_context();
     }
 
-    virtio_video_init_internal(vdev, &err);
-    if (err != NULL) {
-        error_propagate(errp, err);
+    switch (v->model) {
+    case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
+        if (virtio_video_encode_init(vdev)) {
+            if (v->conf.iothread) {
+                object_unref(OBJECT(v->conf.iothread));
+            }
+            virtio_del_queue(vdev, 0);
+            virtio_del_queue(vdev, 1);
+            virtio_cleanup(vdev);
+            error_setg(errp, "Fail to initialize %s:%s", v->conf.model, v->conf.backend);
+        }
+        break;
+    case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
+        if (virtio_video_decode_init(vdev)) {
+            if (v->conf.iothread) {
+                object_unref(OBJECT(v->conf.iothread));
+            }
+            virtio_del_queue(vdev, 0);
+            virtio_del_queue(vdev, 1);
+            virtio_cleanup(vdev);
+            error_setg(errp, "Fail to initialize %s:%s", v->conf.model, v->conf.backend);
+        }
+        break;
+    default:
         return;
     }
 }
@@ -936,9 +879,48 @@ static void virtio_video_device_realize(DeviceState *dev, Error **errp)
 static void virtio_video_device_unrealize(DeviceState *dev)
 {
     VirtIODevice *vdev = VIRTIO_DEVICE(dev);
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
+    VirtIOVideoEvent *ev, *tmp_ev;
+    VirtIOVideoFormat *fmt, *tmp_fmt;
+    VirtIOVideoFormatFrame *frame, *tmp_frame;
+    int i;
 
-    virtio_video_destroy_internal(vdev);
-    virtio_video_destroy_framework(vdev);
+    switch (v->model) {
+    case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
+        virtio_video_encode_destroy(vdev);
+        break;
+    case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
+        virtio_video_decode_destroy(vdev);
+        break;
+    default:
+        return;
+    }
+
+    QLIST_FOREACH_SAFE(ev, &v->event_list, next, tmp_ev) {
+        g_free(ev);
+    }
+
+    for (i = 0; i < VIRTIO_VIDEO_FORMAT_LIST_NUM; i++) {
+        QLIST_FOREACH_SAFE(fmt, &v->format_list[i], next, tmp_fmt) {
+            QLIST_FOREACH_SAFE(frame, &fmt->frames, next, tmp_frame) {
+                g_free(frame->frame_rates);
+                g_free(frame);
+            }
+            if (fmt->profile.num)
+                g_free(fmt->profile.values);
+            if (fmt->level.num)
+                g_free(fmt->level.values);
+            g_free(fmt);
+        }
+    }
+
+    if (v->conf.iothread) {
+        object_unref(OBJECT(v->conf.iothread));
+    }
+
+    virtio_del_queue(vdev, 0);
+    virtio_del_queue(vdev, 1);
+    virtio_cleanup(vdev);
 }
 
 static void virtio_video_get_config(VirtIODevice *vdev, uint8_t *config)
@@ -979,6 +961,8 @@ static const VMStateDescription vmstate_virtio_video = {
 static Property virtio_video_properties[] = {
     DEFINE_PROP_STRING("model", VirtIOVideo, conf.model),
     DEFINE_PROP_STRING("backend", VirtIOVideo, conf.backend),
+    DEFINE_PROP_LINK("iothread", VirtIOVideo, conf.iothread, TYPE_IOTHREAD,
+                     IOThread *),
     DEFINE_PROP_END_OF_LIST(),
 };
 
