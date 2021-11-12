@@ -64,6 +64,10 @@
 #define VIRTIO_VIDEO_FORMAT_LIST_INPUT  0
 #define VIRTIO_VIDEO_FORMAT_LIST_OUTPUT 1
 
+#define VIRTIO_VIDEO_RESOURCE_LIST_NUM      2
+#define VIRTIO_VIDEO_RESOURCE_LIST_INPUT    0
+#define VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT   1
+
 #define VIRTIO_VIDEO(obj) \
         OBJECT_CHECK(VirtIOVideo, (obj), TYPE_VIRTIO_VIDEO)
 
@@ -79,7 +83,7 @@ typedef enum virtio_video_backend {
     VIRTIO_VIDEO_BACKEND_VAAPI = VIRTIO_VIDEO_BACKEND_MIN,
     VIRTIO_VIDEO_BACKEND_FFMPEG,
     VIRTIO_VIDEO_BACKEND_GSTREAMER,
-	VIRTIO_VIDEO_BACKEND_MEDIA_SDK,
+    VIRTIO_VIDEO_BACKEND_MEDIA_SDK,
     VIRTIO_VIDEO_BACKEND_MAX = VIRTIO_VIDEO_BACKEND_MEDIA_SDK,
 } virtio_video_backend;
 
@@ -104,28 +108,31 @@ typedef struct VirtIOVideoStreamEventEntry {
     QLIST_ENTRY(VirtIOVideoStreamEventEntry) next;
 } VirtIOVideoStreamEventEntry;
 
-typedef struct VirtIOVideoResourceDesc {
-    union {
-        virtio_video_mem_entry mem_entry;
-        virtio_video_object_entry obj_entry;
-    } entry;
-    void *hva;
-    uint32_t len;
-    MemoryRegion *mr;
-} VirtIOVideoResourceDesc;
+typedef union VirtIOVideoResourceSlice {
+    struct {
+        void *hva;
+        uint32_t len;
+    } page;
+    struct {
+        uint64_t uuid_low;
+        uint64_t uuid_high;
+    } object;
+} VirtIOVideoResourceSlice;
 
-typedef struct VirtIOVideoStreamResource {
-    uint32_t resource_id;
-    virtio_video_mem_type mem_type;
+typedef struct VirtIOVideoResource {
+    uint32_t id;
     uint32_t planes_layout;
     uint32_t num_planes;
-    __le32 plane_offsets[VIRTIO_VIDEO_MAX_PLANES];
-    __le32 num_entries[VIRTIO_VIDEO_MAX_PLANES];
-    VirtIOVideoResourceDesc *desc[VIRTIO_VIDEO_MAX_PLANES];
-    QLIST_ENTRY(VirtIOVideoStreamResource) next;
-} VirtIOVideoStreamResource;
+    uint32_t plane_offsets[VIRTIO_VIDEO_MAX_PLANES];
+    uint32_t num_entries[VIRTIO_VIDEO_MAX_PLANES];
+    VirtIOVideoResourceSlice *slices[VIRTIO_VIDEO_MAX_PLANES];
+    QLIST_ENTRY(VirtIOVideoResource) next;
+} VirtIOVideoResource;
+
+typedef struct VirtIOVideo VirtIOVideo;
 
 typedef struct VirtIOVideoStream {
+    VirtIOVideo *parent;
     uint32_t mfxWaitMs;
     uint32_t retry;
     uint32_t id;
@@ -139,8 +146,8 @@ typedef struct VirtIOVideoStream {
         uint32_t level;
     } control;
     QLIST_HEAD(, VirtIOVideoStreamEventEntry) ev_list;
-    QLIST_HEAD(, VirtIOVideoStreamResource) in_list;
-    QLIST_HEAD(, VirtIOVideoStreamResource) out_list;
+    QLIST_HEAD(, VirtIOVideoResource)
+        resource_list[VIRTIO_VIDEO_RESOURCE_LIST_NUM];
     QemuEvent signal_in;
     QemuEvent signal_out;
     VirtIOVideoStreamStat stat;
@@ -149,7 +156,6 @@ typedef struct VirtIOVideoStream {
     char tag[64];
     QemuThread thread;
     QemuMutex mutex;
-    VirtQueue *event_vq;
     QLIST_ENTRY(VirtIOVideoStream) next;
 } VirtIOVideoStream;
 
@@ -183,7 +189,7 @@ typedef struct VirtIOVideoEvent {
     QLIST_ENTRY(VirtIOVideoEvent) next;
 } VirtIOVideoEvent;
 
-typedef struct VirtIOVideo {
+struct VirtIOVideo {
     VirtIODevice parent_obj;
     VirtIOVideoConf conf;
     virtio_video_device_model model;
@@ -194,8 +200,6 @@ typedef struct VirtIOVideo {
     QLIST_HEAD(, VirtIOVideoStream) stream_list;
     QLIST_HEAD(, VirtIOVideoFormat) format_list[VIRTIO_VIDEO_FORMAT_LIST_NUM];
     void *opaque;
-} VirtIOVideo;
-
-void virtio_video_resource_desc_from_guest_page(VirtIOVideoResourceDesc *desc);
+};
 
 #endif /* QEMU_VIRTIO_VIDEO_H */

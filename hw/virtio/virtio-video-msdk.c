@@ -220,7 +220,8 @@ void virtio_video_msdk_init_format(VirtIOVideoFormat *fmt, uint32_t format)
     QLIST_INIT(&fmt->frames);
     fmt->desc.mask = 0;
     fmt->desc.format = format;
-    fmt->desc.planes_layout = VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER;
+    fmt->desc.planes_layout = VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER |
+                              VIRTIO_VIDEO_PLANES_LAYOUT_PER_PLANE;
     fmt->desc.plane_align = 0;
     fmt->desc.num_frames = 0;
 
