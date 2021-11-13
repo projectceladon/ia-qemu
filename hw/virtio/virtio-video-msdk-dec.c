@@ -22,9 +22,9 @@
  */
 #include "qemu/osdep.h"
 #include "exec/address-spaces.h"
-#include "virtio-video-dec.h"
-#include "virtio-video-msdk.h"
-#include "virtio-video-vaapi.h"
+#include "virtio-video-msdk-dec.h"
+#include "virtio-video-msdk-vaapi.h"
+#include "virtio-video-msdk-util.h"
 
 #define VIRTIO_VIDEO_DECODE_THREAD "Virtio-Video-Decode"
 

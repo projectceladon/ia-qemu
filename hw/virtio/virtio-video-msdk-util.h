@@ -21,8 +21,8 @@
  * Authors: Colin Xu <colin.xu@intel.com>
  *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
-#ifndef QEMU_VIRTIO_VIDEO_MSDK_H
-#define QEMU_VIRTIO_VIDEO_MSDK_H
+#ifndef QEMU_VIRTIO_VIDEO_MSDK_UTIL_H
+#define QEMU_VIRTIO_VIDEO_MSDK_UTIL_H
 
 #include "mfx/mfxsession.h"
 #include "mfx/mfxstructures.h"
@@ -64,4 +64,4 @@ void virtio_video_msdk_init_format(VirtIOVideoFormat *fmt, uint32_t format);
 void virtio_video_msdk_load_plugin(mfxSession session, uint32_t format, bool encode);
 void virtio_video_msdk_unload_plugin(mfxSession session, uint32_t format, bool encode);
 
-#endif /* QEMU_VIRTIO_VIDEO_MSDK_H */
+#endif /* QEMU_VIRTIO_VIDEO_MSDK_UTIL_H */

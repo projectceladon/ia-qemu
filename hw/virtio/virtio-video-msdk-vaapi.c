@@ -21,8 +21,8 @@
  *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
 #include "qemu/osdep.h"
-#include "virtio-video-msdk.h"
-#include "virtio-video-vaapi.h"
+#include "virtio-video-msdk-util.h"
+#include "virtio-video-msdk-vaapi.h"
 #include "va/va.h"
 #include "va/va_drm.h"
 
@@ -78,49 +78,4 @@ void virtio_video_destroy_va_env_drm(VirtIODevice *vdev)
 
     g_free(msdk);
     v->opaque = NULL;
-}
-
-void virtio_video_vaapi_query_caps(virtio_video_format fmt)
-{
-    int drm_fd = -1;
-    VADisplay va_dpy;
-    VAStatus va_status;
-    int ver_major, ver_minor;
-
-    drm_fd = open(VIRTIO_VIDEO_DRM_DEVICE, O_RDWR);
-    if (drm_fd < 0)
-        printf("error open %s\n", VIRTIO_VIDEO_DRM_DEVICE);
-
-    va_dpy = vaGetDisplayDRM(drm_fd);
-    if (va_dpy) {
-        int num_entrypoint = 0, num_profiles = 0, i;
-        VAProfile profile, *profile_list = NULL;
-
-        va_status = vaInitialize(va_dpy, &ver_major, &ver_minor);
-        printf("%s: VA-API version: %d.%d, status %d\n",
-               __FUNCTION__, ver_major, ver_minor, va_status);
-
-        num_entrypoint = vaMaxNumEntrypoints (va_dpy);
-        num_profiles = vaMaxNumProfiles(va_dpy);
-        printf("%s: num_entrypoint %d, num_profiles %d\n", __FUNCTION__, num_entrypoint, num_profiles);
-
-        profile_list = malloc(num_profiles * sizeof(VAProfile));
-
-        va_status = vaQueryConfigProfiles(va_dpy, profile_list, &num_profiles);
-        printf("%s: vaQueryConfigProfiles num_profiles %d, returns %d\n", __FUNCTION__, num_profiles, va_status);
-
-        for (i = 0; i < num_profiles; i++) {
-            profile = profile_list[i];
-            printf("Profile %d\n", profile);
-        }
-
-        free(profile_list);
-        vaTerminate(va_dpy);
-    } else {
-        printf("error open VADisplay for %s\n", VIRTIO_VIDEO_DRM_DEVICE);
-    }
-
-    if (drm_fd < 0)
-        return;
-    close(drm_fd);
 }

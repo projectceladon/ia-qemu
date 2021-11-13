@@ -22,8 +22,8 @@
  *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
 #include "qemu/osdep.h"
-#include "virtio-video-vaapi.h"
-#include "virtio-video-msdk.h"
+#include "virtio-video-msdk-util.h"
+#include "virtio-video-msdk-vaapi.h"
 
 struct virtio_video_convert_table {
     uint32_t virtio_value;

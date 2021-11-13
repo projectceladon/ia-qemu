@@ -20,8 +20,8 @@
  * Authors: Colin Xu <colin.xu@intel.com>
  *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
-#ifndef QEMU_VIRTIO_VIDEO_DEC_H
-#define QEMU_VIRTIO_VIDEO_DEC_H
+#ifndef QEMU_VIRTIO_VIDEO_MSDK_DEC_H
+#define QEMU_VIRTIO_VIDEO_MSDK_DEC_H
 
 #include "hw/virtio/virtio-video.h"
 
@@ -57,4 +57,4 @@ size_t virtio_video_dec_cmd_set_control(VirtIODevice *vdev,
 int virtio_video_decode_init(VirtIODevice *vdev);
 void virtio_video_decode_destroy(VirtIODevice *vdev);
 
-#endif /* QEMU_VIRTIO_VIDEO_DEC_H */
+#endif /* QEMU_VIRTIO_VIDEO_MSDK_DEC_H */

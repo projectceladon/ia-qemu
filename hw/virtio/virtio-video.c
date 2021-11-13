@@ -25,8 +25,8 @@
 #include "qemu/main-loop.h"
 #include "qapi/error.h"
 #include "hw/virtio/virtio-video.h"
-#include "virtio-video-dec.h"
-#include "virtio-video-enc.h"
+#include "virtio-video-msdk-dec.h"
+#include "virtio-video-msdk-enc.h"
 
 static struct {
     virtio_video_device_model id;

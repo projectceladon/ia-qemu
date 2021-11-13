@@ -25,7 +25,13 @@ virtio_ss.add(when: 'CONFIG_VHOST_USER_VSOCK', if_true: files('vhost-user-vsock.
 virtio_ss.add(when: 'CONFIG_VIRTIO_RNG', if_true: files('virtio-rng.c'))
 virtio_ss.add(when: 'CONFIG_VIRTIO_IOMMU', if_true: files('virtio-iommu.c'))
 virtio_ss.add(when: 'CONFIG_VIRTIO_MEM', if_true: files('virtio-mem.c'))
-virtio_ss.add(when: 'CONFIG_VIRTIO_VIDEO', if_true: files('virtio-video.c', 'virtio-video-dec.c', 'virtio-video-enc.c', 'virtio-video-msdk.c', 'virtio-video-vaapi.c'))
+virtio_ss.add(when: 'CONFIG_VIRTIO_VIDEO', if_true: files(
+  'virtio-video.c',
+  'virtio-video-msdk-dec.c',
+  'virtio-video-msdk-enc.c',
+  'virtio-video-msdk-util.c',
+  'virtio-video-msdk-vaapi.c',
+))
 
 virtio_pci_ss = ss.source_set()
 virtio_pci_ss.add(when: 'CONFIG_VHOST_VSOCK', if_true: files('vhost-vsock-pci.c'))
