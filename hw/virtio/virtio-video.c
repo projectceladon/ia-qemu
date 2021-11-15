@@ -202,7 +202,7 @@ static void virtio_video_process_cmd_resource_create(
         num_entries += req->num_entries[i];
     }
 
-    res = g_malloc0(sizeof(VirtIOVideoResource));
+    res = g_new0(VirtIOVideoResource, 1);
     res->id = req->resource_id;
     res->planes_layout = req->planes_layout;
     res->num_planes = req->num_planes;
@@ -644,7 +644,7 @@ static void virtio_video_event_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
             return;
         }
 
-        ev = g_malloc(sizeof(VirtIOVideoEvent));
+        ev = g_new(VirtIOVideoEvent, 1);
         ev->elem = elem;
         QLIST_INSERT_HEAD(&v->event_list, ev, next);
     }

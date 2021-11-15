@@ -314,7 +314,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
         return len;
     }
 
-    msdk = g_malloc(sizeof(VirtIOVideoStreamMediaSDK));
+    msdk = g_new(VirtIOVideoStreamMediaSDK, 1);
     if (msdk == NULL)
         return len;
 
@@ -336,7 +336,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
         return len;
     }
 
-    stream = g_malloc0(sizeof(VirtIOVideoStream));
+    stream = g_new0(VirtIOVideoStream, 1);
     if (stream == NULL) {
         g_free(msdk);
         return len;
@@ -436,7 +436,7 @@ size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
         if (stream->id == req->hdr.stream_id) {
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
 
-            entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
+            entry = g_new0(VirtIOVideoStreamEventEntry, 1);
             entry->ev = VirtIOVideoStreamEventTerminate;
             qemu_mutex_lock(&stream->mutex);
             QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
@@ -492,7 +492,7 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
 
     QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
         if (stream->id == req->hdr.stream_id) {
-            VirtIOVideoStreamEventEntry *entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
+            VirtIOVideoStreamEventEntry *entry = g_new0(VirtIOVideoStreamEventEntry, 1);
 
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
             entry->ev = VirtIOVideoStreamEventStreamDrain;
@@ -530,7 +530,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         return len;
 
     VirtIOVideoResource *res, *next_res = NULL;
-    VirtIOVideoStreamEventEntry *entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
+    VirtIOVideoStreamEventEntry *entry = g_new0(VirtIOVideoStreamEventEntry, 1);
 
     msdk = stream->opaque;
     if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
@@ -647,7 +647,7 @@ size_t virtio_video_msdk_dec_queue_clear(VirtIOVideo *v,
 
     QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
         if (stream->id == req->hdr.stream_id) {
-            VirtIOVideoStreamEventEntry *entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
+            VirtIOVideoStreamEventEntry *entry = g_new0(VirtIOVideoStreamEventEntry, 1);
 
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
             if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT || req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
@@ -731,7 +731,7 @@ size_t virtio_video_msdk_dec_set_params(VirtIOVideo *v,
             }
 
             if (resp->type == VIRTIO_VIDEO_RESP_OK_NODATA) {
-                VirtIOVideoStreamEventEntry *entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
+                VirtIOVideoStreamEventEntry *entry = g_new0(VirtIOVideoStreamEventEntry, 1);
 
                 entry->ev = VirtIOVideoStreamEventParamChange;
                 qemu_mutex_lock(&stream->mutex);
@@ -929,7 +929,7 @@ size_t virtio_video_msdk_dec_set_control(VirtIOVideo *v,
             }
 
             if (resp->hdr.type == VIRTIO_VIDEO_RESP_OK_NODATA) {
-                VirtIOVideoStreamEventEntry *entry = g_malloc0(sizeof(VirtIOVideoStreamEventEntry));
+                VirtIOVideoStreamEventEntry *entry = g_new0(VirtIOVideoStreamEventEntry, 1);
 
                 entry->ev = VirtIOVideoStreamEventParamChange;
                 qemu_mutex_lock(&stream->mutex);
@@ -1043,10 +1043,10 @@ int virtio_video_init_msdk_dec(VirtIOVideo *v)
             goto out;
         }
 
-        in_fmt = g_malloc0(sizeof(VirtIOVideoFormat));
+        in_fmt = g_new0(VirtIOVideoFormat, 1);
         virtio_video_msdk_init_format(in_fmt, in_format);
 
-        in_fmt_frame = g_malloc0(sizeof(VirtIOVideoFormatFrame));
+        in_fmt_frame = g_new0(VirtIOVideoFormatFrame, 1);
         in_fmt_frame->frame.width.min = w_min;
         in_fmt_frame->frame.width.max = w_max;
         in_fmt_frame->frame.width.step = VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE;
@@ -1057,7 +1057,7 @@ int virtio_video_init_msdk_dec(VirtIOVideo *v)
 
         /* For decoding, frame rate may be unspecified */
         in_fmt_frame->frame.num_rates = 1;
-        in_fmt_frame->frame_rates = g_malloc0(sizeof(virtio_video_format_range));
+        in_fmt_frame->frame_rates = g_new0(virtio_video_format_range, 1);
         in_fmt_frame->frame_rates->min = 1;
         in_fmt_frame->frame_rates->max = 60;
         in_fmt_frame->frame_rates->step = 1;
@@ -1118,10 +1118,10 @@ out:
     for (i = 0; i < ARRAY_SIZE(out_format); i++) {
         size_t len;
 
-        out_fmt = g_malloc0(sizeof(VirtIOVideoFormat));
+        out_fmt = g_new0(VirtIOVideoFormat, 1);
         virtio_video_msdk_init_format(out_fmt, out_format[i]);
 
-        out_fmt_frame = g_malloc0(sizeof(VirtIOVideoFormatFrame));
+        out_fmt_frame = g_new0(VirtIOVideoFormatFrame, 1);
         memcpy(&out_fmt_frame->frame, &in_fmt_frame->frame, sizeof(virtio_video_format_frame));
 
         len = sizeof(virtio_video_format_range) * in_fmt_frame->frame.num_rates;
