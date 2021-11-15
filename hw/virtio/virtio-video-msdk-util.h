@@ -26,33 +26,10 @@
 
 #include "mfx/mfxsession.h"
 #include "mfx/mfxstructures.h"
-#include "mfx/mfxvp8.h"
-#include "mfx/mfxvideo.h"
-#include "mfx/mfxplugin.h"
 #include "hw/virtio/virtio-video.h"
-
-#define VIRTIO_VIDEO_MSDK_VERSION_MAJOR         1
-#define VIRTIO_VIDEO_MSDK_VERSION_MINOR         0
-
-#define VIRTIO_VIDEO_MSDK_DIMENSION_MAX         8192
-#define VIRTIO_VIDEO_MSDK_DIMENSION_MIN         16
-#define VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE  16
-#define VIRTIO_VIDEO_MSDK_DIM_STEP_OTHERS       32
 
 #define MSDK_ALIGN16(value) (((value + 15) >> 4) << 4)
 #define MSDK_ALIGN32(X) (((mfxU32)((X)+31)) & (~ (mfxU32)31))
-
-typedef struct VirtIOVideoStreamMediaSDK {
-    mfxSession session;
-    mfxVideoParam param;
-    mfxBitstream bitstream;
-    mfxFrameSurface1 surface;
-} VirtIOVideoStreamMediaSDK;
-
-typedef struct VirtIOVideoMediaSDK {
-    int drm_fd;
-    void *va_disp_handle;
-} VirtIOVideoMediaSDK;
 
 uint32_t virtio_video_format_to_msdk(uint32_t format);
 uint32_t virtio_video_profile_to_msdk(uint32_t profile);

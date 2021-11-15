@@ -130,7 +130,6 @@ typedef struct VirtIOVideoResource {
 typedef struct VirtIOVideo VirtIOVideo;
 
 typedef struct VirtIOVideoStream {
-    VirtIOVideo *parent;
     uint32_t mfxWaitMs;
     uint32_t retry;
     uint32_t id;

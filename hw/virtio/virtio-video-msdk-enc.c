@@ -24,29 +24,12 @@
 #include "qemu/osdep.h"
 #include "virtio-video-msdk-enc.h"
 
-size_t virtio_video_enc_cmd_get_params(VirtIODevice *vdev,
-    virtio_video_get_params *req, virtio_video_get_params_resp *resp)
-{
-    size_t len = 0;
-
-    VIRTVID_DEBUG("    %s: stream 0x%x, queue_type 0x%x", __func__,
-            req->hdr.stream_id, req->queue_type);
-    if (req != NULL && resp != NULL) {
-        resp->hdr.type = req->hdr.type;
-        resp->hdr.stream_id = req->hdr.stream_id;
-        resp->params.queue_type = req->queue_type;
-        len = sizeof(*resp);
-    }
-
-    return len;
-}
-
-int virtio_video_encode_init(VirtIODevice *vdev)
+int virtio_video_init_msdk_enc(VirtIOVideo *v)
 {
     return 0;
 }
 
-void virtio_video_encode_destroy(VirtIODevice *vdev)
+void virtio_video_uninit_msdk_enc(VirtIOVideo *v)
 {
 
 }

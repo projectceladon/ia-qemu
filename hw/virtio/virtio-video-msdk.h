@@ -17,38 +17,61 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301, USA.
  *
+ *
  * Authors: Colin Xu <colin.xu@intel.com>
  *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
-#ifndef QEMU_VIRTIO_VIDEO_MSDK_DEC_H
-#define QEMU_VIRTIO_VIDEO_MSDK_DEC_H
+#ifndef QEMU_VIRTIO_VIDEO_MSDK_H
+#define QEMU_VIRTIO_VIDEO_MSDK_H
 
+#include "mfx/mfxsession.h"
+#include "mfx/mfxstructures.h"
 #include "hw/virtio/virtio-video.h"
 
-size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
+#define VIRTIO_VIDEO_MSDK_VERSION_MAJOR         1
+#define VIRTIO_VIDEO_MSDK_VERSION_MINOR         0
+
+#define VIRTIO_VIDEO_MSDK_DIMENSION_MAX         8192
+#define VIRTIO_VIDEO_MSDK_DIMENSION_MIN         16
+#define VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE  16
+#define VIRTIO_VIDEO_MSDK_DIM_STEP_OTHERS       32
+
+typedef struct VirtIOVideoStreamMediaSDK {
+    mfxSession session;
+    mfxVideoParam param;
+    mfxBitstream bitstream;
+    mfxFrameSurface1 surface;
+} VirtIOVideoStreamMediaSDK;
+
+typedef struct VirtIOVideoMediaSDK {
+    int drm_fd;
+    void *va_handle;
+} VirtIOVideoMediaSDK;
+
+size_t virtio_video_msdk_cmd_stream_create(VirtIOVideo *v,
     virtio_video_stream_create *req, virtio_video_cmd_hdr *resp);
-size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo* v,
+size_t virtio_video_msdk_cmd_stream_destroy(VirtIOVideo *v,
     virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp);
-size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
+size_t virtio_video_msdk_cmd_stream_drain(VirtIOVideo *v,
     virtio_video_stream_drain *req, virtio_video_cmd_hdr *resp);
-size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
+size_t virtio_video_msdk_cmd_resource_queue(VirtIOVideo *v,
     virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp);
-size_t virtio_video_msdk_dec_resource_destroy_all(VirtIOVideo *v,
+size_t virtio_video_msdk_cmd_resource_destroy_all(VirtIOVideo *v,
     virtio_video_resource_destroy_all *req, virtio_video_cmd_hdr *resp);
-size_t virtio_video_msdk_dec_queue_clear(VirtIOVideo *v,
+size_t virtio_video_msdk_cmd_queue_clear(VirtIOVideo *v,
     virtio_video_queue_clear *req, virtio_video_cmd_hdr *resp);
-size_t virtio_video_msdk_dec_get_params(VirtIOVideo *v,
+size_t virtio_video_msdk_cmd_get_params(VirtIOVideo *v,
     virtio_video_get_params *req, virtio_video_get_params_resp *resp);
-size_t virtio_video_msdk_dec_set_params(VirtIOVideo *v,
+size_t virtio_video_msdk_cmd_set_params(VirtIOVideo *v,
     virtio_video_set_params *req, virtio_video_cmd_hdr *resp);
-size_t virtio_video_msdk_dec_query_control(VirtIOVideo *v,
+size_t virtio_video_msdk_cmd_query_control(VirtIOVideo *v,
     virtio_video_query_control *req, virtio_video_query_control_resp **resp);
-size_t virtio_video_msdk_dec_get_control(VirtIOVideo *v,
+size_t virtio_video_msdk_cmd_get_control(VirtIOVideo *v,
     virtio_video_get_control *req, virtio_video_get_control_resp **resp);
-size_t virtio_video_msdk_dec_set_control(VirtIOVideo *v,
+size_t virtio_video_msdk_cmd_set_control(VirtIOVideo *v,
     virtio_video_set_control *req, virtio_video_set_control_resp *resp);
 
-int virtio_video_init_msdk_dec(VirtIOVideo *v);
-void virtio_video_uninit_msdk_dec(VirtIOVideo *v);
+int virtio_video_init_msdk(VirtIOVideo *v);
+void virtio_video_uninit_msdk(VirtIOVideo *v);
 
-#endif /* QEMU_VIRTIO_VIDEO_MSDK_DEC_H */
+#endif /* QEMU_VIRTIO_VIDEO_MSDK_H */

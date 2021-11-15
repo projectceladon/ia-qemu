@@ -23,11 +23,11 @@
 #ifndef QEMU_VIRTIO_VIDEO_MSDK_VAAPI_H
 #define QEMU_VIRTIO_VIDEO_MSDK_VAAPI_H
 
-#include "hw/virtio/virtio.h"
+#include "hw/virtio/virtio-video.h"
 
 #define VIRTIO_VIDEO_DRM_DEVICE "/dev/dri/by-path/pci-0000:00:02.0-render"
 
-int virtio_video_create_va_env_drm(VirtIODevice *vdev);
-void virtio_video_destroy_va_env_drm(VirtIODevice *vdev);
+int virtio_video_init_msdk_handle(VirtIOVideo *vdev);
+void virtio_video_uninit_msdk_handle(VirtIOVideo *vdev);
 
 #endif /* QEMU_VIRTIO_VIDEO_MSDK_VAAPI_H */

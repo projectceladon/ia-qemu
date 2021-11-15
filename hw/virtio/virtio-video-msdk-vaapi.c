@@ -21,17 +21,15 @@
  *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
 #include "qemu/osdep.h"
-#include "virtio-video-msdk-util.h"
+#include "virtio-video-msdk.h"
 #include "virtio-video-msdk-vaapi.h"
-#include "va/va.h"
 #include "va/va_drm.h"
 
-int virtio_video_create_va_env_drm(VirtIODevice *vdev)
+int virtio_video_init_msdk_handle(VirtIOVideo *v)
 {
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoMediaSDK *msdk = g_malloc(sizeof(VirtIOVideoMediaSDK));
     VAStatus va_status;
-    int ver_major, ver_minor;
+    int major, minor;
 
     msdk->drm_fd = open(VIRTIO_VIDEO_DRM_DEVICE, O_RDWR);
     if (msdk->drm_fd < 0) {
@@ -40,18 +38,19 @@ int virtio_video_create_va_env_drm(VirtIODevice *vdev)
         return -1;
     }
 
-    msdk->va_disp_handle = vaGetDisplayDRM(msdk->drm_fd);
-    if (!msdk->va_disp_handle) {
+    msdk->va_handle = vaGetDisplayDRM(msdk->drm_fd);
+    if (!msdk->va_handle) {
         VIRTVID_ERROR("error vaGetDisplayDRM for %s\n", VIRTIO_VIDEO_DRM_DEVICE);
         close(msdk->drm_fd);
         g_free(msdk);
         return -1;
     }
 
-    va_status = vaInitialize(msdk->va_disp_handle, &ver_major, &ver_minor);
+    va_status = vaInitialize(msdk->va_handle, &major, &minor);
     if (va_status != VA_STATUS_SUCCESS) {
-        VIRTVID_ERROR("error vaInitialize for %s, status %d\n", VIRTIO_VIDEO_DRM_DEVICE, va_status);
-        vaTerminate(msdk->va_disp_handle);
+        VIRTVID_ERROR("error vaInitialize for %s, status %d\n",
+                VIRTIO_VIDEO_DRM_DEVICE, va_status);
+        vaTerminate(msdk->va_handle);
         close(msdk->drm_fd);
         g_free(msdk);
         return -1;
@@ -61,14 +60,13 @@ int virtio_video_create_va_env_drm(VirtIODevice *vdev)
     return 0;
 }
 
-void virtio_video_destroy_va_env_drm(VirtIODevice *vdev)
+void virtio_video_uninit_msdk_handle(VirtIOVideo *v)
 {
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoMediaSDK *msdk = (VirtIOVideoMediaSDK *) v->opaque;
 
-    if (msdk->va_disp_handle) {
-        vaTerminate(msdk->va_disp_handle);
-        msdk->va_disp_handle = NULL;
+    if (msdk->va_handle) {
+        vaTerminate(msdk->va_handle);
+        msdk->va_handle = NULL;
     }
 
     if (msdk->drm_fd) {

@@ -27,6 +27,7 @@ virtio_ss.add(when: 'CONFIG_VIRTIO_IOMMU', if_true: files('virtio-iommu.c'))
 virtio_ss.add(when: 'CONFIG_VIRTIO_MEM', if_true: files('virtio-mem.c'))
 virtio_ss.add(when: 'CONFIG_VIRTIO_VIDEO', if_true: files(
   'virtio-video.c',
+  'virtio-video-msdk.c',
   'virtio-video-msdk-dec.c',
   'virtio-video-msdk-enc.c',
   'virtio-video-msdk-util.c',

@@ -21,10 +21,11 @@
  *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
 #include "qemu/osdep.h"
-#include "exec/address-spaces.h"
+#include "virtio-video-msdk.h"
 #include "virtio-video-msdk-dec.h"
 #include "virtio-video-msdk-vaapi.h"
 #include "virtio-video-msdk-util.h"
+#include "mfx/mfxvideo.h"
 
 #define VIRTIO_VIDEO_DECODE_THREAD "Virtio-Video-Decode"
 
@@ -267,10 +268,9 @@ static void *virtio_video_decode_thread(void *arg)
     return NULL;
 }
 
-size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
+size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     virtio_video_stream_create *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoFormat *fmt;
     VirtIOVideoStream *stream;
     VirtIOVideoStreamMediaSDK *msdk;
@@ -327,7 +327,7 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
     }
 
     status = MFXVideoCORE_SetHandle(msdk->session, MFX_HANDLE_VA_DISPLAY,
-                                    ((VirtIOVideoMediaSDK *)v->opaque)->va_disp_handle);
+                                    ((VirtIOVideoMediaSDK *)v->opaque)->va_handle);
     if (status != MFX_ERR_NONE) {
         VIRTVID_ERROR("    %s: MFXVideoCORE_SetHandle returns %d for stream 0x%x",
                 __func__, status, resp->stream_id);
@@ -345,7 +345,6 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
 
     virtio_video_msdk_load_plugin(msdk->session, req->coded_format, false);
 
-    stream->parent = v;
     stream->id = req->hdr.stream_id;
     stream->in_mem_type = req->in_mem_type;
     stream->out_mem_type = req->out_mem_type;
@@ -419,10 +418,9 @@ size_t virtio_video_dec_cmd_stream_create(VirtIODevice *vdev,
     return len;
 }
 
-size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
+size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
     virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *stream, *next = NULL;
     VirtIOVideoStreamMediaSDK *msdk;
     VirtIOVideoStreamEventEntry *entry, *next_entry = NULL;
@@ -482,10 +480,9 @@ size_t virtio_video_dec_cmd_stream_destroy(VirtIODevice *vdev,
     return len;
 }
 
-size_t virtio_video_dec_cmd_stream_drain(VirtIODevice *vdev,
+size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
     virtio_video_stream_drain *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *stream, *next = NULL;
     size_t len = 0;
 
@@ -513,72 +510,9 @@ size_t virtio_video_dec_cmd_stream_drain(VirtIODevice *vdev,
     return len;
 }
 
-void virtio_video_dec_cmd_resource_create_page(VirtIOVideoStream *stream,
-    virtio_video_resource_create *req, virtio_video_mem_entry *entries,
-    virtio_video_cmd_hdr *resp)
-{
-    VirtIOVideoResource *res;
-    int i, j, dir;
-
-    switch (req->queue_type) {
-        case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
-            dir = VIRTIO_VIDEO_RESOURCE_LIST_INPUT;
-            break;
-        case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
-            dir = VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT;
-            break;
-        default:
-            return;
-    }
-
-    QLIST_FOREACH(res, &stream->resource_list[dir], next) {
-        if (res->id == req->resource_id) {
-            resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
-            return;
-        }
-    }
-
-    /* Frontend sometimes will not set planes layout, so do not return an error. */
-    if (req->planes_layout != VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER &&
-            req->planes_layout != VIRTIO_VIDEO_PLANES_LAYOUT_PER_PLANE) {
-        VIRTVID_WARN("    %s: stream 0x%x, create resource with invalid planes layout 0x%x",
-                __func__, stream->id, req->planes_layout);
-    }
-
-    res = g_malloc0(sizeof(VirtIOVideoResource));
-    res->id = req->resource_id;
-    res->planes_layout = req->planes_layout;
-    res->num_planes = req->num_planes;
-    memcpy(&res->plane_offsets, &req->plane_offsets, sizeof(res->plane_offsets));
-    memcpy(&res->num_entries, &req->num_entries, sizeof(res->num_entries));
-
-    for (i = 0; i < res->num_planes; i++) {
-        res->slices[i] = g_new0(VirtIOVideoResourceSlice, res->num_entries[i]);
-        for (j = 0; j < res->num_entries[i]; j++) {
-            MemoryRegionSection section = memory_region_find(get_system_memory(), entries->addr, entries->length);
-            res->slices[i][j].page.hva = memory_region_get_ram_ptr(section.mr) + section.offset_within_region;
-            res->slices[i][j].page.len = entries->length;
-            entries++;
-        }
-    }
-
-    qemu_mutex_lock(&stream->mutex);
-    QLIST_INSERT_HEAD(&stream->resource_list[dir], res, next);
-    qemu_mutex_unlock(&stream->mutex);
-}
-
-void virtio_video_dec_cmd_resource_create_object(VirtIOVideoStream *stream,
-    virtio_video_resource_create *req, virtio_video_object_entry *entries,
-    virtio_video_cmd_hdr *resp)
-{
-    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
-    VIRTVID_ERROR("%s: Unsupported memory type (object)", __func__);
-}
-
-size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
+size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
     virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp)
 {
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *stream;
     VirtIOVideoStreamMediaSDK *msdk;
     size_t len = 0;
@@ -648,10 +582,9 @@ size_t virtio_video_dec_cmd_resource_queue(VirtIODevice *vdev,
     return len;
 }
 
-size_t virtio_video_dec_cmd_resource_destroy_all(VirtIODevice *vdev,
+size_t virtio_video_msdk_dec_resource_destroy_all(VirtIOVideo *v,
     virtio_video_resource_destroy_all *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *stream;
     VirtIOVideoResource *res, *next_res = NULL;
     int i;
@@ -702,10 +635,9 @@ size_t virtio_video_dec_cmd_resource_destroy_all(VirtIODevice *vdev,
     return len;
 }
 
-size_t virtio_video_dec_cmd_queue_clear(VirtIODevice *vdev,
+size_t virtio_video_msdk_dec_queue_clear(VirtIOVideo *v,
     virtio_video_queue_clear *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *stream, *next = NULL;
     size_t len = 0;
 
@@ -743,10 +675,9 @@ size_t virtio_video_dec_cmd_queue_clear(VirtIODevice *vdev,
     return len;
 }
 
-size_t virtio_video_dec_cmd_get_params(VirtIODevice *vdev,
+size_t virtio_video_msdk_dec_get_params(VirtIOVideo *v,
     virtio_video_get_params *req, virtio_video_get_params_resp *resp)
 {
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *stream, *next = NULL;
     size_t len = 0;
 
@@ -774,10 +705,9 @@ size_t virtio_video_dec_cmd_get_params(VirtIODevice *vdev,
     return len;
 }
 
-size_t virtio_video_dec_cmd_set_params(VirtIODevice *vdev,
+size_t virtio_video_msdk_dec_set_params(VirtIOVideo *v,
     virtio_video_set_params *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *stream, *next = NULL;
     VirtIOVideoStreamMediaSDK *msdk;
     size_t len = 0;
@@ -822,10 +752,9 @@ size_t virtio_video_dec_cmd_set_params(VirtIODevice *vdev,
     return len;
 }
 
-size_t virtio_video_dec_cmd_query_control(VirtIODevice *vdev,
+size_t virtio_video_msdk_dec_query_control(VirtIOVideo *v,
     virtio_video_query_control *req, virtio_video_query_control_resp **resp)
 {
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoFormat *fmt;
     void *req_buf = (char *)req + sizeof(virtio_video_query_control);
     void *resp_buf;
@@ -917,10 +846,9 @@ error:
     return sizeof(virtio_video_cmd_hdr);
 }
 
-size_t virtio_video_dec_cmd_get_control(VirtIODevice *vdev,
+size_t virtio_video_msdk_dec_get_control(VirtIOVideo *v,
     virtio_video_get_control *req, virtio_video_get_control_resp **resp)
 {
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *stream, *next = NULL;
     size_t len = 0;
 
@@ -971,10 +899,9 @@ size_t virtio_video_dec_cmd_get_control(VirtIODevice *vdev,
     return len;
 }
 
-size_t virtio_video_dec_cmd_set_control(VirtIODevice *vdev,
+size_t virtio_video_msdk_dec_set_control(VirtIOVideo *v,
     virtio_video_set_control *req, virtio_video_set_control_resp *resp)
 {
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *stream, *next = NULL;
     VirtIOVideoStreamMediaSDK *msdk;
     size_t len = 0;
@@ -1020,9 +947,8 @@ size_t virtio_video_dec_cmd_set_control(VirtIODevice *vdev,
     return len;
 }
 
-static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
+int virtio_video_init_msdk_dec(VirtIOVideo *v)
 {
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoFormat *in_fmt = NULL, *out_fmt = NULL;
     VirtIOVideoFormatFrame *in_fmt_frame = NULL, *out_fmt_frame = NULL;
     virtio_video_format in_format;
@@ -1039,7 +965,7 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
 
     mfxVideoParam param = {0}, corrected_param = {0};
 
-    if (virtio_video_create_va_env_drm(vdev)) {
+    if (virtio_video_init_msdk_handle(v)) {
         VIRTVID_ERROR("Fail to create VA environment on DRM");
         return -1;
     }
@@ -1051,7 +977,7 @@ static int virtio_video_decode_init_msdk(VirtIODevice *vdev)
     }
 
     status = MFXVideoCORE_SetHandle(session, MFX_HANDLE_VA_DISPLAY,
-                                    ((VirtIOVideoMediaSDK *)v->opaque)->va_disp_handle);
+                                    ((VirtIOVideoMediaSDK *)v->opaque)->va_handle);
     if (status != MFX_ERR_NONE) {
         VIRTVID_ERROR("MFXVideoCORE_SetHandle returns %d", status);
         MFXClose(session);
@@ -1226,9 +1152,8 @@ out:
     return 0;
 }
 
-static void virtio_video_decode_destroy_msdk(VirtIODevice *vdev)
+void virtio_video_uninit_msdk_dec(VirtIOVideo *v)
 {
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *stream, *tmp_stream;
 
     QLIST_FOREACH_SAFE(stream, &v->stream_list, next, tmp_stream) {
@@ -1237,37 +1162,8 @@ static void virtio_video_decode_destroy_msdk(VirtIODevice *vdev)
 
         /* Destroy all in case CMD_STREAM_DESTROY not called on some stream */
         req.hdr.stream_id = stream->id;
-        virtio_video_dec_cmd_stream_destroy(vdev, &req, &resp);
+        virtio_video_msdk_dec_stream_destroy(v, &req, &resp);
     }
 
-    virtio_video_destroy_va_env_drm(vdev);
-}
-
-int virtio_video_decode_init(VirtIODevice *vdev)
-{
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-    int ret = -1;
-
-    switch (v->backend) {
-    case VIRTIO_VIDEO_BACKEND_MEDIA_SDK:
-        ret = virtio_video_decode_init_msdk(vdev);
-    default:
-        break;
-    }
-
-    VIRTVID_DEBUG("Decoder %s:%s initialized %d", v->conf.model, v->conf.backend, ret);
-
-    return ret;
-}
-
-void virtio_video_decode_destroy(VirtIODevice *vdev)
-{
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-
-    switch (v->backend) {
-    case VIRTIO_VIDEO_BACKEND_MEDIA_SDK:
-        virtio_video_decode_destroy_msdk(vdev);
-    default:
-        break;
-    }
+    virtio_video_uninit_msdk_handle(v);
 }

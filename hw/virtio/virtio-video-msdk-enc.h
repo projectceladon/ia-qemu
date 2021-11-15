@@ -25,10 +25,7 @@
 
 #include "hw/virtio/virtio-video.h"
 
-size_t virtio_video_enc_cmd_get_params(VirtIODevice *vdev,
-    virtio_video_get_params *req, virtio_video_get_params_resp *resp);
-
-int virtio_video_encode_init(VirtIODevice *vdev);
-void virtio_video_encode_destroy(VirtIODevice *vdev);
+int virtio_video_init_msdk_enc(VirtIOVideo *v);
+void virtio_video_uninit_msdk_enc(VirtIOVideo *v);
 
 #endif /* QEMU_VIRTIO_VIDEO_MSDK_ENC_H */

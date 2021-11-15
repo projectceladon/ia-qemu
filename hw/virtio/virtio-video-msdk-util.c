@@ -24,6 +24,8 @@
 #include "qemu/osdep.h"
 #include "virtio-video-msdk-util.h"
 #include "virtio-video-msdk-vaapi.h"
+#include "mfx/mfxplugin.h"
+#include "mfx/mfxvp8.h"
 
 struct virtio_video_convert_table {
     uint32_t virtio_value;
