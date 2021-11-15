@@ -783,8 +783,6 @@ size_t virtio_video_msdk_dec_query_control(VirtIOVideo *v,
         len += sizeof(virtio_video_query_control_resp_profile) +
                sizeof(uint32_t) * fmt->profile.num;
         *resp = g_malloc0(len);
-        if (*resp == NULL)
-            return 0;
         resp_profile = resp_buf = (char *)(*resp) + sizeof(virtio_video_query_control_resp);
         resp_profile->num = fmt->profile.num;
         resp_buf += sizeof(virtio_video_query_control_resp_profile);
@@ -816,8 +814,6 @@ size_t virtio_video_msdk_dec_query_control(VirtIOVideo *v,
         len += sizeof(virtio_video_query_control_resp_level) +
                sizeof(uint32_t) * fmt->level.num;
         *resp = g_malloc0(len);
-        if (*resp == NULL)
-            return 0;
         resp_level = resp_buf = (char *)(*resp) + sizeof(virtio_video_query_control_resp);
         resp_level->num = fmt->level.num;
         resp_buf += sizeof(virtio_video_query_control_resp_level);
@@ -837,65 +833,82 @@ size_t virtio_video_msdk_dec_query_control(VirtIOVideo *v,
     return len;
 
 error:
-    *resp = g_malloc0(sizeof(virtio_video_cmd_hdr));
-    if (*resp == NULL)
-        return 0;
-    ((virtio_video_cmd_hdr *)(*resp))->type = VIRTIO_VIDEO_RESP_ERR_UNSUPPORTED_CONTROL;
-    ((virtio_video_cmd_hdr *)(*resp))->stream_id = req->hdr.stream_id;
-
-    return sizeof(virtio_video_cmd_hdr);
+    *resp = g_malloc(sizeof(virtio_video_query_control_resp));
+    (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_UNSUPPORTED_CONTROL;
+    (*resp)->hdr.stream_id = req->hdr.stream_id;
+    return sizeof(virtio_video_query_control_resp);
 }
 
 size_t virtio_video_msdk_dec_get_control(VirtIOVideo *v,
     virtio_video_get_control *req, virtio_video_get_control_resp **resp)
 {
-    VirtIOVideoStream *stream, *next = NULL;
-    size_t len = 0;
+    VirtIOVideoStream *stream;
+    size_t len = sizeof(virtio_video_get_control_resp);
+
+    QLIST_FOREACH(stream, &v->stream_list, next) {
+        if (stream->id == req->hdr.stream_id) {
+            break;
+        }
+    }
+    if (stream == NULL) {
+        *resp = g_malloc(sizeof(virtio_video_get_control_resp));
+        (*resp)->hdr.stream_id = req->hdr.stream_id;
+        (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+        return len;
+    }
 
     switch (req->control) {
     case VIRTIO_VIDEO_CONTROL_BITRATE:
-        len = sizeof(virtio_video_get_control_resp) + sizeof(virtio_video_control_val_bitrate);
+    {
+        virtio_video_control_val_bitrate *val;
+
+        len += sizeof(virtio_video_control_val_bitrate);
+        *resp = g_malloc0(len);
+        (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_CONTROL;
+
+        val = (void *)(*resp) + sizeof(virtio_video_get_control_resp);
+        val->bitrate = stream->control.bitrate;
+        VIRTVID_DEBUG("    %s: stream 0x%x bitrate %d", __func__,
+                req->hdr.stream_id, val->bitrate);
         break;
+    }
     case VIRTIO_VIDEO_CONTROL_PROFILE:
-        len = sizeof(virtio_video_get_control_resp) + sizeof(virtio_video_control_val_profile);
+    {
+        virtio_video_control_val_profile *val;
+
+        len += sizeof(virtio_video_control_val_profile);
+        *resp = g_malloc0(len);
+        (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_CONTROL;
+
+        val = (void *)(*resp) + sizeof(virtio_video_get_control_resp);
+        val->profile = stream->control.profile;
+        VIRTVID_DEBUG("    %s: stream 0x%x profile %d", __func__,
+                req->hdr.stream_id, val->profile);
         break;
+    }
     case VIRTIO_VIDEO_CONTROL_LEVEL:
-        len = sizeof(virtio_video_get_control_resp) + sizeof(virtio_video_control_val_level);
+    {
+        virtio_video_control_val_level *val;
+
+        len += sizeof(virtio_video_control_val_level);
+        *resp = g_malloc0(len);
+        (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_CONTROL;
+
+        val = (void *)(*resp) + sizeof(virtio_video_get_control_resp);
+        val->level = stream->control.level;
+        VIRTVID_DEBUG("    %s: stream 0x%x level %d", __func__,
+                req->hdr.stream_id, val->level);
         break;
+    }
     default:
-        len = sizeof(virtio_video_get_control_resp);
+        *resp = g_malloc(sizeof(virtio_video_get_control_resp));
+        (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_UNSUPPORTED_CONTROL;
         VIRTVID_ERROR("    %s: stream 0x%x unsupported control %d", __func__,
                 req->hdr.stream_id, req->control);
         break;
     }
 
-    *resp = g_malloc0(len);
-    if (*resp != NULL) {
-        (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
-        (*resp)->hdr.stream_id = req->hdr.stream_id;
-        QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
-            if (stream->id == req->hdr.stream_id) {
-                (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_CONTROL;
-                if (req->control == VIRTIO_VIDEO_CONTROL_BITRATE) {
-                    ((virtio_video_control_val_bitrate*)((void*)(*resp) + sizeof(virtio_video_get_control_resp)))->bitrate = stream->control.bitrate;
-                    VIRTVID_DEBUG("    %s: stream 0x%x bitrate %d", __func__, req->hdr.stream_id, stream->control.bitrate);
-                } else if (req->control == VIRTIO_VIDEO_CONTROL_PROFILE) {
-                    ((virtio_video_control_val_profile*)((void*)(*resp) + sizeof(virtio_video_get_control_resp)))->profile = stream->control.profile;
-                    VIRTVID_DEBUG("    %s: stream 0x%x profile %d", __func__, req->hdr.stream_id, stream->control.profile);
-                } else if (req->control == VIRTIO_VIDEO_CONTROL_LEVEL) {
-                    ((virtio_video_control_val_level*)((void*)(*resp) + sizeof(virtio_video_get_control_resp)))->level = stream->control.level;
-                    VIRTVID_DEBUG("    %s: stream 0x%x level %d", __func__, req->hdr.stream_id, stream->control.level);
-                } else {
-                    (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_UNSUPPORTED_CONTROL;
-                    VIRTVID_ERROR("    %s: stream 0x%x unsupported control %d", __func__, req->hdr.stream_id, req->control);
-                }
-                break;
-            }
-        }
-    } else {
-        len = 0;
-    }
-
+    (*resp)->hdr.stream_id = req->hdr.stream_id;
     return len;
 }
 

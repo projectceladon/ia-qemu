@@ -66,8 +66,6 @@ static size_t virtio_video_process_cmd_query_capability(VirtIODevice *vdev,
     default:
         /* The request is invalid, respond with an error */
         *resp = g_malloc0(sizeof(virtio_video_cmd_hdr));
-        if (*resp == NULL)
-            return 0;
         ((virtio_video_cmd_hdr *)(*resp))->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
         ((virtio_video_cmd_hdr *)(*resp))->stream_id = req->hdr.stream_id;
         return sizeof(virtio_video_cmd_hdr);
@@ -81,10 +79,8 @@ static size_t virtio_video_process_cmd_query_capability(VirtIODevice *vdev,
                    sizeof(virtio_video_format_range);
         }
     }
-    *resp = g_malloc0(len);
-    if (*resp == NULL)
-        return 0;
 
+    *resp = g_malloc0(len);
     (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_QUERY_CAPABILITY;
     (*resp)->hdr.stream_id = req->hdr.stream_id;
     (*resp)->num_descs = num_descs;
