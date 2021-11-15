@@ -902,49 +902,10 @@ size_t virtio_video_msdk_dec_get_control(VirtIOVideo *v,
 size_t virtio_video_msdk_dec_set_control(VirtIOVideo *v,
     virtio_video_set_control *req, virtio_video_set_control_resp *resp)
 {
-    VirtIOVideoStream *stream, *next = NULL;
-    VirtIOVideoStreamMediaSDK *msdk;
-    size_t len = 0;
-
-    resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+    resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
     resp->hdr.stream_id = req->hdr.stream_id;
-    len = sizeof(*resp);
-
-    QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
-        if (stream->id == req->hdr.stream_id) {
-            msdk = stream->opaque;
-            resp->hdr.type = VIRTIO_VIDEO_RESP_OK_NODATA;
-            if (req->control == VIRTIO_VIDEO_CONTROL_BITRATE) {
-                stream->control.bitrate = ((virtio_video_control_val_bitrate*)(((void*)req) + sizeof(virtio_video_set_control)))->bitrate;
-                VIRTVID_DEBUG("    %s: stream 0x%x bitrate %d", __func__, req->hdr.stream_id, stream->control.bitrate);
-            } else if (req->control == VIRTIO_VIDEO_CONTROL_PROFILE) {
-                stream->control.profile = ((virtio_video_control_val_profile*)(((void*)req) + sizeof(virtio_video_set_control)))->profile;
-                VIRTVID_DEBUG("    %s: stream 0x%x profile %d", __func__, req->hdr.stream_id, stream->control.profile);
-            } else if (req->control == VIRTIO_VIDEO_CONTROL_LEVEL) {
-                stream->control.level = ((virtio_video_control_val_level*)(((void*)req) + sizeof(virtio_video_set_control)))->level;
-                VIRTVID_DEBUG("    %s: stream 0x%x level %d", __func__, req->hdr.stream_id, stream->control.level);
-            } else {
-                resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_UNSUPPORTED_CONTROL;
-                VIRTVID_ERROR("    %s: stream 0x%x unsupported control %d", __func__, req->hdr.stream_id, req->control);
-            }
-
-            if (resp->hdr.type == VIRTIO_VIDEO_RESP_OK_NODATA) {
-                VirtIOVideoStreamEventEntry *entry = g_new0(VirtIOVideoStreamEventEntry, 1);
-
-                entry->ev = VirtIOVideoStreamEventParamChange;
-                qemu_mutex_lock(&stream->mutex);
-                msdk->param.mfx.CodecProfile = virtio_video_profile_to_msdk(stream->control.profile);
-                msdk->param.mfx.CodecLevel = virtio_video_level_to_msdk(stream->control.level);
-                msdk->param.mfx.TargetKbps = stream->control.bitrate;
-                QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
-                qemu_mutex_unlock(&stream->mutex);
-                qemu_event_set(&stream->signal_in);
-            }
-            break;
-        }
-    }
-
-    return len;
+    VIRTVID_ERROR("    SET_CONTROL is not allowed in decoder");
+    return sizeof(*resp);
 }
 
 int virtio_video_init_msdk_dec(VirtIOVideo *v)
