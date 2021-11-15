@@ -145,13 +145,10 @@ typedef struct VirtIOVideoStream {
     QLIST_HEAD(, VirtIOVideoStreamEventEntry) ev_list;
     QLIST_HEAD(, VirtIOVideoResource)
         resource_list[VIRTIO_VIDEO_RESOURCE_LIST_NUM];
-    QemuEvent signal_in;
-    QemuEvent signal_out;
     VirtIOVideoStreamStat stat;
     virtio_video_params in_params;
     virtio_video_params out_params;
     char tag[64];
-    QemuThread thread;
     QemuMutex mutex;
     QLIST_ENTRY(VirtIOVideoStream) next;
 } VirtIOVideoStream;

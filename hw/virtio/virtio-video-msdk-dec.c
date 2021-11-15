@@ -137,8 +137,8 @@ static void *virtio_video_decode_thread(void *arg)
 
         decoding = false;
 
-        qemu_event_wait(&stream->signal_in);
-        qemu_event_reset(&stream->signal_in);
+        qemu_event_wait(&msdk->signal_in);
+        qemu_event_reset(&msdk->signal_in);
 
         qemu_mutex_lock(&stream->mutex);
         if (!QLIST_EMPTY(&stream->ev_list)) {
@@ -232,7 +232,7 @@ static void *virtio_video_decode_thread(void *arg)
         }
 
         /* Notify CMD_RESOURCE_QUEUE, it's waiting for virtio_video_resource_queue_resp */
-        qemu_event_set(&stream->signal_out);
+        qemu_event_set(&msdk->signal_out);
     }
 
     sts = MFXVideoVPP_Reset(msdk->session, &VPPParams);
@@ -402,13 +402,13 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     QLIST_INIT(&stream->resource_list[VIRTIO_VIDEO_RESOURCE_LIST_INPUT]);
     QLIST_INIT(&stream->resource_list[VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT]);
 
-    qemu_event_init(&stream->signal_in, false);
-    qemu_event_init(&stream->signal_out, false);
+    qemu_event_init(&msdk->signal_in, false);
+    qemu_event_init(&msdk->signal_out, false);
     stream->stat = VirtIOVideoStreamStatNone;
 
     qemu_mutex_init(&stream->mutex);
 
-    qemu_thread_create(&stream->thread, VIRTIO_VIDEO_DECODE_THREAD,
+    qemu_thread_create(&msdk->thread, VIRTIO_VIDEO_DECODE_THREAD,
             virtio_video_decode_thread, stream, QEMU_THREAD_JOINABLE);
 
     QLIST_INSERT_HEAD(&v->stream_list, stream, next);
@@ -435,18 +435,19 @@ size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
     QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
         if (stream->id == req->hdr.stream_id) {
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
+            msdk = stream->opaque;
 
             entry = g_new0(VirtIOVideoStreamEventEntry, 1);
             entry->ev = VirtIOVideoStreamEventTerminate;
             qemu_mutex_lock(&stream->mutex);
             QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
             qemu_mutex_unlock(&stream->mutex);
-            qemu_event_set(&stream->signal_in);
+            qemu_event_set(&msdk->signal_in);
 
             /* May need send SIGTERM if the thread is dead */
             //pthread_kill(stream->thread.thread, SIGTERM);
-            qemu_thread_join(&stream->thread);
-            stream->thread.thread = 0;
+            qemu_thread_join(&msdk->thread);
+            msdk->thread.thread = 0;
 
             QLIST_FOREACH_SAFE(entry, &stream->ev_list, next, next_entry) {
                 QLIST_SAFE_REMOVE(entry, next);
@@ -460,12 +461,11 @@ size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
                 }
             }
 
-            qemu_event_destroy(&stream->signal_in);
-            qemu_event_destroy(&stream->signal_out);
+            qemu_event_destroy(&msdk->signal_in);
+            qemu_event_destroy(&msdk->signal_out);
 
             qemu_mutex_destroy(&stream->mutex);
 
-            msdk = stream->opaque;
             virtio_video_msdk_unload_plugin(msdk->session, stream->codec, false);
             MFXClose(msdk->session);
             g_free(msdk);
@@ -492,6 +492,7 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
 
     QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
         if (stream->id == req->hdr.stream_id) {
+            VirtIOVideoStreamMediaSDK *msdk = stream->opaque;
             VirtIOVideoStreamEventEntry *entry = g_new0(VirtIOVideoStreamEventEntry, 1);
 
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
@@ -501,7 +502,7 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
             stream->retry = 10;
             QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
             qemu_mutex_unlock(&stream->mutex);
-            qemu_event_set(&stream->signal_in);
+            qemu_event_set(&msdk->signal_in);
             VIRTVID_DEBUG("    %s: stream 0x%x drained", __func__, req->hdr.stream_id);
             break;
         }
@@ -560,11 +561,11 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
                 qemu_mutex_lock(&stream->mutex);
                 QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
                 qemu_mutex_unlock(&stream->mutex);
-                qemu_event_set(&stream->signal_in);
+                qemu_event_set(&msdk->signal_in);
 
                 /* Wait for decode thread work done */
-                qemu_event_wait(&stream->signal_out);
-                qemu_event_reset(&stream->signal_out);
+                qemu_event_wait(&msdk->signal_out);
+                qemu_event_reset(&msdk->signal_out);
             }
         }
     } else {
@@ -647,6 +648,7 @@ size_t virtio_video_msdk_dec_queue_clear(VirtIOVideo *v,
 
     QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
         if (stream->id == req->hdr.stream_id) {
+            VirtIOVideoStreamMediaSDK *msdk = stream->opaque;
             VirtIOVideoStreamEventEntry *entry = g_new0(VirtIOVideoStreamEventEntry, 1);
 
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
@@ -658,7 +660,7 @@ size_t virtio_video_msdk_dec_queue_clear(VirtIOVideo *v,
                 qemu_mutex_lock(&stream->mutex);
                 QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
                 qemu_mutex_unlock(&stream->mutex);
-                qemu_event_set(&stream->signal_in);
+                qemu_event_set(&msdk->signal_in);
             } else {
                 resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
                 g_free(entry);
@@ -741,7 +743,7 @@ size_t virtio_video_msdk_dec_set_params(VirtIOVideo *v,
                 msdk->param.mfx.FrameInfo.FrameRateExtD = 1;
                 QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
                 qemu_mutex_unlock(&stream->mutex);
-                qemu_event_set(&stream->signal_in);
+                qemu_event_set(&msdk->signal_in);
             }
 
             VIRTVID_DEBUG("    %s: stream 0x%x", __func__, req->hdr.stream_id);

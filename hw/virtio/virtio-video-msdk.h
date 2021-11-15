@@ -37,6 +37,9 @@
 #define VIRTIO_VIDEO_MSDK_DIM_STEP_OTHERS       32
 
 typedef struct VirtIOVideoStreamMediaSDK {
+    QemuThread thread;
+    QemuEvent signal_in;
+    QemuEvent signal_out;
     mfxSession session;
     mfxVideoParam param;
     mfxBitstream bitstream;
