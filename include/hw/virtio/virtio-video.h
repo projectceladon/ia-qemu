@@ -127,6 +127,13 @@ typedef struct VirtIOVideoResource {
     QLIST_ENTRY(VirtIOVideoResource) next;
 } VirtIOVideoResource;
 
+/* 0 indicates that the control is invalid for current stream */
+typedef struct VirtIOVideoControlInfo {
+    uint32_t bitrate;
+    uint32_t profile;
+    uint32_t level;
+} VirtIOVideoControlInfo;
+
 typedef struct VirtIOVideo VirtIOVideo;
 
 typedef struct VirtIOVideoStream {
@@ -136,12 +143,9 @@ typedef struct VirtIOVideoStream {
     virtio_video_mem_type in_mem_type;
     virtio_video_mem_type out_mem_type;
     virtio_video_format codec;
+    VirtIOVideoControlInfo control;
+    QemuMutex mutex;
     void *opaque;
-    struct {
-        uint32_t bitrate;
-        uint32_t profile;
-        uint32_t level;
-    } control;
     QLIST_HEAD(, VirtIOVideoStreamEventEntry) ev_list;
     QLIST_HEAD(, VirtIOVideoResource)
         resource_list[VIRTIO_VIDEO_RESOURCE_LIST_NUM];
@@ -149,7 +153,6 @@ typedef struct VirtIOVideoStream {
     virtio_video_params in_params;
     virtio_video_params out_params;
     char tag[64];
-    QemuMutex mutex;
     QLIST_ENTRY(VirtIOVideoStream) next;
 } VirtIOVideoStream;
 

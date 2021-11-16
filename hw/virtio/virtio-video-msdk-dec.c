@@ -399,6 +399,29 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     msdk->param.mfx.FrameInfo.FrameRateExtN = stream->in_params.frame_rate;
     msdk->param.mfx.FrameInfo.FrameRateExtD = 1;
 
+    /* Initialize control values */
+    stream->control.bitrate = 0;
+    stream->control.profile = 0;
+    stream->control.level = 0;
+    switch (req->coded_format) {
+    case VIRTIO_VIDEO_FORMAT_H264:
+        stream->control.profile = VIRTIO_VIDEO_PROFILE_H264_BASELINE;
+        stream->control.level = VIRTIO_VIDEO_LEVEL_H264_1_0;
+        break;
+    case VIRTIO_VIDEO_FORMAT_HEVC:
+        stream->control.profile = VIRTIO_VIDEO_PROFILE_HEVC_MAIN;
+        stream->control.level = VIRTIO_VIDEO_LEVEL_HEVC_1_0;
+        break;
+    case VIRTIO_VIDEO_FORMAT_VP8:
+        stream->control.profile = VIRTIO_VIDEO_PROFILE_VP8_PROFILE0;
+        break;
+    case VIRTIO_VIDEO_FORMAT_VP9:
+        stream->control.profile = VIRTIO_VIDEO_PROFILE_VP9_PROFILE0;
+        break;
+    default:
+        break;
+    }
+
     QLIST_INIT(&stream->resource_list[VIRTIO_VIDEO_RESOURCE_LIST_INPUT]);
     QLIST_INIT(&stream->resource_list[VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT]);
 
@@ -864,6 +887,9 @@ size_t virtio_video_msdk_dec_get_control(VirtIOVideo *v,
     {
         virtio_video_control_val_bitrate *val;
 
+        if (stream->control.bitrate == 0)
+            goto error;
+
         len += sizeof(virtio_video_control_val_bitrate);
         *resp = g_malloc0(len);
         (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_CONTROL;
@@ -877,6 +903,9 @@ size_t virtio_video_msdk_dec_get_control(VirtIOVideo *v,
     case VIRTIO_VIDEO_CONTROL_PROFILE:
     {
         virtio_video_control_val_profile *val;
+
+        if (stream->control.profile == 0)
+            goto error;
 
         len += sizeof(virtio_video_control_val_profile);
         *resp = g_malloc0(len);
@@ -892,6 +921,9 @@ size_t virtio_video_msdk_dec_get_control(VirtIOVideo *v,
     {
         virtio_video_control_val_level *val;
 
+        if (stream->control.level == 0)
+            goto error;
+
         len += sizeof(virtio_video_control_val_level);
         *resp = g_malloc0(len);
         (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_CONTROL;
@@ -903,6 +935,7 @@ size_t virtio_video_msdk_dec_get_control(VirtIOVideo *v,
         break;
     }
     default:
+error:
         *resp = g_malloc(sizeof(virtio_video_get_control_resp));
         (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_UNSUPPORTED_CONTROL;
         VIRTVID_ERROR("    %s: stream 0x%x unsupported control %d", __func__,
