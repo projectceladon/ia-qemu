@@ -53,6 +53,13 @@ static void *virtio_video_decode_thread(void *arg)
         VIRTVID_ERROR("%s thread 0x%0x change SIG_BLOCK failed err %d", VIRTIO_VIDEO_DECODE_THREAD, stream->id, err);
     }
 
+    /* Prepare an initial mfxVideoParam for decode */
+    virtio_video_msdk_load_plugin(msdk->session, stream->in.params.format, false);
+    virtio_video_msdk_init_video_params(&msdk->param, stream->in.params.format);
+
+    /* TODO: Should we use VIDEO_MEMORY for virtio-gpu object? */
+    msdk->param.IOPattern = MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
+
     sts = MFXVideoDECODE_Init(msdk->session, &msdk->param);
     if (sts != MFX_ERR_NONE) {
         VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Init failed with err %d", stream->id, sts);
@@ -112,7 +119,7 @@ static void *virtio_video_decode_thread(void *arg)
         MSDK_ALIGN16(msdk->param.mfx.FrameInfo.Width) :  MSDK_ALIGN32(msdk->param.mfx.FrameInfo.Width);
     /* Output */
     memcpy(&VPPParams.vpp.Out, &VPPParams.vpp.In, sizeof(VPPParams.vpp.Out));
-    VPPParams.vpp.Out.FourCC = virtio_video_format_to_msdk(stream->out_params.format);
+    VPPParams.vpp.Out.FourCC = virtio_video_format_to_msdk(stream->out.params.format);
     VPPParams.vpp.Out.ChromaFormat = 0;
 
     /* Query and allocate VPP surface */
@@ -147,12 +154,6 @@ static void *virtio_video_decode_thread(void *arg)
             QLIST_SAFE_REMOVE(entry, next);
 
             switch (entry->ev) {
-            case VirtIOVideoStreamEventParamChange:
-                sts = MFXVideoDECODE_Reset(msdk->session, &msdk->param);
-                if (sts != MFX_ERR_NONE) {
-                    running = false;
-                }
-                break;
             case VirtIOVideoStreamEventStreamDrain:
                 /* set bs to NULL to signal end of stream to drain the decoding */
                 do {
@@ -343,61 +344,78 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     }
     stream->opaque = msdk;
 
-    virtio_video_msdk_load_plugin(msdk->session, req->coded_format, false);
-
     stream->id = req->hdr.stream_id;
-    stream->in_mem_type = req->in_mem_type;
-    stream->out_mem_type = req->out_mem_type;
-    stream->codec = req->coded_format;
+    stream->in.mem_type = req->in_mem_type;
+    stream->out.mem_type = req->out_mem_type;
     memcpy(stream->tag, req->tag, strlen((char *)req->tag));
 
-    QLIST_INIT(&stream->ev_list);
-    stream->mfxWaitMs = 60000;
-
-    /* Prepare an initial mfxVideoParam for decode */
-    virtio_video_msdk_init_video_params(&msdk->param, req->coded_format);
-
-    /* TODO: Should we use VIDEO_MEMORY for virtio-gpu object? */
-    msdk->param.IOPattern = MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
-
-    memset(&stream->in_params, 0, sizeof(stream->in_params));
-
-    stream->in_params.frame_width = fmt->frames.lh_first->frame.width.max;
-    stream->in_params.frame_height = fmt->frames.lh_first->frame.height.max;
-    stream->in_params.min_buffers = 1;
-    stream->in_params.max_buffers = 1;
-    stream->in_params.crop.left = 0;
-    stream->in_params.crop.top = 0;
-    stream->in_params.crop.width = stream->in_params.frame_width;
-    stream->in_params.crop.height = stream->in_params.frame_height;
-    stream->in_params.frame_rate = fmt->frames.lh_first->frame_rates[0].max;
-
-    memcpy(&stream->out_params, &stream->in_params, sizeof(stream->in_params));
-
-    /* For VIRTIO_VIDEO_QUEUE_TYPE_INPUT */
-    stream->in_params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_INPUT;
-    stream->in_params.format = stream->codec;
-    /* TODO: what's the definition of plane number, size and stride for coded format? */
-    stream->in_params.num_planes = 1;
-    stream->in_params.plane_formats[0].plane_size = 0;
-    stream->in_params.plane_formats[0].stride = 0;
+    /*
+     * The input of decode device is a bitstream. Frame rate, frame size, plane
+     * formats and cropping rectangle are all meaningless, and will not be used
+     * by frontend, so just use 0 as default value.
+     */
+    stream->in.params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_INPUT;
+    stream->in.params.format = req->coded_format;
+    stream->in.params.min_buffers = 1;
+    stream->in.params.max_buffers = 32;
+    stream->in.params.frame_rate = 0;
+    stream->in.params.frame_width = 0;
+    stream->in.params.frame_height = 0;
+    stream->in.params.crop.left = 0;
+    stream->in.params.crop.top = 0;
+    stream->in.params.crop.width = 0;
+    stream->in.params.crop.height = 0;
+    stream->in.params.num_planes = 1;
+    stream->in.params.plane_formats[0].plane_size = 0;
+    stream->in.params.plane_formats[0].stride = 0;
 
     /*
-     * For VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT
-     * Front end doesn't support NV12 but only RGB*, while MediaSDK can only decode to NV12
-     * So we let front end aware of RGB* only, use VPP to convert from NV12 to RGB*
+     * The output of decode device is frames of some pixel format. We choose
+     * NV12 as the default format but this can be changed by frontend.
+     *
+     * @format:                     the default output format of MediaSDK is
+     *                              NV12, to support other formats we need to
+     *                              convert from NV12 through VPP
+     *
+     * @frame_width, frame_height:  should be derived from input bitstream,
+     *                              default value is just a placeholder
+     *
+     * @crop:                       currently treated as MediaSDK CropX/Y/W/H
+     *                              values which are derived from input
+     *                              bitstream, default value is just a
+     *                              placeholder
+     *
+     *                              TODO: this can also mean cropping of output
+     *                              frame, figure out the real meaning of this
+     *                              field.
+     *
+     * @frame_rate:                 this field is only used by encode device,
+     *                              the output frame rate can even be variable
+     *                              (i.e. VFR), default value is just a
+     *                              placeholder
+     *
+     * @num_planes, plane_formats:  use the parameters of NV12 format, this can
+     *                              be changed later when frontend sets format
+     *                              for device output.
      */
-    stream->out_params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT;
-    stream->out_params.format = VIRTIO_VIDEO_FORMAT_ARGB8888;
-    stream->out_params.num_planes = 1;
-    stream->out_params.plane_formats[0].plane_size =
-        stream->out_params.frame_width * stream->out_params.frame_height * 4;
-    stream->out_params.plane_formats[0].stride = stream->out_params.frame_width * 4;
-
-    msdk->param.mfx.FrameInfo.Width = stream->in_params.frame_width;
-    msdk->param.mfx.FrameInfo.Height = stream->in_params.frame_height;
-    msdk->param.mfx.FrameInfo.FrameRateExtN = stream->in_params.frame_rate;
-    msdk->param.mfx.FrameInfo.FrameRateExtD = 1;
+    stream->out.params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT;
+    stream->out.params.format = VIRTIO_VIDEO_FORMAT_NV12;
+    stream->out.params.min_buffers = 1;
+    stream->out.params.max_buffers = 32;
+    stream->out.params.frame_rate = fmt->frames.lh_first->frame_rates[0].max;
+    stream->out.params.frame_width = fmt->frames.lh_first->frame.width.max;
+    stream->out.params.frame_height = fmt->frames.lh_first->frame.height.max;
+    stream->out.params.crop.left = 0;
+    stream->out.params.crop.top = 0;
+    stream->out.params.crop.width = stream->out.params.frame_width;
+    stream->out.params.crop.height = stream->out.params.frame_height;
+    stream->out.params.num_planes = 2;
+    stream->out.params.plane_formats[0].plane_size =
+        stream->out.params.frame_width * stream->out.params.frame_height;
+    stream->out.params.plane_formats[0].stride = stream->out.params.frame_width;
+    stream->out.params.plane_formats[1].plane_size =
+        stream->out.params.frame_width * stream->out.params.frame_height / 2;
+    stream->out.params.plane_formats[1].stride = stream->out.params.frame_width;
 
     /* Initialize control values */
     stream->control.bitrate = 0;
@@ -425,8 +443,11 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     QLIST_INIT(&stream->resource_list[VIRTIO_VIDEO_RESOURCE_LIST_INPUT]);
     QLIST_INIT(&stream->resource_list[VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT]);
 
+    QLIST_INIT(&stream->ev_list);
     qemu_event_init(&msdk->signal_in, false);
     qemu_event_init(&msdk->signal_out, false);
+    stream->mfxWaitMs = 60000;
+    stream->state = STREAM_STATE_INIT;
     stream->stat = VirtIOVideoStreamStatNone;
 
     qemu_mutex_init(&stream->mutex);
@@ -489,7 +510,7 @@ size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
 
             qemu_mutex_destroy(&stream->mutex);
 
-            virtio_video_msdk_unload_plugin(msdk->session, stream->codec, false);
+            virtio_video_msdk_unload_plugin(msdk->session, stream->in.params.format, false);
             MFXClose(msdk->session);
             g_free(msdk);
 
@@ -703,28 +724,32 @@ size_t virtio_video_msdk_dec_queue_clear(VirtIOVideo *v,
 size_t virtio_video_msdk_dec_get_params(VirtIOVideo *v,
     virtio_video_get_params *req, virtio_video_get_params_resp *resp)
 {
-    VirtIOVideoStream *stream, *next = NULL;
+    VirtIOVideoStream *stream;
     size_t len = 0;
 
     resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
     resp->hdr.stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
-    QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
+    QLIST_FOREACH(stream, &v->stream_list, next) {
         if (stream->id == req->hdr.stream_id) {
-            resp->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_PARAMS;
-            if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
-                memcpy(&resp->params, &stream->in_params, sizeof(resp->params));
-            } else if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
-                memcpy(&resp->params, &stream->out_params, sizeof(resp->params));
-            } else {
-                resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
-                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x",
-                        __func__, req->hdr.stream_id, req->queue_type);
-            }
-            VIRTVID_DEBUG("    %s: stream 0x%x", __func__, req->hdr.stream_id);
             break;
         }
+    }
+    if (stream == NULL)
+        return len;
+
+    resp->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_PARAMS;
+    switch (req->queue_type) {
+    case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
+        memcpy(&resp->params, &stream->in.params, sizeof(resp->params));
+        break;
+    case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
+        memcpy(&resp->params, &stream->out.params, sizeof(resp->params));
+        break;
+    default:
+        resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+        break;
     }
 
     return len;
@@ -733,45 +758,72 @@ size_t virtio_video_msdk_dec_get_params(VirtIOVideo *v,
 size_t virtio_video_msdk_dec_set_params(VirtIOVideo *v,
     virtio_video_set_params *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideoStream *stream, *next = NULL;
-    VirtIOVideoStreamMediaSDK *msdk;
+    VirtIOVideoStream *stream;
     size_t len = 0;
+    int i;
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
-    QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
+    QLIST_FOREACH(stream, &v->stream_list, next) {
         if (stream->id == req->hdr.stream_id) {
-            msdk = stream->opaque;
-            resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
-            if (req->params.queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
-                memcpy(&stream->in_params, &req->params, sizeof(req->params));
-            } else if (req->params.queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
-                memcpy(&stream->out_params, &req->params, sizeof(req->params));
-            } else {
-                resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
-                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x",
-                        __func__, req->hdr.stream_id, req->params.queue_type);
-            }
-
-            if (resp->type == VIRTIO_VIDEO_RESP_OK_NODATA) {
-                VirtIOVideoStreamEventEntry *entry = g_new0(VirtIOVideoStreamEventEntry, 1);
-
-                entry->ev = VirtIOVideoStreamEventParamChange;
-                qemu_mutex_lock(&stream->mutex);
-                msdk->param.mfx.FrameInfo.Width = req->params.frame_width;
-                msdk->param.mfx.FrameInfo.Height = req->params.frame_height;
-                msdk->param.mfx.FrameInfo.FrameRateExtN = req->params.frame_rate;
-                msdk->param.mfx.FrameInfo.FrameRateExtD = 1;
-                QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
-                qemu_mutex_unlock(&stream->mutex);
-                qemu_event_set(&msdk->signal_in);
-            }
-
-            VIRTVID_DEBUG("    %s: stream 0x%x", __func__, req->hdr.stream_id);
             break;
         }
+    }
+    if (stream == NULL)
+        return len;
+
+    resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
+    switch (req->params.queue_type) {
+    case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
+        if (stream->state == STREAM_STATE_INIT) {
+            /*
+             * The plane formats reflect frontend's organization of input
+             * bitstream. It will then be read through CMD_GET_PARAMS in case
+             * the backend does any adjustment, so just keep it.
+             *
+             * TODO: investigate if we should ignore it and just provide the
+             * frontend a default `plane_size` instead of 0.
+             */
+            stream->in.params.format = req->params.format;
+            stream->in.params.num_planes = req->params.num_planes;
+            for (i = 0; i < req->params.num_planes; i++) {
+                stream->in.params.plane_formats[i].plane_size =
+                    req->params.plane_formats[i].plane_size;
+                stream->in.params.plane_formats[i].stride =
+                    req->params.plane_formats[i].stride;
+            }
+            if (req->params.num_planes > 1) {
+                VIRTVID_WARN("    %s: stream 0x%x num_planes of input queue set to %d, should be 1",
+                        __func__, stream->id, req->params.num_planes);
+            }
+        } else {
+            VIRTVID_WARN("    %s: stream 0x%x not allowed to change param "
+                         "after decoding has started", __func__, stream->id);
+        }
+        break;
+    case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
+        /* Output parameters should be derived from input bitstream */
+        /* TODO: figure out if we need to process output crop */
+        if (stream->state == STREAM_STATE_INIT) {
+            /* TODO: do we need to do sanity check? */
+            stream->out.params.format = req->params.format;
+            stream->out.params.num_planes = req->params.num_planes;
+            for (i = 0; i < req->params.num_planes; i++) {
+                stream->out.params.plane_formats[i].plane_size =
+                    req->params.plane_formats[i].plane_size;
+                stream->out.params.plane_formats[i].stride =
+                    req->params.plane_formats[i].stride;
+            }
+        } else {
+            VIRTVID_WARN("    %s: stream 0x%x not allowed to change param "
+                         "after decoding has started", __func__, stream->id);
+        }
+        break;
+    default:
+        resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+        break;
     }
 
     return len;

@@ -87,7 +87,6 @@ typedef enum virtio_video_backend {
 
 typedef enum VirtIOVideoStreamEvent {
     VirtIOVideoStreamEventNone = 0,
-    VirtIOVideoStreamEventParamChange,
     VirtIOVideoStreamEventStreamDrain,
     VirtIOVideoStreamEventResourceQueue,
     VirtIOVideoStreamEventQueueClear,
@@ -99,6 +98,11 @@ typedef enum VirtIOVideoStreamStat {
     VirtIOVideoStreamStatError,
     VirtIOVideoStreamStatEndOfStream,
 } VirtIOVideoStreamStat;
+
+typedef enum virtio_video_stream_state {
+    STREAM_STATE_INIT = 0,
+    STREAM_STATE_RUNNING,
+} virtio_video_stream_state;
 
 typedef struct VirtIOVideoStreamEventEntry {
     VirtIOVideoStreamEvent ev;
@@ -127,6 +131,11 @@ typedef struct VirtIOVideoResource {
     QLIST_ENTRY(VirtIOVideoResource) next;
 } VirtIOVideoResource;
 
+typedef struct VirtIOVideoQueueInfo {
+    virtio_video_mem_type mem_type;
+    virtio_video_params params;
+} VirtIOVideoQueueInfo;
+
 /* 0 indicates that the control is invalid for current stream */
 typedef struct VirtIOVideoControlInfo {
     uint32_t bitrate;
@@ -140,19 +149,17 @@ typedef struct VirtIOVideoStream {
     uint32_t mfxWaitMs;
     uint32_t retry;
     uint32_t id;
-    virtio_video_mem_type in_mem_type;
-    virtio_video_mem_type out_mem_type;
-    virtio_video_format codec;
+    char tag[64];
+    VirtIOVideoQueueInfo in;
+    VirtIOVideoQueueInfo out;
     VirtIOVideoControlInfo control;
+    virtio_video_stream_state state;
+    VirtIOVideoStreamStat stat;
     QemuMutex mutex;
     void *opaque;
     QLIST_HEAD(, VirtIOVideoStreamEventEntry) ev_list;
     QLIST_HEAD(, VirtIOVideoResource)
         resource_list[VIRTIO_VIDEO_RESOURCE_LIST_NUM];
-    VirtIOVideoStreamStat stat;
-    virtio_video_params in_params;
-    virtio_video_params out_params;
-    char tag[64];
     QLIST_ENTRY(VirtIOVideoStream) next;
 } VirtIOVideoStream;
 

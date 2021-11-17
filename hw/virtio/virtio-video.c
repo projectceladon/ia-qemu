@@ -168,11 +168,11 @@ static void virtio_video_process_cmd_resource_create(
 
     switch (req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
-        mem_type = stream->in_mem_type;
+        mem_type = stream->in.mem_type;
         dir = VIRTIO_VIDEO_RESOURCE_LIST_INPUT;
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
-        mem_type = stream->out_mem_type;
+        mem_type = stream->out.mem_type;
         dir = VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT;
         break;
     default:
