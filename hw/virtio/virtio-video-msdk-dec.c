@@ -370,7 +370,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     stream->in_params.crop.top = 0;
     stream->in_params.crop.width = stream->in_params.frame_width;
     stream->in_params.crop.height = stream->in_params.frame_height;
-    stream->in_params.frame_rate = fmt->frames.lh_first->frame_rates->max;
+    stream->in_params.frame_rate = fmt->frames.lh_first->frame_rates[0].max;
 
     memcpy(&stream->out_params, &stream->in_params, sizeof(stream->in_params));
 
@@ -1067,9 +1067,9 @@ int virtio_video_init_msdk_dec(VirtIOVideo *v)
         /* For decoding, frame rate may be unspecified */
         in_fmt_frame->frame.num_rates = 1;
         in_fmt_frame->frame_rates = g_new0(virtio_video_format_range, 1);
-        in_fmt_frame->frame_rates->min = 1;
-        in_fmt_frame->frame_rates->max = 60;
-        in_fmt_frame->frame_rates->step = 1;
+        in_fmt_frame->frame_rates[0].min = 1;
+        in_fmt_frame->frame_rates[0].max = 60;
+        in_fmt_frame->frame_rates[0].step = 1;
 
         in_fmt->desc.num_frames++;
         QLIST_INSERT_HEAD(&in_fmt->frames, in_fmt_frame, next);
@@ -1079,8 +1079,8 @@ int virtio_video_init_msdk_dec(VirtIOVideo *v)
                       "height [%d, %d]@%d, rate [%d, %d]@%d", in_format,
                       w_min, w_max, in_fmt_frame->frame.width.step,
                       h_min, h_max, in_fmt_frame->frame.height.step,
-                      in_fmt_frame->frame_rates->min, in_fmt_frame->frame_rates->max,
-                      in_fmt_frame->frame_rates->step);
+                      in_fmt_frame->frame_rates[0].min, in_fmt_frame->frame_rates[0].max,
+                      in_fmt_frame->frame_rates[0].step);
 
         /* Query supported profiles */
         if (virtio_video_profile_range(in_format, &ctrl_min, &ctrl_max) < 0)
@@ -1146,8 +1146,8 @@ out:
                       out_fmt_frame->frame.width.min, out_fmt_frame->frame.width.max,
                       out_fmt_frame->frame.width.step, out_fmt_frame->frame.height.min,
                       out_fmt_frame->frame.height.max, out_fmt_frame->frame.height.step,
-                      out_fmt_frame->frame_rates->min, out_fmt_frame->frame_rates->max,
-                      out_fmt_frame->frame_rates->step);
+                      out_fmt_frame->frame_rates[0].min, out_fmt_frame->frame_rates[0].max,
+                      out_fmt_frame->frame_rates[0].step);
     }
 
     QLIST_FOREACH(in_fmt, &v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT], next) {
