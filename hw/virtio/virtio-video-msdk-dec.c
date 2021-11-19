@@ -33,8 +33,7 @@ static void *virtio_video_decode_thread(void *arg)
 {
     VirtIOVideoStream *stream = arg;
     VirtIOVideoStreamMediaSDK *msdk = stream->opaque;
-    sigset_t sigmask, old;
-    int err, i;
+    int i;
     bool running = true, decoding = true;
     mfxStatus sts = MFX_ERR_NONE;
     mfxFrameAllocRequest allocRequest, vppRequest[2];
@@ -44,14 +43,6 @@ static void *virtio_video_decode_thread(void *arg)
     mfxFrameSurface1 *surface_nv12;
     mfxSyncPoint syncp, syncVpp;
     mfxVideoParam VPPParams = {0};
-
-    sigemptyset(&sigmask);
-    sigaddset(&sigmask, SIGTERM);
-    sigaddset(&sigmask, SIGINT);
-    err = pthread_sigmask(SIG_BLOCK, &sigmask, &old);
-    if (err) {
-        VIRTVID_ERROR("%s thread 0x%0x change SIG_BLOCK failed err %d", VIRTIO_VIDEO_DECODE_THREAD, stream->id, err);
-    }
 
     /* Prepare an initial mfxVideoParam for decode */
     virtio_video_msdk_load_plugin(msdk->session, stream->in.params.format, false);
@@ -256,10 +247,6 @@ static void *virtio_video_decode_thread(void *arg)
         VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Close failed with err %d", stream->id, sts);
     }
 
-    err = pthread_sigmask(SIG_SETMASK, &old, NULL);
-    if (err) {
-        VIRTVID_ERROR("%s thread 0x%0x restore old sigmask failed err %d", VIRTIO_VIDEO_DECODE_THREAD, stream->id, err);
-    }
 
     g_free(surfaceBuffers);
     g_free(surface_work);
@@ -488,8 +475,6 @@ size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
             qemu_mutex_unlock(&stream->mutex);
             qemu_event_set(&msdk->signal_in);
 
-            /* May need send SIGTERM if the thread is dead */
-            //pthread_kill(stream->thread.thread, SIGTERM);
             qemu_thread_join(&msdk->thread);
             msdk->thread.thread = 0;
 
