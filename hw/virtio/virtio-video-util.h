@@ -17,17 +17,17 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301, USA.
  *
+ *
  * Authors: Colin Xu <colin.xu@intel.com>
  *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
-#ifndef QEMU_VIRTIO_VIDEO_MSDK_VAAPI_H
-#define QEMU_VIRTIO_VIDEO_MSDK_VAAPI_H
+#ifndef QEMU_VIRTIO_VIDEO_UTIL_H
+#define QEMU_VIRTIO_VIDEO_UTIL_H
 
 #include "hw/virtio/virtio-video.h"
 
-#define VIRTIO_VIDEO_DRM_DEVICE "/dev/dri/by-path/pci-0000:00:02.0-render"
+int virtio_video_profile_range(uint32_t format, uint32_t *min, uint32_t *max);
+int virtio_video_level_range(uint32_t format, uint32_t *min, uint32_t *max);
+void virtio_video_init_format(VirtIOVideoFormat *fmt, uint32_t format);
 
-int virtio_video_init_msdk_handle(VirtIOVideo *vdev);
-void virtio_video_uninit_msdk_handle(VirtIOVideo *vdev);
-
-#endif /* QEMU_VIRTIO_VIDEO_MSDK_VAAPI_H */
+#endif /* QEMU_VIRTIO_VIDEO_UTIL_H */

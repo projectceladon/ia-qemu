@@ -22,10 +22,13 @@
  *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
 #include "qemu/osdep.h"
+#include "virtio-video-msdk.h"
 #include "virtio-video-msdk-util.h"
-#include "virtio-video-msdk-vaapi.h"
 #include "mfx/mfxplugin.h"
 #include "mfx/mfxvp8.h"
+#include "va/va_drm.h"
+
+#define VIRTIO_VIDEO_DRM_DEVICE "/dev/dri/by-path/pci-0000:00:02.0-render"
 
 struct virtio_video_convert_table {
     uint32_t virtio_value;
@@ -145,58 +148,6 @@ uint32_t virtio_video_level_to_msdk(uint32_t level)
     return 0;
 }
 
-int virtio_video_profile_range(uint32_t format, uint32_t *min, uint32_t *max)
-{
-    if (min == NULL || max == NULL) {
-        return -1;
-    }
-
-    switch (format) {
-    case VIRTIO_VIDEO_FORMAT_H264:
-        *min = VIRTIO_VIDEO_PROFILE_H264_MIN;
-        *max = VIRTIO_VIDEO_PROFILE_H264_MAX;
-        break;
-    case VIRTIO_VIDEO_FORMAT_HEVC:
-        *min = VIRTIO_VIDEO_PROFILE_HEVC_MIN;
-        *max = VIRTIO_VIDEO_PROFILE_HEVC_MAX;
-        break;
-    case VIRTIO_VIDEO_FORMAT_VP8:
-        *min = VIRTIO_VIDEO_PROFILE_VP8_MIN;
-        *max = VIRTIO_VIDEO_PROFILE_VP8_MAX;
-        break;
-    case VIRTIO_VIDEO_FORMAT_VP9:
-        *min = VIRTIO_VIDEO_PROFILE_VP9_MIN;
-        *max = VIRTIO_VIDEO_PROFILE_VP9_MAX;
-        break;
-    default:
-        return -1;
-    }
-
-    return 0;
-}
-
-int virtio_video_level_range(uint32_t format, uint32_t *min, uint32_t *max)
-{
-    if (min == NULL || max == NULL) {
-        return -1;
-    }
-
-    switch (format) {
-    case VIRTIO_VIDEO_FORMAT_H264:
-        *min = VIRTIO_VIDEO_LEVEL_H264_MIN;
-        *max = VIRTIO_VIDEO_LEVEL_H264_MAX;
-        break;
-    case VIRTIO_VIDEO_FORMAT_HEVC:
-        *min = VIRTIO_VIDEO_LEVEL_HEVC_MIN;
-        *max = VIRTIO_VIDEO_LEVEL_HEVC_MAX;
-        break;
-    default:
-        return -1;
-    }
-
-    return 0;
-}
-
 int virtio_video_msdk_init_param(mfxVideoParam *param, uint32_t format)
 {
     uint32_t msdk_format = virtio_video_format_to_msdk(format);
@@ -241,26 +192,6 @@ int virtio_video_msdk_init_param_dec(mfxVideoParam *param, VirtIOVideoStream *st
     }
 
     return 0;
-}
-
-void virtio_video_msdk_init_format(VirtIOVideoFormat *fmt, uint32_t format)
-{
-    if (fmt == NULL) {
-        return;
-    }
-
-    QLIST_INIT(&fmt->frames);
-    fmt->desc.mask = 0;
-    fmt->desc.format = format;
-    fmt->desc.planes_layout = VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER |
-                              VIRTIO_VIDEO_PLANES_LAYOUT_PER_PLANE;
-    fmt->desc.plane_align = 0;
-    fmt->desc.num_frames = 0;
-
-    fmt->profile.num = 0;
-    fmt->profile.values = NULL;
-    fmt->level.num = 0;
-    fmt->level.values = NULL;
 }
 
 static const mfxPluginUID* virtio_video_msdk_find_plugin(uint32_t format, bool encode)
@@ -323,4 +254,57 @@ void virtio_video_msdk_unload_plugin(mfxSession session, uint32_t format, bool e
         status = MFXVideoUSER_UnLoad(session, pluginUID);
         VIRTVID_VERBOSE("Unload MFX plugin for format %x, status %d", format, status);
     }
+}
+
+int virtio_video_msdk_init_handle(VirtIOVideo *v)
+{
+    VirtIOVideoMediaSDK *msdk = g_malloc(sizeof(VirtIOVideoMediaSDK));
+    VAStatus va_status;
+    int major, minor;
+
+    msdk->drm_fd = open(VIRTIO_VIDEO_DRM_DEVICE, O_RDWR);
+    if (msdk->drm_fd < 0) {
+        VIRTVID_ERROR("error open DRM_DEVICE %s\n", VIRTIO_VIDEO_DRM_DEVICE);
+        g_free(msdk);
+        return -1;
+    }
+
+    msdk->va_handle = vaGetDisplayDRM(msdk->drm_fd);
+    if (!msdk->va_handle) {
+        VIRTVID_ERROR("error vaGetDisplayDRM for %s\n", VIRTIO_VIDEO_DRM_DEVICE);
+        close(msdk->drm_fd);
+        g_free(msdk);
+        return -1;
+    }
+
+    va_status = vaInitialize(msdk->va_handle, &major, &minor);
+    if (va_status != VA_STATUS_SUCCESS) {
+        VIRTVID_ERROR("error vaInitialize for %s, status %d\n",
+                VIRTIO_VIDEO_DRM_DEVICE, va_status);
+        vaTerminate(msdk->va_handle);
+        close(msdk->drm_fd);
+        g_free(msdk);
+        return -1;
+    }
+
+    v->opaque = msdk;
+    return 0;
+}
+
+void virtio_video_msdk_uninit_handle(VirtIOVideo *v)
+{
+    VirtIOVideoMediaSDK *msdk = (VirtIOVideoMediaSDK *) v->opaque;
+
+    if (msdk->va_handle) {
+        vaTerminate(msdk->va_handle);
+        msdk->va_handle = NULL;
+    }
+
+    if (msdk->drm_fd) {
+        close(msdk->drm_fd);
+        msdk->drm_fd = 0;
+    }
+
+    g_free(msdk);
+    v->opaque = NULL;
 }

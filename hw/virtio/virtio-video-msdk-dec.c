@@ -21,9 +21,9 @@
  *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
 #include "qemu/osdep.h"
+#include "virtio-video-util.h"
 #include "virtio-video-msdk.h"
 #include "virtio-video-msdk-dec.h"
-#include "virtio-video-msdk-vaapi.h"
 #include "virtio-video-msdk-util.h"
 #include "mfx/mfxvideo.h"
 
@@ -1008,7 +1008,7 @@ int virtio_video_init_msdk_dec(VirtIOVideo *v)
 
     mfxVideoParam param = {0}, corrected_param = {0};
 
-    if (virtio_video_init_msdk_handle(v)) {
+    if (virtio_video_msdk_init_handle(v)) {
         VIRTVID_ERROR("Fail to create VA environment on DRM");
         return -1;
     }
@@ -1087,7 +1087,7 @@ int virtio_video_init_msdk_dec(VirtIOVideo *v)
         }
 
         in_fmt = g_new0(VirtIOVideoFormat, 1);
-        virtio_video_msdk_init_format(in_fmt, in_format);
+        virtio_video_init_format(in_fmt, in_format);
 
         in_fmt_frame = g_new0(VirtIOVideoFormatFrame, 1);
         in_fmt_frame->frame.width.min = w_min;
@@ -1162,7 +1162,7 @@ out:
         size_t len;
 
         out_fmt = g_new0(VirtIOVideoFormat, 1);
-        virtio_video_msdk_init_format(out_fmt, out_format[i]);
+        virtio_video_init_format(out_fmt, out_format[i]);
 
         out_fmt_frame = g_new0(VirtIOVideoFormatFrame, 1);
         memcpy(&out_fmt_frame->frame, &in_fmt_frame->frame, sizeof(virtio_video_format_frame));
@@ -1208,5 +1208,5 @@ void virtio_video_uninit_msdk_dec(VirtIOVideo *v)
         virtio_video_msdk_dec_stream_destroy(v, &req, &resp);
     }
 
-    virtio_video_uninit_msdk_handle(v);
+    virtio_video_msdk_uninit_handle(v);
 }

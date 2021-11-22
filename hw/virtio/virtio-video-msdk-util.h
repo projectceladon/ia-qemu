@@ -34,12 +34,12 @@
 uint32_t virtio_video_format_to_msdk(uint32_t format);
 uint32_t virtio_video_profile_to_msdk(uint32_t profile);
 uint32_t virtio_video_level_to_msdk(uint32_t level);
-int virtio_video_profile_range(uint32_t format, uint32_t *min, uint32_t *max);
-int virtio_video_level_range(uint32_t format, uint32_t *min, uint32_t *max);
+
 int virtio_video_msdk_init_param(mfxVideoParam *param, uint32_t format);
 int virtio_video_msdk_init_param_dec(mfxVideoParam *param, VirtIOVideoStream *stream);
-void virtio_video_msdk_init_format(VirtIOVideoFormat *fmt, uint32_t format);
 void virtio_video_msdk_load_plugin(mfxSession session, uint32_t format, bool encode);
 void virtio_video_msdk_unload_plugin(mfxSession session, uint32_t format, bool encode);
+int virtio_video_msdk_init_handle(VirtIOVideo *vdev);
+void virtio_video_msdk_uninit_handle(VirtIOVideo *vdev);
 
 #endif /* QEMU_VIRTIO_VIDEO_MSDK_UTIL_H */
