@@ -507,7 +507,8 @@ size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
 }
 
 size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
-    virtio_video_stream_drain *req, virtio_video_cmd_hdr *resp)
+    virtio_video_stream_drain *req, virtio_video_cmd_hdr *resp,
+    VirtQueueElement *elem)
 {
     VirtIOVideoStream *stream, *next = NULL;
     size_t len = 0;
@@ -538,7 +539,8 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
 }
 
 size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
-    virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp)
+    virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp,
+    VirtQueueElement *elem)
 {
     VirtIOVideoStream *stream;
     VirtIOVideoStreamMediaSDK *msdk;

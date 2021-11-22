@@ -130,21 +130,22 @@ static size_t virtio_video_process_cmd_stream_destroy(VirtIODevice *vdev,
 }
 
 static size_t virtio_video_process_cmd_stream_drain(VirtIODevice *vdev,
-    virtio_video_stream_drain *req, virtio_video_cmd_hdr *resp)
+    virtio_video_stream_drain *req, virtio_video_cmd_hdr *resp,
+    VirtQueueElement *elem)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
     switch (v->backend) {
     case VIRTIO_VIDEO_BACKEND_MEDIA_SDK:
-        return virtio_video_msdk_cmd_stream_drain(v, req, resp);
+        return virtio_video_msdk_cmd_stream_drain(v, req, resp, elem);
     default:
         return 0;
     }
 }
 
-static void virtio_video_process_cmd_resource_create(
-        VirtIODevice *vdev, VirtQueueElement *elem,
-        virtio_video_resource_create *req, virtio_video_cmd_hdr *resp)
+static void virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
+    virtio_video_resource_create *req, virtio_video_cmd_hdr *resp,
+    VirtQueueElement *elem)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *stream;
@@ -252,13 +253,14 @@ static void virtio_video_process_cmd_resource_create(
 }
 
 static size_t virtio_video_process_cmd_resource_queue(VirtIODevice *vdev,
-    virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp)
+    virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp,
+    VirtQueueElement *elem)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
     switch (v->backend) {
     case VIRTIO_VIDEO_BACKEND_MEDIA_SDK:
-        return virtio_video_msdk_cmd_resource_queue(v, req, resp);
+        return virtio_video_msdk_cmd_resource_queue(v, req, resp, elem);
     default:
         return 0;
     }
@@ -368,6 +370,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
 {
     virtio_video_cmd_hdr hdr = {0};
     size_t len = *resp_size = 0;
+    bool async = false;
 
 #define CMD_GET_REQ(req, len) do {                                      \
         if (unlikely(iov_to_buf(elem->out_sg, elem->out_num, 0,         \
@@ -440,7 +443,11 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         virtio_video_cmd_hdr resp = {0};
 
         CMD_GET_REQ(&req, sizeof(req));
-        len = virtio_video_process_cmd_stream_drain(vdev, &req, &resp);
+        len = virtio_video_process_cmd_stream_drain(vdev, &req, &resp, elem);
+        if (len == 0) {
+            async = true;
+            break;
+        }
         CMD_SET_RESP(&resp, len, false);
         break;
     }
@@ -453,7 +460,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         VIRTVID_DEBUG("    queue_type 0x%x, resource_id 0x%x, planes_layout 0x%x, num_planes 0x%x",
                         req.queue_type, req.resource_id, req.planes_layout, req.num_planes);
 
-        virtio_video_process_cmd_resource_create(vdev, elem, &req, &resp);
+        virtio_video_process_cmd_resource_create(vdev, &req, &resp, elem);
         CMD_SET_RESP(&resp, sizeof(resp), false);
         break;
     }
@@ -466,7 +473,11 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         VIRTVID_DEBUG("    queue_type 0x%x, resource_id 0x%x, timestamp 0x%llx, num_data_sizes 0x%x",
                         req.queue_type, req.resource_id, req.timestamp, req.num_data_sizes);
 
-        len = virtio_video_process_cmd_resource_queue(vdev, &req, &resp);
+        len = virtio_video_process_cmd_resource_queue(vdev, &req, &resp, elem);
+        if (len == 0) {
+            async = true;
+            break;
+        }
         CMD_SET_RESP(&resp, len, false);
         break;
     }
@@ -562,7 +573,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
     }
 
     *resp_size = len;
-    return 0;
+    return async;
 }
 
 static void virtio_video_command_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
@@ -595,7 +606,7 @@ static void virtio_video_command_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
                 virtqueue_push(vq, elem, len);
                 virtio_notify(vdev, vq);
                 g_free(elem);
-            }
+            } /* or return asynchronously */
         } else {
             virtio_error(vdev, "virtio-video unsupported buffer number in cmd_vq in(%d) out(%d)\n",
                          elem->in_num, elem->out_num);
