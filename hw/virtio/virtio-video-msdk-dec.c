@@ -46,10 +46,7 @@ static void *virtio_video_decode_thread(void *arg)
 
     /* Prepare an initial mfxVideoParam for decode */
     virtio_video_msdk_load_plugin(msdk->session, stream->in.params.format, false);
-    virtio_video_msdk_init_video_params(&msdk->param, stream->in.params.format);
-
-    /* TODO: Should we use VIDEO_MEMORY for virtio-gpu object? */
-    msdk->param.IOPattern = MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
+    virtio_video_msdk_init_param_dec(&msdk->param, stream);
 
     sts = MFXVideoDECODE_Init(msdk->session, &msdk->param);
     if (sts != MFX_ERR_NONE) {
@@ -1049,7 +1046,7 @@ int virtio_video_init_msdk_dec(VirtIOVideo *v)
         }
 
         virtio_video_msdk_load_plugin(session, in_format, false);
-        virtio_video_msdk_init_video_params(&param, in_format);
+        virtio_video_msdk_init_param(&param, in_format);
         corrected_param.mfx.CodecId = param.mfx.CodecId;
 
         /* Query the max size supported */

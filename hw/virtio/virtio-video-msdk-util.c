@@ -197,13 +197,12 @@ int virtio_video_level_range(uint32_t format, uint32_t *min, uint32_t *max)
     return 0;
 }
 
-void virtio_video_msdk_init_video_params(mfxVideoParam *param, uint32_t format)
+int virtio_video_msdk_init_param(mfxVideoParam *param, uint32_t format)
 {
     uint32_t msdk_format = virtio_video_format_to_msdk(format);
 
-    if (param == NULL || msdk_format == 0) {
-        return;
-    }
+    if (param == NULL || msdk_format == 0)
+        return -1;
 
     /* Hardware usually only supports NV12 pixel format */
     memset(param, 0, sizeof(*param));
@@ -211,6 +210,37 @@ void virtio_video_msdk_init_video_params(mfxVideoParam *param, uint32_t format)
     param->mfx.FrameInfo.FourCC = MFX_FOURCC_NV12;
     param->mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
     param->mfx.FrameInfo.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
+    return 0;
+}
+
+int virtio_video_msdk_init_param_dec(mfxVideoParam *param, VirtIOVideoStream *stream)
+{
+
+    if (virtio_video_msdk_init_param(param, stream->in.params.format) < 0)
+        return -1;
+
+    switch (stream->in.mem_type) {
+    case VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES:
+        param->IOPattern |= MFX_IOPATTERN_IN_SYSTEM_MEMORY;
+        break;
+    case VIRTIO_VIDEO_MEM_TYPE_VIRTIO_OBJECT:
+        param->IOPattern |= MFX_IOPATTERN_IN_VIDEO_MEMORY;
+        break;
+    default:
+        break;
+    }
+    switch (stream->out.mem_type) {
+    case VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES:
+        param->IOPattern |= MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
+        break;
+    case VIRTIO_VIDEO_MEM_TYPE_VIRTIO_OBJECT:
+        param->IOPattern |= MFX_IOPATTERN_OUT_VIDEO_MEMORY;
+        break;
+    default:
+        break;
+    }
+
+    return 0;
 }
 
 void virtio_video_msdk_init_format(VirtIOVideoFormat *fmt, uint32_t format)
