@@ -27,7 +27,7 @@
 #include "virtio-video-msdk-util.h"
 #include "mfx/mfxvideo.h"
 
-#define VIRTIO_VIDEO_DECODE_THREAD "Virtio-Video-Decode"
+#define THREAD_NAME_LEN 24
 
 static void *virtio_video_decode_thread(void *arg)
 {
@@ -126,7 +126,6 @@ static void *virtio_video_decode_thread(void *arg)
         VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Init failed with err %d", stream->id, sts);
     }
 
-    VIRTVID_DEBUG("%s thread 0x%0x running", VIRTIO_VIDEO_DECODE_THREAD, stream->id);
     while (running) {
         mfxFrameSurface1 *surf = NULL;
 
@@ -248,8 +247,6 @@ static void *virtio_video_decode_thread(void *arg)
     g_free(surfaceBuffers);
     g_free(surface_work);
 
-    VIRTVID_DEBUG("%s thread 0x%0x exits", VIRTIO_VIDEO_DECODE_THREAD, stream->id);
-
     return NULL;
 }
 
@@ -260,6 +257,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     VirtIOVideoStream *stream;
     VirtIOVideoStreamMediaSDK *msdk;
     mfxStatus status;
+    char thread_name[THREAD_NAME_LEN];
     size_t len;
 
     mfxInitParam param = {
@@ -436,8 +434,10 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
 
     qemu_mutex_init(&stream->mutex);
 
-    qemu_thread_create(&msdk->thread, VIRTIO_VIDEO_DECODE_THREAD,
-            virtio_video_decode_thread, stream, QEMU_THREAD_JOINABLE);
+    snprintf(thread_name, sizeof(thread_name), "virtio-video-decode/%d",
+             stream->id);
+    qemu_thread_create(&msdk->thread, thread_name, virtio_video_decode_thread,
+                       stream, QEMU_THREAD_JOINABLE);
 
     QLIST_INSERT_HEAD(&v->stream_list, stream, next);
     resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
@@ -707,7 +707,7 @@ size_t virtio_video_msdk_dec_get_params(VirtIOVideo *v,
     virtio_video_get_params *req, virtio_video_get_params_resp *resp)
 {
     VirtIOVideoStream *stream;
-    size_t len = 0;
+    size_t len;
 
     resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
     resp->hdr.stream_id = req->hdr.stream_id;
@@ -741,7 +741,7 @@ size_t virtio_video_msdk_dec_set_params(VirtIOVideo *v,
     virtio_video_set_params *req, virtio_video_cmd_hdr *resp)
 {
     VirtIOVideoStream *stream;
-    size_t len = 0;
+    size_t len;
     int i;
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
