@@ -258,7 +258,7 @@ void virtio_video_msdk_unload_plugin(mfxSession session, uint32_t format, bool e
 
 int virtio_video_msdk_init_handle(VirtIOVideo *v)
 {
-    VirtIOVideoMediaSDK *msdk = g_malloc(sizeof(VirtIOVideoMediaSDK));
+    MsdkHandle *msdk = g_new(MsdkHandle, 1);
     VAStatus va_status;
     int major, minor;
 
@@ -293,7 +293,7 @@ int virtio_video_msdk_init_handle(VirtIOVideo *v)
 
 void virtio_video_msdk_uninit_handle(VirtIOVideo *v)
 {
-    VirtIOVideoMediaSDK *msdk = (VirtIOVideoMediaSDK *) v->opaque;
+    MsdkHandle *msdk = (MsdkHandle *) v->opaque;
 
     if (msdk->va_handle) {
         vaTerminate(msdk->va_handle);

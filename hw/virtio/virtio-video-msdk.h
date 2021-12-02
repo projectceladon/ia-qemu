@@ -36,7 +36,7 @@
 #define VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE  16
 #define VIRTIO_VIDEO_MSDK_DIM_STEP_OTHERS       32
 
-typedef struct VirtIOVideoStreamMediaSDK {
+typedef struct MsdkSession {
     QemuThread thread;
     QemuEvent signal_in;
     QemuEvent signal_out;
@@ -44,12 +44,12 @@ typedef struct VirtIOVideoStreamMediaSDK {
     mfxVideoParam param;
     mfxBitstream bitstream;
     mfxFrameSurface1 surface;
-} VirtIOVideoStreamMediaSDK;
+} MsdkSession;
 
-typedef struct VirtIOVideoMediaSDK {
+typedef struct MsdkHandle {
     int drm_fd;
     void *va_handle;
-} VirtIOVideoMediaSDK;
+} MsdkHandle;
 
 size_t virtio_video_msdk_cmd_stream_create(VirtIOVideo *v,
     virtio_video_stream_create *req, virtio_video_cmd_hdr *resp);

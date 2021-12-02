@@ -32,10 +32,10 @@
 static void *virtio_video_decode_thread(void *arg)
 {
     VirtIOVideoStream *stream = arg;
-    VirtIOVideoStreamMediaSDK *msdk = stream->opaque;
+    MsdkSession *m_session = stream->opaque;
     int i;
     bool running = true, decoding = true;
-    mfxStatus sts = MFX_ERR_NONE;
+    mfxStatus status = MFX_ERR_NONE;
     mfxFrameAllocRequest allocRequest, vppRequest[2];
     mfxU16 numSurfaces;
     mfxU8* surfaceBuffers;
@@ -45,25 +45,26 @@ static void *virtio_video_decode_thread(void *arg)
     mfxVideoParam VPPParams = {0};
 
     /* Prepare an initial mfxVideoParam for decode */
-    virtio_video_msdk_load_plugin(msdk->session, stream->in.params.format, false);
-    virtio_video_msdk_init_param_dec(&msdk->param, stream);
+    virtio_video_msdk_load_plugin(m_session->session, stream->in.params.format, false);
+    virtio_video_msdk_init_param_dec(&m_session->param, stream);
 
-    sts = MFXVideoDECODE_Init(msdk->session, &msdk->param);
-    if (sts != MFX_ERR_NONE) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Init failed with err %d", stream->id, sts);
+
+    status = MFXVideoDECODE_Init(m_session->session, &m_session->param);
+    if (status != MFX_ERR_NONE) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Init failed with err %d", stream->id, status);
     }
 
     /* Retrieve current working mfxVideoParam */
-    sts = MFXVideoDECODE_GetVideoParam(msdk->session, &msdk->param);
-    if (sts != MFX_ERR_NONE) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_GetVideoParam failed with err %d", stream->id, sts);
+    status = MFXVideoDECODE_GetVideoParam(m_session->session, &m_session->param);
+    if (status != MFX_ERR_NONE) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_GetVideoParam failed with err %d", stream->id, status);
     }
 
     /* Query and allocate working surface */
     memset(&allocRequest, 0, sizeof(allocRequest));
-    sts = MFXVideoDECODE_QueryIOSurf(msdk->session, &msdk->param, &allocRequest);
-    if (sts != MFX_ERR_NONE && sts != MFX_WRN_PARTIAL_ACCELERATION) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_QueryIOSurf failed with err %d", stream->id, sts);
+    status = MFXVideoDECODE_QueryIOSurf(m_session->session, &m_session->param, &allocRequest);
+    if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_QueryIOSurf failed with err %d", stream->id, status);
         running = false;
     } else {
         mfxU16 width = (mfxU16) MSDK_ALIGN32(allocRequest.Info.Width);
@@ -76,7 +77,7 @@ static void *virtio_video_decode_thread(void *arg)
         surface_work = g_malloc0(numSurfaces * sizeof(mfxFrameSurface1));
         if (surfaceBuffers && surface_work) {
             for (i = 0; i < numSurfaces; i++) {
-                surface_work[i].Info = msdk->param.mfx.FrameInfo;
+                surface_work[i].Info = m_session->param.mfx.FrameInfo;
                 surface_work[i].Data.Y = &surfaceBuffers[surfaceSize * i];
                 surface_work[i].Data.U = surface_work[i].Data.Y + width * height;
                 surface_work[i].Data.V = surface_work[i].Data.U + 1;
@@ -96,15 +97,15 @@ static void *virtio_video_decode_thread(void *arg)
     VPPParams.vpp.In.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
     VPPParams.vpp.In.CropX = 0;
     VPPParams.vpp.In.CropY = 0;
-    VPPParams.vpp.In.CropW = msdk->param.mfx.FrameInfo.CropW;
-    VPPParams.vpp.In.CropH = msdk->param.mfx.FrameInfo.CropH;
+    VPPParams.vpp.In.CropW = m_session->param.mfx.FrameInfo.CropW;
+    VPPParams.vpp.In.CropH = m_session->param.mfx.FrameInfo.CropH;
     VPPParams.vpp.In.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
-    VPPParams.vpp.In.FrameRateExtN = msdk->param.mfx.FrameInfo.FrameRateExtN;
-    VPPParams.vpp.In.FrameRateExtD = msdk->param.mfx.FrameInfo.FrameRateExtD;
+    VPPParams.vpp.In.FrameRateExtN = m_session->param.mfx.FrameInfo.FrameRateExtN;
+    VPPParams.vpp.In.FrameRateExtD = m_session->param.mfx.FrameInfo.FrameRateExtD;
     VPPParams.vpp.In.Height = (MFX_PICSTRUCT_PROGRESSIVE == VPPParams.vpp.In.PicStruct) ?
-        MSDK_ALIGN16(msdk->param.mfx.FrameInfo.Height) : MSDK_ALIGN32(msdk->param.mfx.FrameInfo.Height);
+        MSDK_ALIGN16(m_session->param.mfx.FrameInfo.Height) : MSDK_ALIGN32(m_session->param.mfx.FrameInfo.Height);
     VPPParams.vpp.In.Width = (MFX_PICSTRUCT_PROGRESSIVE == VPPParams.vpp.In.PicStruct) ?
-        MSDK_ALIGN16(msdk->param.mfx.FrameInfo.Width) :  MSDK_ALIGN32(msdk->param.mfx.FrameInfo.Width);
+        MSDK_ALIGN16(m_session->param.mfx.FrameInfo.Width) :  MSDK_ALIGN32(m_session->param.mfx.FrameInfo.Width);
     /* Output */
     memcpy(&VPPParams.vpp.Out, &VPPParams.vpp.In, sizeof(VPPParams.vpp.Out));
     VPPParams.vpp.Out.FourCC = virtio_video_format_to_msdk(stream->out.params.format);
@@ -112,18 +113,18 @@ static void *virtio_video_decode_thread(void *arg)
 
     /* Query and allocate VPP surface */
     memset(&vppRequest, 0, sizeof(vppRequest));
-    sts = MFXVideoVPP_QueryIOSurf(msdk->session, &VPPParams, vppRequest);
-    if (sts != MFX_ERR_NONE && sts != MFX_WRN_PARTIAL_ACCELERATION) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoVPP_QueryIOSurf failed with err %d", stream->id, sts);
+    status = MFXVideoVPP_QueryIOSurf(m_session->session, &VPPParams, vppRequest);
+    if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoVPP_QueryIOSurf failed with err %d", stream->id, status);
         running = false;
     } else {
-        msdk->surface.Info = VPPParams.vpp.Out;
-        msdk->surface.Data.Pitch = ((mfxU16)MSDK_ALIGN32(vppRequest[1].Info.Width)) * 32 / 8;
+        m_session->surface.Info = VPPParams.vpp.Out;
+        m_session->surface.Data.Pitch = ((mfxU16)MSDK_ALIGN32(vppRequest[1].Info.Width)) * 32 / 8;
     }
 
-    sts = MFXVideoVPP_Init(msdk->session, &VPPParams);
-    if (sts != MFX_ERR_NONE) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Init failed with err %d", stream->id, sts);
+    status = MFXVideoVPP_Init(m_session->session, &VPPParams);
+    if (status != MFX_ERR_NONE) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Init failed with err %d", stream->id, status);
     }
 
     while (running) {
@@ -131,8 +132,8 @@ static void *virtio_video_decode_thread(void *arg)
 
         decoding = false;
 
-        qemu_event_wait(&msdk->signal_in);
-        qemu_event_reset(&msdk->signal_in);
+        qemu_event_wait(&m_session->signal_in);
+        qemu_event_reset(&m_session->signal_in);
 
         qemu_mutex_lock(&stream->mutex);
         if (!QLIST_EMPTY(&stream->ev_list)) {
@@ -144,11 +145,11 @@ static void *virtio_video_decode_thread(void *arg)
             case VirtIOVideoStreamEventStreamDrain:
                 /* set bs to NULL to signal end of stream to drain the decoding */
                 do {
-                    sts = MFXVideoDECODE_DecodeFrameAsync(msdk->session, NULL, surface_work, &surface_nv12, &syncp);
-                    MFXVideoCORE_SyncOperation(msdk->session, syncp, stream->mfxWaitMs);
-                } while (sts != MFX_ERR_MORE_DATA && (--stream->retry) > 0);
-                MFXVideoVPP_Reset(msdk->session, &VPPParams);
-                MFXVideoDECODE_Reset(msdk->session, &msdk->param);
+                    status = MFXVideoDECODE_DecodeFrameAsync(m_session->session, NULL, surface_work, &surface_nv12, &syncp);
+                    MFXVideoCORE_SyncOperation(m_session->session, syncp, -1);
+                } while (status != MFX_ERR_MORE_DATA && (--stream->retry) > 0);
+                MFXVideoVPP_Reset(m_session->session, &VPPParams);
+                MFXVideoDECODE_Reset(m_session->session, &m_session->param);
                 break;
             case VirtIOVideoStreamEventResourceQueue:
                 decoding = true;
@@ -190,59 +191,61 @@ static void *virtio_video_decode_thread(void *arg)
             continue;
         }
 
-        sts = MFXVideoDECODE_DecodeFrameAsync(msdk->session, &msdk->bitstream, surf, &surface_nv12, &syncp);
-        if (sts == MFX_ERR_NONE) {
-            sts = MFXVideoCORE_SyncOperation(msdk->session, syncp, stream->mfxWaitMs);
-            if (sts == MFX_ERR_NONE) {
+        status = MFXVideoDECODE_DecodeFrameAsync(m_session->session, &m_session->bitstream, surf, &surface_nv12, &syncp);
+        if (status == MFX_ERR_NONE) {
+            status = MFXVideoCORE_SyncOperation(m_session->session, syncp, -1);
+            if (status == MFX_ERR_NONE) {
                 stream->stat = VirtIOVideoStreamStatNone;
             } else {
                 running = false;
                 stream->stat = VirtIOVideoStreamStatError;
-                VIRTVID_ERROR("stream 0x%x MFXVideoCORE_SyncOperation failed with err %d", stream->id, sts);
+                VIRTVID_ERROR("stream 0x%x MFXVideoCORE_SyncOperation failed with err %d", stream->id, status);
             }
         } else {
             running = false;
             stream->stat = VirtIOVideoStreamStatError;
-            VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_DecodeFrameAsync failed with err %d", stream->id, sts);
+            VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_DecodeFrameAsync failed with err %d", stream->id, status);
         }
 
         for (;;) {
-            sts = MFXVideoVPP_RunFrameVPPAsync(msdk->session, surface_nv12, &msdk->surface, NULL, &syncVpp);
-            if (sts > MFX_ERR_NONE&& !syncVpp) {
-                if (sts == MFX_WRN_DEVICE_BUSY) {
+            status = MFXVideoVPP_RunFrameVPPAsync(m_session->session, surface_nv12, &m_session->surface, NULL, &syncVpp);
+            if (status > MFX_ERR_NONE&& !syncVpp) {
+                if (status == MFX_WRN_DEVICE_BUSY) {
                     g_usleep(1000);
                 }
-            } else if (sts > MFX_ERR_NONE && syncVpp) {
-                sts = MFX_ERR_NONE;
+            } else if (status > MFX_ERR_NONE && syncVpp) {
+                status = MFX_ERR_NONE;
                 break;
             } else
             break;
         }
 
         /* Notify CMD_RESOURCE_QUEUE, it's waiting for virtio_video_resource_queue_resp */
-        qemu_event_set(&msdk->signal_out);
+        qemu_event_set(&m_session->signal_out);
     }
 
-    sts = MFXVideoVPP_Reset(msdk->session, &VPPParams);
-    if (sts != MFX_ERR_NONE) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Reset failed with err %d", stream->id, sts);
+    status = MFXVideoVPP_Reset(m_session->session, &VPPParams);
+    if (status != MFX_ERR_NONE) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Reset failed with err %d", stream->id, status);
     }
 
-    sts = MFXVideoVPP_Close(msdk->session);
-    if (sts != MFX_ERR_NONE) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Close failed with err %d", stream->id, sts);
+    status = MFXVideoVPP_Close(m_session->session);
+    if (status != MFX_ERR_NONE) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Close failed with err %d", stream->id, status);
     }
 
-    sts = MFXVideoDECODE_Reset(msdk->session, &msdk->param);
-    if (sts != MFX_ERR_NONE) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Reset failed with err %d", stream->id, sts);
+    status = MFXVideoDECODE_Reset(m_session->session, &m_session->param);
+    if (status != MFX_ERR_NONE) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Reset failed with err %d", stream->id, status);
     }
 
-    sts = MFXVideoDECODE_Close(msdk->session);
-    if (sts != MFX_ERR_NONE) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Close failed with err %d", stream->id, sts);
+    status = MFXVideoDECODE_Close(m_session->session);
+    if (status != MFX_ERR_NONE) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Close failed with err %d", stream->id, status);
     }
 
+    virtio_video_msdk_unload_plugin(m_session->session, stream->in.params.format, false);
+    MFXClose(m_session->session);
 
     g_free(surfaceBuffers);
     g_free(surface_work);
@@ -255,7 +258,8 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
 {
     VirtIOVideoFormat *fmt;
     VirtIOVideoStream *stream;
-    VirtIOVideoStreamMediaSDK *msdk;
+    MsdkHandle *m_handle = v->opaque;
+    MsdkSession *m_session;
     mfxStatus status;
     char thread_name[THREAD_NAME_LEN];
     size_t len;
@@ -297,34 +301,34 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
         return len;
     }
 
-    msdk = g_new(VirtIOVideoStreamMediaSDK, 1);
-    if (msdk == NULL)
+    m_session = g_new(MsdkSession, 1);
+    if (m_session == NULL)
         return len;
 
-    status = MFXInitEx(param, &msdk->session);
+    status = MFXInitEx(param, &m_session->session);
     if (status != MFX_ERR_NONE) {
         VIRTVID_ERROR("    %s: MFXInitEx returns %d for stream 0x%x", __func__,
                 status, resp->stream_id);
-        g_free(msdk);
+        g_free(m_session);
         return len;
     }
 
-    status = MFXVideoCORE_SetHandle(msdk->session, MFX_HANDLE_VA_DISPLAY,
-                                    ((VirtIOVideoMediaSDK *)v->opaque)->va_handle);
+    status = MFXVideoCORE_SetHandle(m_session->session, MFX_HANDLE_VA_DISPLAY,
+                                    m_handle->va_handle);
     if (status != MFX_ERR_NONE) {
         VIRTVID_ERROR("    %s: MFXVideoCORE_SetHandle returns %d for stream 0x%x",
                 __func__, status, resp->stream_id);
-        MFXClose(msdk->session);
-        g_free(msdk);
+        MFXClose(m_session->session);
+        g_free(m_session);
         return len;
     }
 
     stream = g_new0(VirtIOVideoStream, 1);
     if (stream == NULL) {
-        g_free(msdk);
+        g_free(m_session);
         return len;
     }
-    stream->opaque = msdk;
+    stream->opaque = m_session;
 
     stream->id = req->hdr.stream_id;
     stream->in.mem_type = req->in_mem_type;
@@ -426,8 +430,8 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     QLIST_INIT(&stream->resource_list[VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT]);
 
     QLIST_INIT(&stream->ev_list);
-    qemu_event_init(&msdk->signal_in, false);
-    qemu_event_init(&msdk->signal_out, false);
+    qemu_event_init(&m_session->signal_in, false);
+    qemu_event_init(&m_session->signal_out, false);
     stream->mfxWaitMs = 60000;
     stream->state = STREAM_STATE_INIT;
     stream->stat = VirtIOVideoStreamStatNone;
@@ -436,7 +440,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
 
     snprintf(thread_name, sizeof(thread_name), "virtio-video-decode/%d",
              stream->id);
-    qemu_thread_create(&msdk->thread, thread_name, virtio_video_decode_thread,
+    qemu_thread_create(&m_session->thread, thread_name, virtio_video_decode_thread,
                        stream, QEMU_THREAD_JOINABLE);
 
     QLIST_INSERT_HEAD(&v->stream_list, stream, next);
@@ -449,8 +453,8 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
 size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
     virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp)
 {
+    MsdkSession *m_session;
     VirtIOVideoStream *stream, *next = NULL;
-    VirtIOVideoStreamMediaSDK *msdk;
     VirtIOVideoStreamEventEntry *entry, *next_entry = NULL;
     VirtIOVideoResource *res, *next_res = NULL;
     size_t len = 0;
@@ -463,17 +467,17 @@ size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
     QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
         if (stream->id == req->hdr.stream_id) {
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
-            msdk = stream->opaque;
+            m_session = stream->opaque;
 
             entry = g_new0(VirtIOVideoStreamEventEntry, 1);
             entry->ev = VirtIOVideoStreamEventTerminate;
             qemu_mutex_lock(&stream->mutex);
             QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
             qemu_mutex_unlock(&stream->mutex);
-            qemu_event_set(&msdk->signal_in);
+            qemu_event_set(&m_session->signal_in);
 
-            qemu_thread_join(&msdk->thread);
-            msdk->thread.thread = 0;
+            qemu_thread_join(&m_session->thread);
+            m_session->thread.thread = 0;
 
             QLIST_FOREACH_SAFE(entry, &stream->ev_list, next, next_entry) {
                 QLIST_SAFE_REMOVE(entry, next);
@@ -487,14 +491,12 @@ size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
                 }
             }
 
-            qemu_event_destroy(&msdk->signal_in);
-            qemu_event_destroy(&msdk->signal_out);
+            qemu_event_destroy(&m_session->signal_in);
+            qemu_event_destroy(&m_session->signal_out);
 
             qemu_mutex_destroy(&stream->mutex);
 
-            virtio_video_msdk_unload_plugin(msdk->session, stream->in.params.format, false);
-            MFXClose(msdk->session);
-            g_free(msdk);
+            g_free(m_session);
 
             QLIST_SAFE_REMOVE(stream, next);
             g_free(stream);
@@ -519,7 +521,7 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
 
     QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
         if (stream->id == req->hdr.stream_id) {
-            VirtIOVideoStreamMediaSDK *msdk = stream->opaque;
+            MsdkSession *m_session = stream->opaque;
             VirtIOVideoStreamEventEntry *entry = g_new0(VirtIOVideoStreamEventEntry, 1);
 
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
@@ -529,7 +531,7 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
             stream->retry = 10;
             QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
             qemu_mutex_unlock(&stream->mutex);
-            qemu_event_set(&msdk->signal_in);
+            qemu_event_set(&m_session->signal_in);
             VIRTVID_DEBUG("    %s: stream 0x%x drained", __func__, req->hdr.stream_id);
             break;
         }
@@ -542,8 +544,8 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
     virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp,
     VirtQueueElement *elem)
 {
+    MsdkSession *m_session;
     VirtIOVideoStream *stream;
-    VirtIOVideoStreamMediaSDK *msdk;
     size_t len = 0;
 
     resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
@@ -561,7 +563,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
     VirtIOVideoResource *res, *next_res = NULL;
     VirtIOVideoStreamEventEntry *entry = g_new0(VirtIOVideoStreamEventEntry, 1);
 
-    msdk = stream->opaque;
+    m_session = stream->opaque;
     if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
         resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
         QLIST_FOREACH_SAFE(res,
@@ -569,7 +571,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
                 next_res) {
             if (req->resource_id == res->id) {
                 /* Set mfxSurfOut buffer to the request hva, decode thread will fill other parameters */
-                msdk->surface.Data.Y = res->slices[0][0].page.hva;
+                m_session->surface.Data.Y = res->slices[0][0].page.hva;
                 resp->hdr.type = VIRTIO_VIDEO_RESP_OK_RESOURCE_QUEUE;
             }
         }
@@ -580,8 +582,8 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
                 next_res) {
             if (req->resource_id == res->id) {
                 /* bitstream shouldn't have plane concept */
-                msdk->bitstream.MaxLength = req->data_sizes[0];
-                msdk->bitstream.Data = res->slices[0][0].page.hva;
+                m_session->bitstream.MaxLength = req->data_sizes[0];
+                m_session->bitstream.Data = res->slices[0][0].page.hva;
                 resp->hdr.type = VIRTIO_VIDEO_RESP_OK_RESOURCE_QUEUE;
 
                 /* Notify decode thread to start on new input resource queued */
@@ -589,11 +591,11 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
                 qemu_mutex_lock(&stream->mutex);
                 QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
                 qemu_mutex_unlock(&stream->mutex);
-                qemu_event_set(&msdk->signal_in);
+                qemu_event_set(&m_session->signal_in);
 
                 /* Wait for decode thread work done */
-                qemu_event_wait(&msdk->signal_out);
-                qemu_event_reset(&msdk->signal_out);
+                qemu_event_wait(&m_session->signal_out);
+                qemu_event_reset(&m_session->signal_out);
             }
         }
     } else {
@@ -676,7 +678,7 @@ size_t virtio_video_msdk_dec_queue_clear(VirtIOVideo *v,
 
     QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
         if (stream->id == req->hdr.stream_id) {
-            VirtIOVideoStreamMediaSDK *msdk = stream->opaque;
+            MsdkSession *m_session = stream->opaque;
             VirtIOVideoStreamEventEntry *entry = g_new0(VirtIOVideoStreamEventEntry, 1);
 
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
@@ -688,7 +690,7 @@ size_t virtio_video_msdk_dec_queue_clear(VirtIOVideo *v,
                 qemu_mutex_lock(&stream->mutex);
                 QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
                 qemu_mutex_unlock(&stream->mutex);
-                qemu_event_set(&msdk->signal_in);
+                qemu_event_set(&m_session->signal_in);
             } else {
                 resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
                 g_free(entry);
@@ -994,6 +996,7 @@ size_t virtio_video_msdk_dec_set_control(VirtIOVideo *v,
 
 int virtio_video_init_msdk_dec(VirtIOVideo *v)
 {
+    MsdkHandle *m_handle;
     VirtIOVideoFormat *in_fmt = NULL, *out_fmt = NULL;
     VirtIOVideoFormatFrame *in_fmt_frame = NULL, *out_fmt_frame = NULL;
     virtio_video_format in_format;
@@ -1021,8 +1024,8 @@ int virtio_video_init_msdk_dec(VirtIOVideo *v)
         return -1;
     }
 
-    status = MFXVideoCORE_SetHandle(session, MFX_HANDLE_VA_DISPLAY,
-                                    ((VirtIOVideoMediaSDK *)v->opaque)->va_handle);
+    m_handle = v->opaque;
+    status = MFXVideoCORE_SetHandle(session, MFX_HANDLE_VA_DISPLAY, m_handle->va_handle);
     if (status != MFX_ERR_NONE) {
         VIRTVID_ERROR("MFXVideoCORE_SetHandle returns %d", status);
         MFXClose(session);
