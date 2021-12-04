@@ -578,6 +578,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
 
 static void virtio_video_command_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
 {
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtQueueElement *elem;
     size_t len = 0;
     int ret;
@@ -597,7 +598,9 @@ static void virtio_video_command_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
 
         if ((elem->in_num == 1 && elem->out_num == 1) ||
             (elem->in_num == 1 && elem->out_num == 2)) {
+            qemu_mutex_lock(&v->mutex);
             ret = virtio_video_process_command(vdev, elem, &len);
+            qemu_mutex_unlock(&v->mutex);
             if (ret < 0) {
                 virtqueue_detach_element(vq, elem, 0);
                 g_free(elem);
@@ -653,7 +656,10 @@ static void virtio_video_event_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
 
         ev = g_new(VirtIOVideoEvent, 1);
         ev->elem = elem;
+
+        qemu_mutex_lock(&v->mutex);
         QLIST_INSERT_HEAD(&v->event_list, ev, next);
+        qemu_mutex_unlock(&v->mutex);
     }
 }
 
@@ -720,6 +726,7 @@ static void virtio_video_device_realize(DeviceState *dev, Error **errp)
     for (i = 0; i < VIRTIO_VIDEO_FORMAT_LIST_NUM; i++)
         QLIST_INIT(&v->format_list[i]);
 
+    qemu_mutex_init(&v->mutex);
     if (v->conf.iothread) {
         object_ref(OBJECT(v->conf.iothread));
         v->ctx = iothread_get_aio_context(v->conf.iothread);
@@ -736,6 +743,7 @@ static void virtio_video_device_realize(DeviceState *dev, Error **errp)
     }
 
     if (ret) {
+        qemu_mutex_destroy(&v->mutex);
         if (v->conf.iothread) {
             object_unref(OBJECT(v->conf.iothread));
         }
@@ -781,6 +789,7 @@ static void virtio_video_device_unrealize(DeviceState *dev)
         }
     }
 
+    qemu_mutex_destroy(&v->mutex);
     if (v->conf.iothread) {
         object_unref(OBJECT(v->conf.iothread));
     }

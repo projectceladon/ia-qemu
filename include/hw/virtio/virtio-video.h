@@ -205,6 +205,7 @@ struct VirtIOVideo {
     QLIST_HEAD(, VirtIOVideoStream) stream_list;
     QLIST_HEAD(, VirtIOVideoFormat) format_list[VIRTIO_VIDEO_FORMAT_LIST_NUM];
     void *opaque;
+    QemuMutex mutex;
     AioContext *ctx;
 };
 
