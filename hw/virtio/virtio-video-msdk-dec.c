@@ -329,6 +329,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
         return len;
     }
     stream->opaque = m_session;
+    stream->parent = v;
 
     stream->id = req->hdr.stream_id;
     stream->in.mem_type = req->in_mem_type;

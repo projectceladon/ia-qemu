@@ -150,6 +150,7 @@ typedef struct VirtIOVideoStream {
     uint32_t retry;
     uint32_t id;
     char tag[64];
+    VirtIOVideo *parent;
     VirtIOVideoQueueInfo in;
     VirtIOVideoQueueInfo out;
     VirtIOVideoControlInfo control;
@@ -191,6 +192,8 @@ typedef struct VirtIOVideoConf {
 
 typedef struct VirtIOVideoEvent {
     VirtQueueElement *elem;
+    uint32_t event_type;
+    uint32_t stream_id;
     QLIST_ENTRY(VirtIOVideoEvent) next;
 } VirtIOVideoEvent;
 
@@ -206,6 +209,7 @@ struct VirtIOVideo {
     QLIST_HEAD(, VirtIOVideoFormat) format_list[VIRTIO_VIDEO_FORMAT_LIST_NUM];
     void *opaque;
     QemuMutex mutex;
+    QEMUBH *event_bh;
     AioContext *ctx;
 };
 
