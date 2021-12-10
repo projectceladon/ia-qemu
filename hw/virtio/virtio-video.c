@@ -248,9 +248,7 @@ static int virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
         return 0;
     }
 
-    qemu_mutex_lock(&stream->mutex);
     QLIST_INSERT_HEAD(&stream->resource_list[dir], res, next);
-    qemu_mutex_unlock(&stream->mutex);
     return 0;
 }
 
