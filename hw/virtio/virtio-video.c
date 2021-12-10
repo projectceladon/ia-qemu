@@ -820,6 +820,8 @@ static void virtio_video_device_unrealize(DeviceState *dev)
     }
 
     QLIST_FOREACH_SAFE(ev, &v->event_list, next, tmp_ev) {
+        virtqueue_detach_element(v->event_vq, ev->elem, 0);
+        g_free(ev->elem);
         g_free(ev);
     }
 
