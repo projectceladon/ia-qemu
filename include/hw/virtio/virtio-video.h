@@ -85,30 +85,10 @@ typedef enum virtio_video_backend {
     VIRTIO_VIDEO_BACKEND_MEDIA_SDK,
 } virtio_video_backend;
 
-typedef enum VirtIOVideoStreamEvent {
-    VirtIOVideoStreamEventNone = 0,
-    VirtIOVideoStreamEventStreamDrain,
-    VirtIOVideoStreamEventResourceQueue,
-    VirtIOVideoStreamEventQueueClear,
-    VirtIOVideoStreamEventTerminate,
-} VirtIOVideoStreamEvent;
-
-typedef enum VirtIOVideoStreamStat {
-    VirtIOVideoStreamStatNone = 0,
-    VirtIOVideoStreamStatError,
-    VirtIOVideoStreamStatEndOfStream,
-} VirtIOVideoStreamStat;
-
 typedef enum virtio_video_stream_state {
     STREAM_STATE_INIT = 0,
     STREAM_STATE_RUNNING,
 } virtio_video_stream_state;
-
-typedef struct VirtIOVideoStreamEventEntry {
-    VirtIOVideoStreamEvent ev;
-    void *data;
-    QLIST_ENTRY(VirtIOVideoStreamEventEntry) next;
-} VirtIOVideoStreamEventEntry;
 
 typedef union VirtIOVideoResourceSlice {
     struct {
@@ -146,8 +126,6 @@ typedef struct VirtIOVideoControlInfo {
 typedef struct VirtIOVideo VirtIOVideo;
 
 typedef struct VirtIOVideoStream {
-    uint32_t mfxWaitMs;
-    uint32_t retry;
     uint32_t id;
     char tag[64];
     VirtIOVideo *parent;
@@ -155,10 +133,8 @@ typedef struct VirtIOVideoStream {
     VirtIOVideoQueueInfo out;
     VirtIOVideoControlInfo control;
     virtio_video_stream_state state;
-    VirtIOVideoStreamStat stat;
     QemuMutex mutex;
     void *opaque;
-    QLIST_HEAD(, VirtIOVideoStreamEventEntry) ev_list;
     QLIST_HEAD(, VirtIOVideoResource)
         resource_list[VIRTIO_VIDEO_RESOURCE_LIST_NUM];
     QLIST_ENTRY(VirtIOVideoStream) next;

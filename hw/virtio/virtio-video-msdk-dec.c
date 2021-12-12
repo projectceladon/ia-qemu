@@ -159,6 +159,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     mfxStatus status;
     char thread_name[THREAD_NAME_LEN];
     size_t len;
+    int i;
 
     mfxInitParam param = {
         .Implementation = MFX_IMPL_AUTO_ANY,
@@ -197,7 +198,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
         return len;
     }
 
-    m_session = g_new(MsdkSession, 1);
+    m_session = g_new0(MsdkSession, 1);
     if (m_session == NULL)
         return len;
 
@@ -323,16 +324,10 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
         break;
     }
 
-    QLIST_INIT(&stream->resource_list[VIRTIO_VIDEO_RESOURCE_LIST_INPUT]);
-    QLIST_INIT(&stream->resource_list[VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT]);
-
-    QLIST_INIT(&stream->ev_list);
-    qemu_event_init(&m_session->signal_in, false);
-    qemu_event_init(&m_session->signal_out, false);
-    stream->mfxWaitMs = 60000;
     stream->state = STREAM_STATE_INIT;
-    stream->stat = VirtIOVideoStreamStatNone;
-
+    for (i = 0; i < VIRTIO_VIDEO_RESOURCE_LIST_NUM; i++) {
+        QLIST_INIT(&stream->resource_list[i]);
+    }
     qemu_mutex_init(&stream->mutex);
 
     snprintf(thread_name, sizeof(thread_name), "virtio-video-decode/%d",
