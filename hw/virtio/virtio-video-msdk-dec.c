@@ -34,20 +34,16 @@ static void *virtio_video_decode_thread(void *arg)
     VirtIOVideoStream *stream = arg;
     MsdkSession *m_session = stream->opaque;
     int i;
-    bool running = true, decoding = true;
     mfxStatus status = MFX_ERR_NONE;
     mfxFrameAllocRequest allocRequest, vppRequest[2];
     mfxU16 numSurfaces;
     mfxU8* surfaceBuffers;
     mfxFrameSurface1 *surface_work;
-    mfxFrameSurface1 *surface_nv12;
-    mfxSyncPoint syncp, syncVpp;
     mfxVideoParam VPPParams = {0};
 
     /* Prepare an initial mfxVideoParam for decode */
     virtio_video_msdk_load_plugin(m_session->session, stream->in.params.format, false);
     virtio_video_msdk_init_param_dec(&m_session->param, stream);
-
 
     status = MFXVideoDECODE_Init(m_session->session, &m_session->param);
     if (status != MFX_ERR_NONE) {
@@ -65,7 +61,7 @@ static void *virtio_video_decode_thread(void *arg)
     status = MFXVideoDECODE_QueryIOSurf(m_session->session, &m_session->param, &allocRequest);
     if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
         VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_QueryIOSurf failed with err %d", stream->id, status);
-        running = false;
+        numSurfaces = 1;
     } else {
         mfxU16 width = (mfxU16) MSDK_ALIGN32(allocRequest.Info.Width);
         mfxU16 height = (mfxU16) MSDK_ALIGN32(allocRequest.Info.Height);
@@ -85,7 +81,6 @@ static void *virtio_video_decode_thread(void *arg)
             }
         } else {
             VIRTVID_ERROR("stream 0x%x allocate working surface failed", stream->id);
-            running = false;
         }
     }
 
@@ -116,7 +111,6 @@ static void *virtio_video_decode_thread(void *arg)
     status = MFXVideoVPP_QueryIOSurf(m_session->session, &VPPParams, vppRequest);
     if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
         VIRTVID_ERROR("stream 0x%x MFXVideoVPP_QueryIOSurf failed with err %d", stream->id, status);
-        running = false;
     } else {
         m_session->surface.Info = VPPParams.vpp.Out;
         m_session->surface.Data.Pitch = ((mfxU16)MSDK_ALIGN32(vppRequest[1].Info.Width)) * 32 / 8;
@@ -127,57 +121,8 @@ static void *virtio_video_decode_thread(void *arg)
         VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Init failed with err %d", stream->id, status);
     }
 
-    while (running) {
+    while (true) {
         mfxFrameSurface1 *surf = NULL;
-
-        decoding = false;
-
-        qemu_event_wait(&m_session->signal_in);
-        qemu_event_reset(&m_session->signal_in);
-
-        qemu_mutex_lock(&stream->mutex);
-        if (!QLIST_EMPTY(&stream->ev_list)) {
-            VirtIOVideoStreamEventEntry *entry = QLIST_FIRST(&stream->ev_list);
-
-            QLIST_SAFE_REMOVE(entry, next);
-
-            switch (entry->ev) {
-            case VirtIOVideoStreamEventStreamDrain:
-                /* set bs to NULL to signal end of stream to drain the decoding */
-                do {
-                    status = MFXVideoDECODE_DecodeFrameAsync(m_session->session, NULL, surface_work, &surface_nv12, &syncp);
-                    MFXVideoCORE_SyncOperation(m_session->session, syncp, -1);
-                } while (status != MFX_ERR_MORE_DATA && (--stream->retry) > 0);
-                MFXVideoVPP_Reset(m_session->session, &VPPParams);
-                MFXVideoDECODE_Reset(m_session->session, &m_session->param);
-                break;
-            case VirtIOVideoStreamEventResourceQueue:
-                decoding = true;
-                break;
-            case VirtIOVideoStreamEventQueueClear:
-                decoding = false;
-                running = false;
-                /* TODO: How to clear queue? */
-                if (*(uint32_t*)(entry->data) == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
-
-                } else { /* VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT */
-
-                }
-                break;
-            case VirtIOVideoStreamEventTerminate:
-                running = false;
-                break;
-            default:
-                break;
-            }
-
-            g_free(entry);
-        }
-        qemu_mutex_unlock(&stream->mutex);
-
-        if (!running || !decoding) {
-            continue;
-        }
 
         for (i = 0; i < numSurfaces; i++) {
             if (!surface_work[i].Data.Locked) {
@@ -190,59 +135,10 @@ static void *virtio_video_decode_thread(void *arg)
             VIRTVID_ERROR("No free surface_work");
             continue;
         }
-
-        status = MFXVideoDECODE_DecodeFrameAsync(m_session->session, &m_session->bitstream, surf, &surface_nv12, &syncp);
-        if (status == MFX_ERR_NONE) {
-            status = MFXVideoCORE_SyncOperation(m_session->session, syncp, -1);
-            if (status == MFX_ERR_NONE) {
-                stream->stat = VirtIOVideoStreamStatNone;
-            } else {
-                running = false;
-                stream->stat = VirtIOVideoStreamStatError;
-                VIRTVID_ERROR("stream 0x%x MFXVideoCORE_SyncOperation failed with err %d", stream->id, status);
-            }
-        } else {
-            running = false;
-            stream->stat = VirtIOVideoStreamStatError;
-            VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_DecodeFrameAsync failed with err %d", stream->id, status);
-        }
-
-        for (;;) {
-            status = MFXVideoVPP_RunFrameVPPAsync(m_session->session, surface_nv12, &m_session->surface, NULL, &syncVpp);
-            if (status > MFX_ERR_NONE&& !syncVpp) {
-                if (status == MFX_WRN_DEVICE_BUSY) {
-                    g_usleep(1000);
-                }
-            } else if (status > MFX_ERR_NONE && syncVpp) {
-                status = MFX_ERR_NONE;
-                break;
-            } else
-            break;
-        }
-
-        /* Notify CMD_RESOURCE_QUEUE, it's waiting for virtio_video_resource_queue_resp */
-        qemu_event_set(&m_session->signal_out);
     }
 
-    status = MFXVideoVPP_Reset(m_session->session, &VPPParams);
-    if (status != MFX_ERR_NONE) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Reset failed with err %d", stream->id, status);
-    }
-
-    status = MFXVideoVPP_Close(m_session->session);
-    if (status != MFX_ERR_NONE) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Close failed with err %d", stream->id, status);
-    }
-
-    status = MFXVideoDECODE_Reset(m_session->session, &m_session->param);
-    if (status != MFX_ERR_NONE) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Reset failed with err %d", stream->id, status);
-    }
-
-    status = MFXVideoDECODE_Close(m_session->session);
-    if (status != MFX_ERR_NONE) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Close failed with err %d", stream->id, status);
-    }
+    MFXVideoVPP_Close(m_session->session);
+    MFXVideoDECODE_Close(m_session->session);
 
     virtio_video_msdk_unload_plugin(m_session->session, stream->in.params.format, false);
     MFXClose(m_session->session);
