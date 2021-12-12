@@ -523,68 +523,75 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
 {
     MsdkSession *m_session;
     VirtIOVideoStream *stream;
-    size_t len = 0;
+    VirtIOVideoResource *resource;
+    size_t len;
 
-    resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+    resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
     resp->hdr.stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
     QLIST_FOREACH(stream, &v->stream_list, next) {
         if (stream->id == req->hdr.stream_id) {
+            m_session = stream->opaque;
             break;
         }
     }
-    if (stream == NULL)
+    if (stream == NULL) {
+        resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
         return len;
-
-    VirtIOVideoResource *res, *next_res = NULL;
-    VirtIOVideoStreamEventEntry *entry = g_new0(VirtIOVideoStreamEventEntry, 1);
-
-    m_session = stream->opaque;
-    if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
-        resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
-        QLIST_FOREACH_SAFE(res,
-                &stream->resource_list[VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT], next,
-                next_res) {
-            if (req->resource_id == res->id) {
-                /* Set mfxSurfOut buffer to the request hva, decode thread will fill other parameters */
-                m_session->surface.Data.Y = res->slices[0][0].page.hva;
-                resp->hdr.type = VIRTIO_VIDEO_RESP_OK_RESOURCE_QUEUE;
-            }
-        }
-    } else if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
-        resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
-        QLIST_FOREACH_SAFE(res,
-                &stream->resource_list[VIRTIO_VIDEO_RESOURCE_LIST_INPUT], next,
-                next_res) {
-            if (req->resource_id == res->id) {
-                /* bitstream shouldn't have plane concept */
-                m_session->bitstream.MaxLength = req->data_sizes[0];
-                m_session->bitstream.Data = res->slices[0][0].page.hva;
-                resp->hdr.type = VIRTIO_VIDEO_RESP_OK_RESOURCE_QUEUE;
-
-                /* Notify decode thread to start on new input resource queued */
-                entry->ev = VirtIOVideoStreamEventResourceQueue;
-                qemu_mutex_lock(&stream->mutex);
-                QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
-                qemu_mutex_unlock(&stream->mutex);
-                qemu_event_set(&m_session->signal_in);
-
-                /* Wait for decode thread work done */
-                qemu_event_wait(&m_session->signal_out);
-                qemu_event_reset(&m_session->signal_out);
-            }
-        }
-    } else {
-        resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
-        VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x",
-                __func__, req->hdr.stream_id, req->queue_type);
     }
 
-    resp->timestamp = req->timestamp;
-    resp->size = 0; /* Only for encode */
-    if (stream->stat == VirtIOVideoStreamStatError) {
-        resp->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+    switch (req->queue_type) {
+    case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
+        QLIST_FOREACH(resource,
+                &stream->resource_list[VIRTIO_VIDEO_RESOURCE_LIST_INPUT], next) {
+            if (resource->id == req->resource_id) {
+                break;
+            }
+        }
+        if (resource == NULL) {
+            resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
+            return len;
+        }
+
+        if (req->num_data_sizes != 1) {
+            VIRTVID_ERROR("    %s: stream 0x%x num_data_sizes=%d, should be 1 "
+                    "for resources on input queue", __func__, stream->id, req->num_data_sizes);
+            return len;
+        }
+
+        /* implement RESOURCE_QUEUE logic */
+        m_session->bitstream.Data = resource->slices[0]->page.hva;
+        m_session->bitstream.DataLength = req->data_sizes[0];
+        m_session->bitstream.MaxLength = req->data_sizes[0];
+
+        len = 0;
+        break;
+    case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
+        QLIST_FOREACH(resource,
+                &stream->resource_list[VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT], next) {
+            if (resource->id == req->resource_id) {
+                break;
+            }
+        }
+        if (resource == NULL) {
+            resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
+            break;
+        }
+
+        /* Only input resources have timestamp assigned. */
+        if (req->timestamp != 0) {
+            VIRTVID_WARN("    %s: stream 0x%x timestamp=%llu, should be 0 "
+                    "for resources on output queue", __func__, stream->id, req->timestamp);
+        }
+
+
+        /* implement RESOURCE_QUEUE logic */
+        len = 0;
+        break;
+    default:
+        resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+        break;
     }
 
     return len;
