@@ -356,7 +356,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     stream->in.params.plane_formats[0].plane_size = 0;
     stream->in.params.plane_formats[0].stride = 0;
 
-    /*
+    /**
      * The output of decode device is frames of some pixel format. We choose
      * NV12 as the default format but this can be changed by frontend.
      *
@@ -456,11 +456,11 @@ size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
 {
     MsdkSession *m_session;
     VirtIOVideoStream *stream, *next = NULL;
-    VirtIOVideoStreamEventEntry *entry, *next_entry = NULL;
     VirtIOVideoResource *res, *next_res = NULL;
     size_t len = 0;
     int i;
 
+    /* TODO: rewrite STREAM_DESTROY logic */
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
@@ -470,20 +470,8 @@ size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
             m_session = stream->opaque;
 
-            entry = g_new0(VirtIOVideoStreamEventEntry, 1);
-            entry->ev = VirtIOVideoStreamEventTerminate;
-            qemu_mutex_lock(&stream->mutex);
-            QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
-            qemu_mutex_unlock(&stream->mutex);
-            qemu_event_set(&m_session->signal_in);
-
             qemu_thread_join(&m_session->thread);
             m_session->thread.thread = 0;
-
-            QLIST_FOREACH_SAFE(entry, &stream->ev_list, next, next_entry) {
-                QLIST_SAFE_REMOVE(entry, next);
-                g_free(entry);
-            }
 
             for (i = 0; i < VIRTIO_VIDEO_RESOURCE_LIST_NUM; i++) {
                 QLIST_FOREACH_SAFE(res, &stream->resource_list[i], next, next_res) {
@@ -492,13 +480,8 @@ size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
                 }
             }
 
-            qemu_event_destroy(&m_session->signal_in);
-            qemu_event_destroy(&m_session->signal_out);
-
             qemu_mutex_destroy(&stream->mutex);
-
             g_free(m_session);
-
             QLIST_SAFE_REMOVE(stream, next);
             g_free(stream);
             VIRTVID_DEBUG("    %s: stream 0x%x destroyed", __func__, req->hdr.stream_id);
@@ -513,31 +496,24 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
     virtio_video_stream_drain *req, virtio_video_cmd_hdr *resp,
     VirtQueueElement *elem)
 {
-    VirtIOVideoStream *stream, *next = NULL;
+    VirtIOVideoStream *stream;
     size_t len = 0;
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
-    QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
+    QLIST_FOREACH(stream, &v->stream_list, next) {
         if (stream->id == req->hdr.stream_id) {
-            MsdkSession *m_session = stream->opaque;
-            VirtIOVideoStreamEventEntry *entry = g_new0(VirtIOVideoStreamEventEntry, 1);
-
-            resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
-            entry->ev = VirtIOVideoStreamEventStreamDrain;
-            qemu_mutex_lock(&stream->mutex);
-            /* Set retry count for drain */
-            stream->retry = 10;
-            QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
-            qemu_mutex_unlock(&stream->mutex);
-            qemu_event_set(&m_session->signal_in);
-            VIRTVID_DEBUG("    %s: stream 0x%x drained", __func__, req->hdr.stream_id);
             break;
         }
     }
+    if (stream == NULL) {
+        return len;
+    }
 
+    /* TODO: implement STREAM_DRAIN logic */
+    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
     return len;
 }
 
@@ -634,7 +610,8 @@ size_t virtio_video_msdk_dec_resource_destroy_all(VirtIOVideo *v,
     if (stream == NULL)
         return len;
 
-    /* TODO: Drain codec */
+    /* TODO: reimplement RESOURCE_DESTROY_ALL logic */
+
     resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
     if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
         QLIST_FOREACH_SAFE(res,
@@ -670,41 +647,36 @@ size_t virtio_video_msdk_dec_resource_destroy_all(VirtIOVideo *v,
 size_t virtio_video_msdk_dec_queue_clear(VirtIOVideo *v,
     virtio_video_queue_clear *req, virtio_video_cmd_hdr *resp)
 {
-    VirtIOVideoStream *stream, *next = NULL;
-    size_t len = 0;
+    VirtIOVideoStream *stream;
+    size_t len;
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
-    QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
+    QLIST_FOREACH(stream, &v->stream_list, next) {
         if (stream->id == req->hdr.stream_id) {
-            MsdkSession *m_session = stream->opaque;
-            VirtIOVideoStreamEventEntry *entry = g_new0(VirtIOVideoStreamEventEntry, 1);
-
-            resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
-            if (req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT || req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
-                entry->ev = VirtIOVideoStreamEventQueueClear;
-                entry->data = g_malloc(sizeof(uint32_t));
-                *(uint32_t*)(entry->data) = req->queue_type;
-
-                qemu_mutex_lock(&stream->mutex);
-                QLIST_INSERT_HEAD(&stream->ev_list, entry, next);
-                qemu_mutex_unlock(&stream->mutex);
-                qemu_event_set(&m_session->signal_in);
-            } else {
-                resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
-                g_free(entry);
-                VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x",
-                        __func__, req->hdr.stream_id, req->queue_type);
-            }
-
-            VIRTVID_DEBUG("    %s: stream 0x%x queue_type 0x%x cleared",
-                    __func__, req->hdr.stream_id, req->queue_type);
             break;
         }
     }
+    if (stream == NULL) {
+        return len;
+    }
 
+    switch (req->queue_type) {
+    case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
+        break;
+    case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
+        break;
+    default:
+        resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+        VIRTVID_ERROR("    %s: stream 0x%x, unsupported queue_type 0x%x",
+                __func__, req->hdr.stream_id, req->queue_type);
+        return len;
+    }
+
+    /* TODO: implement QUEUE_CLEAR logic */
+    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
     return len;
 }
 
