@@ -36,11 +36,14 @@
 #define VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE  16
 #define VIRTIO_VIDEO_MSDK_DIM_STEP_OTHERS       32
 
+typedef struct MsdkFrame {
+    mfxBitstream bitstream;
+} MsdkFrame;
+
 typedef struct MsdkSession {
     QemuThread thread;
     mfxSession session;
     mfxVideoParam param;
-    mfxBitstream bitstream;
     mfxFrameSurface1 surface;
 } MsdkSession;
 

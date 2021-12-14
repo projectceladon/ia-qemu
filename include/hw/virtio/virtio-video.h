@@ -87,6 +87,7 @@ typedef enum virtio_video_backend {
 
 typedef enum virtio_video_stream_state {
     STREAM_STATE_INIT = 0,
+    STREAM_STATE_WAIT_METADATA, /* decoder only */
     STREAM_STATE_RUNNING,
 } virtio_video_stream_state;
 
@@ -111,6 +112,28 @@ typedef struct VirtIOVideoResource {
     QLIST_ENTRY(VirtIOVideoResource) next;
 } VirtIOVideoResource;
 
+typedef struct VirtIOVideoStream VirtIOVideoStream;
+
+/**
+ * Tracks the work of a VIRTIO_VIDEO_CMD_RESOURCE_QUEUE command
+ *
+ * @resource, queue_type:   come from the request of guest
+ * @timestamp:              serves as input for VIRTIO_VIDEO_QUEUE_TYPE_INPUT,
+ *                          and output for VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT
+ * @flags, size:            used for the response to guest
+ */
+typedef struct VirtIOVideoWork {
+    VirtIOVideoStream *parent;
+    VirtQueueElement *elem;
+    VirtIOVideoResource *resource;
+    uint32_t queue_type;
+    uint64_t timestamp;
+    uint32_t flags;
+    uint32_t size;
+    void *opaque;
+    QTAILQ_ENTRY(VirtIOVideoWork) next;
+} VirtIOVideoWork;
+
 typedef struct VirtIOVideoQueueInfo {
     virtio_video_mem_type mem_type;
     virtio_video_params params;
@@ -125,7 +148,7 @@ typedef struct VirtIOVideoControlInfo {
 
 typedef struct VirtIOVideo VirtIOVideo;
 
-typedef struct VirtIOVideoStream {
+struct VirtIOVideoStream {
     uint32_t id;
     char tag[64];
     VirtIOVideo *parent;
@@ -137,8 +160,10 @@ typedef struct VirtIOVideoStream {
     void *opaque;
     QLIST_HEAD(, VirtIOVideoResource)
         resource_list[VIRTIO_VIDEO_RESOURCE_LIST_NUM];
+    QTAILQ_HEAD(, VirtIOVideoWork) pending_work;
+    QTAILQ_HEAD(, VirtIOVideoWork) queued_work;
     QLIST_ENTRY(VirtIOVideoStream) next;
-} VirtIOVideoStream;
+};
 
 typedef struct VirtIOVideoControl {
     uint32_t num;

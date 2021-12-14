@@ -328,6 +328,8 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     for (i = 0; i < VIRTIO_VIDEO_RESOURCE_LIST_NUM; i++) {
         QLIST_INIT(&stream->resource_list[i]);
     }
+    QTAILQ_INIT(&stream->pending_work);
+    QTAILQ_INIT(&stream->queued_work);
     qemu_mutex_init(&stream->mutex);
 
     snprintf(thread_name, sizeof(thread_name), "virtio-video-decode/%d",
@@ -412,9 +414,11 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
     virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp,
     VirtQueueElement *elem)
 {
-    MsdkSession *m_session;
+    /* MsdkSession *m_session; */
+    MsdkFrame *m_frame;
     VirtIOVideoStream *stream;
     VirtIOVideoResource *resource;
+    VirtIOVideoWork *work;
     size_t len;
 
     resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
@@ -423,7 +427,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
 
     QLIST_FOREACH(stream, &v->stream_list, next) {
         if (stream->id == req->hdr.stream_id) {
-            m_session = stream->opaque;
+            /* m_session = stream->opaque; */
             break;
         }
     }
@@ -451,10 +455,51 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
             return len;
         }
 
-        /* implement RESOURCE_QUEUE logic */
-        m_session->bitstream.Data = resource->slices[0]->page.hva;
-        m_session->bitstream.DataLength = req->data_sizes[0];
-        m_session->bitstream.MaxLength = req->data_sizes[0];
+        /* The same resource cannot be queued again if already queued. */
+        qemu_mutex_lock(&stream->mutex);
+        QTAILQ_FOREACH(work, &stream->pending_work, next) {
+            if (resource->id == work->resource->id) {
+                qemu_mutex_unlock(&stream->mutex);
+                return len;
+            }
+        }
+        QTAILQ_FOREACH(work, &stream->queued_work, next) {
+            if (resource->id == work->resource->id) {
+                qemu_mutex_unlock(&stream->mutex);
+                return len;
+            }
+        }
+
+        m_frame = g_new0(MsdkFrame, 1);
+        m_frame->bitstream.Data = resource->slices[0]->page.hva;
+        m_frame->bitstream.DataLength = req->data_sizes[0];
+        m_frame->bitstream.MaxLength = req->data_sizes[0];
+
+        work = g_new0(VirtIOVideoWork, 1);
+        work->parent = stream;
+        work->elem = elem;
+        work->resource = resource;
+        work->queue_type = req->queue_type;
+        work->timestamp = req->timestamp;
+        work->opaque = m_frame;
+
+        /*
+         * Input resources first go to the pending work list. After the
+         * DecodeFrameAsync function is called for them, they are moved to the
+         * queued work list.
+         */
+        QTAILQ_INSERT_TAIL(&stream->pending_work, work, next);
+        switch (stream->state) {
+        case STREAM_STATE_INIT:
+            break;
+        case STREAM_STATE_WAIT_METADATA:
+            break;
+        case STREAM_STATE_RUNNING:
+            break;
+        default:
+            break;
+        }
+        qemu_mutex_unlock(&stream->mutex);
 
         len = 0;
         break;
@@ -476,12 +521,36 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
                     "for resources on output queue", __func__, stream->id, req->timestamp);
         }
 
+        qemu_mutex_lock(&stream->mutex);
+        QTAILQ_FOREACH(work, &stream->pending_work, next) {
+            if (resource->id == work->resource->id) {
+                qemu_mutex_unlock(&stream->mutex);
+                return len;
+            }
+        }
+        QTAILQ_FOREACH(work, &stream->queued_work, next) {
+            if (resource->id == work->resource->id) {
+                qemu_mutex_unlock(&stream->mutex);
+                return len;
+            }
+        }
 
-        /* implement RESOURCE_QUEUE logic */
+        work = g_new0(VirtIOVideoWork, 1);
+        work->parent = stream;
+        work->elem = elem;
+        work->resource = resource;
+        work->queue_type = req->queue_type;
+
+        /*
+         * Output resource is just a container for the decoded frame, it does
+         * not involve submitting MediaSDK tasks.
+         */
+        QTAILQ_INSERT_TAIL(&stream->queued_work, work, next);
+        qemu_mutex_unlock(&stream->mutex);
+
         len = 0;
         break;
     default:
-        resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
         break;
     }
 

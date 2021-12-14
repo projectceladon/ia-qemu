@@ -22,6 +22,7 @@
  *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
 #include "qemu/osdep.h"
+#include "qemu/iov.h"
 #include "virtio-video-util.h"
 
 int virtio_video_profile_range(uint32_t format, uint32_t *min, uint32_t *max)
@@ -94,4 +95,35 @@ void virtio_video_init_format(VirtIOVideoFormat *fmt, uint32_t format)
     fmt->profile.values = NULL;
     fmt->level.num = 0;
     fmt->level.values = NULL;
+}
+
+/* @work must be removed from @pending_work or @queued_work first */
+int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work)
+{
+    VirtIOVideoStream *stream = work->parent;
+    VirtIOVideo *v = stream->parent;
+    VirtIODevice *vdev = VIRTIO_DEVICE(v);
+    virtio_video_resource_queue_resp resp = {0};
+
+    resp.hdr.type = work->queue_type;
+    resp.hdr.stream_id = stream->id;
+    resp.timestamp = work->timestamp;
+    resp.flags = work->flags;
+    resp.size = work->size;
+
+    if (unlikely(iov_from_buf(work->elem->in_sg, work->elem->in_num, 0,
+                              &resp, sizeof(resp)) != sizeof(resp))) {
+        virtio_error(vdev, "virtio-video command response incorrect");
+        virtqueue_detach_element(v->cmd_vq, work->elem, 0);
+        g_free(work->elem);
+        g_free(work);
+        return -1;
+    }
+
+    virtqueue_push(v->cmd_vq, work->elem, sizeof(resp));
+    virtio_notify(vdev, v->cmd_vq);
+
+    g_free(work->elem);
+    g_free(work);
+    return 0;
 }
