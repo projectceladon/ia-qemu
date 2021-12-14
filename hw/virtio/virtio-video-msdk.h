@@ -36,16 +36,38 @@
 #define VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE  16
 #define VIRTIO_VIDEO_MSDK_DIM_STEP_OTHERS       32
 
+typedef struct MsdkSurface {
+    mfxFrameSurface1 surface;
+    bool used;
+    QLIST_ENTRY(MsdkSurface) next;
+} MsdkSurface;
+
+/**
+ * Represents a frame being decoded or encoded.
+ *
+ * @surface: points to the working frame surface in @surface_pool
+ * @vpp_surface: points to the working frame surface in @vpp_surface_pool
+ */
 typedef struct MsdkFrame {
     mfxBitstream bitstream;
+    MsdkSurface *surface;
+    MsdkSurface *vpp_surface;
+    mfxSyncPoint sync;
+    mfxSyncPoint vpp_sync;
 } MsdkFrame;
 
+/**
+ * @surface_num: determines the initial size of @surface_pool
+ * @vpp_surface_num: determines the initial size of @vpp_surface_pool
+ */
 typedef struct MsdkSession {
     QemuThread thread;
     QemuEvent notifier;
     mfxSession session;
-    mfxVideoParam param;
-    mfxFrameSurface1 surface;
+    int surface_num;
+    int vpp_surface_num;
+    QLIST_HEAD(, MsdkSurface) surface_pool;
+    QLIST_HEAD(, MsdkSurface) vpp_surface_pool;
 } MsdkSession;
 
 typedef struct MsdkHandle {

@@ -148,6 +148,28 @@ uint32_t virtio_video_level_to_msdk(uint32_t level)
     return 0;
 }
 
+uint32_t virtio_video_msdk_to_profile(uint32_t msdk)
+{
+    int i;
+
+    for (i = 0; i < ARRAY_SIZE(profile_table); i++) {
+        if (profile_table[i].msdk_value == msdk)
+            return profile_table[i].virtio_value;
+    }
+    return 0;
+}
+
+uint32_t virtio_video_msdk_to_level(uint32_t msdk)
+{
+    int i;
+
+    for (i = 0; i < ARRAY_SIZE(level_table); i++) {
+        if (level_table[i].msdk_value == msdk)
+            return level_table[i].virtio_value;
+    }
+    return 0;
+}
+
 int virtio_video_msdk_init_param(mfxVideoParam *param, uint32_t format)
 {
     uint32_t msdk_format = virtio_video_format_to_msdk(format);
@@ -192,6 +214,130 @@ int virtio_video_msdk_init_param_dec(mfxVideoParam *param, VirtIOVideoStream *st
     }
 
     return 0;
+}
+
+int virtio_video_msdk_init_vpp_param_dec(mfxVideoParam *param, mfxVideoParam *vpp_param,
+    VirtIOVideoStream *stream)
+{
+    uint32_t msdk_format = virtio_video_format_to_msdk(stream->out.params.format);
+
+    if (param == NULL || vpp_param == NULL || msdk_format == 0)
+        return -1;
+
+    memset(vpp_param, 0, sizeof(*vpp_param));
+    vpp_param->vpp.In.FourCC = MFX_FOURCC_NV12;
+    vpp_param->vpp.In.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
+    vpp_param->vpp.In.CropX = param->mfx.FrameInfo.CropX;
+    vpp_param->vpp.In.CropY = param->mfx.FrameInfo.CropY;
+    vpp_param->vpp.In.CropW = param->mfx.FrameInfo.CropW;
+    vpp_param->vpp.In.CropH = param->mfx.FrameInfo.CropH;
+    vpp_param->vpp.In.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
+    vpp_param->vpp.In.FrameRateExtN = param->mfx.FrameInfo.FrameRateExtN;
+    vpp_param->vpp.In.FrameRateExtD = param->mfx.FrameInfo.FrameRateExtD;
+    vpp_param->vpp.In.Width = MSDK_ALIGN16(vpp_param->vpp.In.CropW);
+    vpp_param->vpp.In.Height = MSDK_ALIGN16(vpp_param->vpp.In.CropH);
+
+    vpp_param->vpp.Out = vpp_param->vpp.In;
+    vpp_param->vpp.Out.FourCC = msdk_format;
+    switch (msdk_format) {
+    case MFX_FOURCC_RGB4:
+        vpp_param->vpp.Out.ChromaFormat = MFX_CHROMAFORMAT_YUV444;
+        break;
+    case MFX_FOURCC_NV12:
+    case MFX_FOURCC_IYUV:
+    case MFX_FOURCC_YV12:
+        vpp_param->vpp.Out.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
+        break;
+    default:
+        vpp_param->vpp.Out.ChromaFormat = MFX_CHROMAFORMAT_MONOCHROME;
+        break;
+    }
+
+    switch(stream->out.mem_type) {
+    case VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES:
+        vpp_param->IOPattern |= MFX_IOPATTERN_IN_SYSTEM_MEMORY |
+                                MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
+        break;
+    case VIRTIO_VIDEO_MEM_TYPE_VIRTIO_OBJECT:
+        vpp_param->IOPattern |= MFX_IOPATTERN_IN_VIDEO_MEMORY |
+                                MFX_IOPATTERN_OUT_VIDEO_MEMORY;
+        break;
+    default:
+        break;
+    }
+
+    return 0;
+}
+
+void virtio_video_msdk_init_surface_pool(MsdkSession *session,
+    mfxFrameAllocRequest *alloc_req, mfxFrameInfo *info, bool vpp)
+{
+    MsdkSurface *surface;
+    mfxU8 *surface_buf;
+    uint32_t width, height, size;
+    int i;
+
+    width = MSDK_ALIGN32(alloc_req->Info.Width);
+    height = MSDK_ALIGN32(alloc_req->Info.Height);
+    switch (info->FourCC) {
+    case MFX_FOURCC_RGB4:
+        size = width * height * 4;
+        break;
+    case MFX_FOURCC_NV12:
+    case MFX_FOURCC_IYUV:
+    case MFX_FOURCC_YV12:
+        size = width * height * 12 / 8;
+        break;
+    default:
+        return;
+    }
+
+    for (i = 0; i < vpp ? session->vpp_surface_num : session->surface_num; i++) {
+        surface = g_new0(MsdkSurface, 1);
+        surface_buf = g_malloc0(size);
+
+        surface->used = false;
+        surface->surface.Info = *info;
+        switch (info->FourCC) {
+        case MFX_FOURCC_RGB4:
+            surface->surface.Data.A = surface_buf;
+            surface->surface.Data.R = surface->surface.Data.A + width * height;
+            surface->surface.Data.G = surface->surface.Data.R + width * height;
+            surface->surface.Data.B = surface->surface.Data.G + width * height;
+            surface->surface.Data.PitchLow = width;
+            surface->surface.Data.PitchHigh = 0;
+            break;
+        case MFX_FOURCC_NV12:
+            surface->surface.Data.Y = surface_buf;
+            surface->surface.Data.U = surface->surface.Data.Y + width * height;
+            surface->surface.Data.V = surface->surface.Data.U + 1;
+            surface->surface.Data.PitchLow = width;
+            surface->surface.Data.PitchHigh = 0;
+            break;
+        case MFX_FOURCC_IYUV:
+            surface->surface.Data.Y = surface_buf;
+            surface->surface.Data.U = surface->surface.Data.Y + width * height;
+            surface->surface.Data.V = surface->surface.Data.U + width * height / 4;
+            surface->surface.Data.PitchLow = width;
+            surface->surface.Data.PitchHigh = 0;
+            break;
+        case MFX_FOURCC_YV12:
+            surface->surface.Data.Y = surface_buf;
+            surface->surface.Data.V = surface->surface.Data.Y + width * height;
+            surface->surface.Data.U = surface->surface.Data.V + width * height / 4;
+            surface->surface.Data.PitchLow = width;
+            surface->surface.Data.PitchHigh = 0;
+            break;
+        default:
+            break;
+        }
+
+        if (vpp) {
+            QLIST_INSERT_HEAD(&session->vpp_surface_pool, surface, next);
+        } else {
+            QLIST_INSERT_HEAD(&session->surface_pool, surface, next);
+        }
+    }
 }
 
 static const mfxPluginUID* virtio_video_msdk_find_plugin(uint32_t format, bool encode)
