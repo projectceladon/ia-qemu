@@ -121,23 +121,51 @@ static void *virtio_video_decode_thread(void *arg)
         VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Init failed with err %d", stream->id, status);
     }
 
-    while (true) {
-        mfxFrameSurface1 *surf = NULL;
+    VirtIOVideoWork *work;
 
-        for (i = 0; i < numSurfaces; i++) {
-            if (!surface_work[i].Data.Locked) {
-                surf = &surface_work[i];
+    while (true) {
+        qemu_mutex_lock(&stream->mutex);
+        switch (stream->state) {
+        case STREAM_STATE_INIT:
+            qemu_mutex_unlock(&stream->mutex);
+
+            /* Waiting for initial request which contains the header */
+            qemu_event_wait(&m_session->notifier);
+            qemu_event_reset(&m_session->notifier);
+            continue;
+        case STREAM_STATE_WAIT_METADATA:
+            if (QTAILQ_EMPTY(&stream->pending_work)) {
+                VIRTVID_ERROR("BUG: decode thread is woken up with empty input request queue");
                 break;
             }
-        }
 
-        if (!surf) {
-            VIRTVID_ERROR("No free surface_work");
-            continue;
+            work = QTAILQ_FIRST(&stream->pending_work);
+
+            /* TODO: do initialization here */
+
+            stream->state = STREAM_STATE_RUNNING;
+            break;
+        case STREAM_STATE_RUNNING:
+            QTAILQ_FOREACH(work, &stream->queued_work, next) {
+                if (work->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
+                    break;
+                }
+            }
+            if (work == NULL) {
+                break;
+            }
+
+            /* TODO: waiting for the output, and copy it to guest */
+            break;
+        default:
+            break;
         }
+        qemu_mutex_unlock(&stream->mutex);
     }
 
-    MFXVideoVPP_Close(m_session->session);
+    if (stream->out.params.format != VIRTIO_VIDEO_FORMAT_NV12) {
+        MFXVideoVPP_Close(m_session->session);
+    }
     MFXVideoDECODE_Close(m_session->session);
 
     virtio_video_msdk_unload_plugin(m_session->session, stream->in.params.format, false);
@@ -332,6 +360,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     QTAILQ_INIT(&stream->queued_work);
     qemu_mutex_init(&stream->mutex);
 
+    qemu_event_init(&m_session->notifier, false);
     snprintf(thread_name, sizeof(thread_name), "virtio-video-decode/%d",
              stream->id);
     qemu_thread_create(&m_session->thread, thread_name, virtio_video_decode_thread,
@@ -414,7 +443,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
     virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp,
     VirtQueueElement *elem)
 {
-    /* MsdkSession *m_session; */
+    MsdkSession *m_session;
     MsdkFrame *m_frame;
     VirtIOVideoStream *stream;
     VirtIOVideoResource *resource;
@@ -427,7 +456,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
 
     QLIST_FOREACH(stream, &v->stream_list, next) {
         if (stream->id == req->hdr.stream_id) {
-            /* m_session = stream->opaque; */
+            m_session = stream->opaque;
             break;
         }
     }
@@ -491,8 +520,12 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         QTAILQ_INSERT_TAIL(&stream->pending_work, work, next);
         switch (stream->state) {
         case STREAM_STATE_INIT:
+            /* It is not allowed to change parameters from now on. */
+            stream->state = STREAM_STATE_WAIT_METADATA;
+            qemu_event_set(&m_session->notifier);
             break;
         case STREAM_STATE_WAIT_METADATA:
+            /* Do not decode the frame in case the initialization is not done yet. */
             break;
         case STREAM_STATE_RUNNING:
             break;

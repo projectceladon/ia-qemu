@@ -42,6 +42,7 @@ typedef struct MsdkFrame {
 
 typedef struct MsdkSession {
     QemuThread thread;
+    QemuEvent notifier;
     mfxSession session;
     mfxVideoParam param;
     mfxFrameSurface1 surface;
