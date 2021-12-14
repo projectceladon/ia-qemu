@@ -586,11 +586,6 @@ static void virtio_video_command_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
     size_t len = 0;
     int ret;
 
-    if (!virtio_queue_ready(vq)) {
-        VIRTVID_ERROR("cmd_vq isn't ready");
-        return;
-    }
-
     for (;;) {
         elem = virtqueue_pop(vq, sizeof(VirtQueueElement));
         if (!elem)
@@ -603,16 +598,17 @@ static void virtio_video_command_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
             virtio_error(vdev, "virtio-video command missing headers");
             virtqueue_detach_element(vq, elem, 0);
             g_free(elem);
-            return;
+            break;
         }
 
         qemu_mutex_lock(&v->mutex);
         ret = virtio_video_process_command(vdev, elem, &len);
         qemu_mutex_unlock(&v->mutex);
+
         if (ret < 0) {
             virtqueue_detach_element(vq, elem, 0);
             g_free(elem);
-            return;
+            break;
         } else if (ret == 0) {
             virtqueue_push(vq, elem, len);
             virtio_notify(vdev, vq);
@@ -668,15 +664,10 @@ static void virtio_video_event_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
     VirtIOVideoEvent *ev;
     VirtQueueElement *elem;
 
-    if (!virtio_queue_ready(vq)) {
-        VIRTVID_ERROR("event_vq isn't ready");
-        return;
-    }
-
     for (;;) {
         elem = virtqueue_pop(vq, sizeof(VirtQueueElement));
         if (!elem)
-            return;
+            break;
 
         VIRTVID_VERBOSE("event_vq index(%d) len(%d) ndescs(%d) out_num(%d) in_num(%d)",
                 elem->index, elem->len, elem->ndescs, elem->out_num, elem->in_num);
@@ -685,14 +676,14 @@ static void virtio_video_event_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
             virtio_error(vdev, "virtio-video event missing input");
             virtqueue_detach_element(vq, elem, 0);
             g_free(elem);
-            return;
+            break;
         }
 
         if (elem->in_sg[0].iov_len < sizeof(virtio_video_event)) {
             virtio_error(vdev, "virtio-video event input too short");
             virtqueue_detach_element(vq, elem, 0);
             g_free(elem);
-            return;
+            break;
         }
 
         /* event type = 0 means no event assigned yet */
