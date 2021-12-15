@@ -118,6 +118,120 @@ error_vpp:
     return -1;
 }
 
+static int virtio_video_decode_one_frame(VirtIOVideoWork *work)
+{
+    VirtIOVideoStream *stream = work->parent;
+    MsdkSession *m_session = stream->opaque;
+    MsdkFrame *m_frame = work->opaque;
+    MsdkSurface *work_surface, *vpp_work_surface;
+    mfxFrameSurface1 *out_surface = NULL;
+    mfxStatus status;
+
+    QLIST_FOREACH(work_surface, &m_session->surface_pool, next) {
+        if (!work_surface->used && !work_surface->surface.Data.Locked) {
+            break;
+        }
+    }
+    if (work_surface == NULL) {
+        VIRTVID_ERROR("No available surface in surface pool");
+        return -1;
+    }
+
+    do {
+        status = MFXVideoDECODE_DecodeFrameAsync(m_session->session,
+                &m_frame->bitstream, &work_surface->surface, &out_surface,
+                &m_frame->sync);
+        switch (status) {
+        case MFX_WRN_DEVICE_BUSY:
+            usleep(1000);
+            break;
+        case MFX_ERR_NONE:
+            break;
+        /* TODO: support these */
+        case MFX_ERR_MORE_SURFACE:
+        case MFX_ERR_MORE_DATA:
+        default:
+            VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_DecodeFrameAsync failed with err %d",
+                          stream->id, status);
+            return -1;
+        }
+    } while (status == MFX_WRN_DEVICE_BUSY);
+
+    QLIST_FOREACH(work_surface, &m_session->surface_pool, next) {
+        if (&work_surface->surface == out_surface) {
+            work_surface->used = true;
+            m_frame->surface = work_surface;
+            break;
+        }
+    }
+    if (work_surface == NULL) {
+        VIRTVID_ERROR("BUG: Decode output surface not in surface pool");
+        return -1;
+    }
+
+    if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12)
+        goto done;
+
+    QLIST_FOREACH(vpp_work_surface, &m_session->vpp_surface_pool, next) {
+        if (!vpp_work_surface->used && !vpp_work_surface->surface.Data.Locked) {
+            work_surface->used = false;
+            vpp_work_surface->used = true;
+            m_frame->vpp_surface = vpp_work_surface;
+            break;
+        }
+    }
+    if (vpp_work_surface == NULL) {
+        VIRTVID_ERROR("No available surface in surface pool");
+        return -1;
+    }
+
+    do {
+        status = MFXVideoVPP_RunFrameVPPAsync(m_session->session,
+                &m_frame->surface->surface, &m_frame->vpp_surface->surface,
+                NULL, &m_frame->vpp_sync);
+        switch (status) {
+        case MFX_WRN_DEVICE_BUSY:
+            usleep(1000);
+            break;
+        case MFX_ERR_NONE:
+            break;
+        /* TODO: support these */
+        case MFX_ERR_MORE_SURFACE:
+        case MFX_ERR_MORE_DATA:
+        default:
+            VIRTVID_ERROR("stream 0x%x MFXVideoVPP_RunFrameVPPAsync failed with err %d",
+                          stream->id, status);
+            return -1;
+        }
+    } while (status == MFX_WRN_DEVICE_BUSY);
+
+done:
+    QTAILQ_REMOVE(&stream->pending_work, work, next);
+    QTAILQ_INSERT_TAIL(&stream->queued_work, work, next);
+    return 0;
+}
+
+static void virtio_video_decode_one_frame_bh(void *opaque)
+{
+    VirtIOVideoWork *work = opaque;
+    VirtIOVideoStream *stream = work->parent;
+    int ret;
+
+    qemu_mutex_lock(&stream->mutex);
+
+    ret = virtio_video_decode_one_frame(work);
+    if (ret == 0) {
+        qemu_mutex_unlock(&stream->mutex);
+        return;
+    }
+
+    work->timestamp = 0;
+    work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+    virtio_video_cmd_resource_queue_complete(work);
+
+    qemu_mutex_unlock(&stream->mutex);
+}
+
 static void virtio_video_output_one_work_bh(void *opaque)
 {
     VirtIOVideoWork *work = opaque;
@@ -128,7 +242,7 @@ static void *virtio_video_decode_thread(void *arg)
 {
     VirtIOVideoStream *stream = arg;
     VirtIOVideo *v = stream->parent;
-    VirtIOVideoWork *work;
+    VirtIOVideoWork *work, *tmp_work;
     MsdkSession *m_session = stream->opaque;
 
     while (true) {
@@ -158,6 +272,12 @@ static void *virtio_video_decode_thread(void *arg)
 
             virtio_video_report_event(v, VIRTIO_VIDEO_EVENT_DECODER_RESOLUTION_CHANGED, stream->id);
 
+            /* initiate decoding for potentially multiple pending requests */
+            QTAILQ_FOREACH_SAFE(work, &stream->pending_work, next, tmp_work) {
+                if (virtio_video_decode_one_frame(work) < 0)
+                    goto error;
+            }
+
             stream->state = STREAM_STATE_RUNNING;
             break;
         case STREAM_STATE_RUNNING:
@@ -178,6 +298,7 @@ static void *virtio_video_decode_thread(void *arg)
         qemu_mutex_unlock(&stream->mutex);
     }
 
+done:
     if (stream->out.params.format != VIRTIO_VIDEO_FORMAT_NV12) {
         MFXVideoVPP_Close(m_session->session);
     }
@@ -187,6 +308,11 @@ static void *virtio_video_decode_thread(void *arg)
     MFXClose(m_session->session);
 
     return NULL;
+
+error:
+    virtio_video_report_event(v, VIRTIO_VIDEO_EVENT_ERROR, stream->id);
+    qemu_mutex_unlock(&stream->mutex);
+    goto done;
 }
 
 size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
@@ -543,6 +669,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
             /* Do not decode the frame in case the initialization is not done yet. */
             break;
         case STREAM_STATE_RUNNING:
+            aio_bh_schedule_oneshot(v->ctx, virtio_video_decode_one_frame_bh, work);
             break;
         default:
             break;
