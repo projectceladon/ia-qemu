@@ -162,6 +162,20 @@ int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work)
     return 0;
 }
 
+static void virtio_video_output_one_work_bh(void *opaque)
+{
+    VirtIOVideoWork *work = opaque;
+    virtio_video_cmd_resource_queue_complete(work);
+}
+
+void virtio_video_work_done(VirtIOVideoWork *work)
+{
+    VirtIOVideoStream *stream = work->parent;
+    VirtIOVideo *v = stream->parent;
+
+    aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, work);
+}
+
 static void virtio_video_event_bh(void *opaque)
 {
     struct virtio_video_event_bh_arg *s = opaque;

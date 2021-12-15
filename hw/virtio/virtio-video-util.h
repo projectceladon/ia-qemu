@@ -33,6 +33,7 @@ void virtio_video_init_format(VirtIOVideoFormat *fmt, uint32_t format);
 int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event);
 int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work);
 
+void virtio_video_work_done(VirtIOVideoWork *work);
 void virtio_video_report_event(VirtIOVideo *v, uint32_t event,
     uint32_t stream_id);
 

@@ -118,7 +118,7 @@ error_vpp:
     return -1;
 }
 
-static int virtio_video_decode_one_frame(VirtIOVideoWork *work)
+static int virtio_video_decode_submit_one_frame(VirtIOVideoWork *work)
 {
     VirtIOVideoStream *stream = work->parent;
     MsdkSession *m_session = stream->opaque;
@@ -212,7 +212,7 @@ done:
     return 0;
 }
 
-static void virtio_video_decode_one_frame_bh(void *opaque)
+static void virtio_video_decode_submit_one_frame_bh(void *opaque)
 {
     VirtIOVideoWork *work = opaque;
     VirtIOVideoStream *stream = work->parent;
@@ -220,7 +220,7 @@ static void virtio_video_decode_one_frame_bh(void *opaque)
 
     qemu_mutex_lock(&stream->mutex);
 
-    ret = virtio_video_decode_one_frame(work);
+    ret = virtio_video_decode_submit_one_frame(work);
     if (ret == 0) {
         qemu_mutex_unlock(&stream->mutex);
         return;
@@ -233,11 +233,6 @@ static void virtio_video_decode_one_frame_bh(void *opaque)
     qemu_mutex_unlock(&stream->mutex);
 }
 
-static void virtio_video_output_one_work_bh(void *opaque)
-{
-    VirtIOVideoWork *work = opaque;
-    virtio_video_cmd_resource_queue_complete(work);
-}
 
 static void *virtio_video_decode_thread(void *arg)
 {
@@ -271,7 +266,7 @@ static void *virtio_video_decode_thread(void *arg)
                 work->timestamp = 0;
                 work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
                 QTAILQ_REMOVE(&stream->pending_work, work, next);
-                aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, work);
+                virtio_video_work_done(work);
                 break;
             }
 
@@ -279,11 +274,11 @@ static void *virtio_video_decode_thread(void *arg)
 
             /* initiate decoding for potentially multiple pending requests */
             QTAILQ_FOREACH_SAFE(work, &stream->pending_work, next, tmp_work) {
-                if (virtio_video_decode_one_frame(work) < 0) {
+                if (virtio_video_decode_submit_one_frame(work) < 0) {
                     work->timestamp = 0;
                     work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
                     QTAILQ_REMOVE(&stream->pending_work, work, next);
-                    aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, work);
+                    virtio_video_work_done(work);
                 }
             }
 
@@ -326,7 +321,7 @@ static void *virtio_video_decode_thread(void *arg)
             if (ret != 0) {
                 work->timestamp = 0;
                 work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
-                aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, work);
+                virtio_video_work_done(work);
                 qemu_mutex_lock(&stream->mutex);
                 QTAILQ_INSERT_HEAD(&stream->output_work, work_out, next);
                 qemu_mutex_unlock(&stream->mutex);
@@ -351,8 +346,8 @@ static void *virtio_video_decode_thread(void *arg)
 
             work_out->timestamp = work->timestamp;
             work->timestamp = 0;
-            aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, work);
-            aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, work_out);
+            virtio_video_work_done(work);
+            virtio_video_work_done(work_out);
             continue;
         default:
             break;
@@ -732,7 +727,8 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
             /* Do not decode the frame in case the initialization is not done yet. */
             break;
         case STREAM_STATE_RUNNING:
-            aio_bh_schedule_oneshot(v->ctx, virtio_video_decode_one_frame_bh, work);
+            aio_bh_schedule_oneshot(v->ctx,
+                    virtio_video_decode_submit_one_frame_bh, work);
             break;
         default:
             break;
