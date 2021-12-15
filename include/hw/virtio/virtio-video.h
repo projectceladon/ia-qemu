@@ -210,7 +210,6 @@ struct VirtIOVideo {
     QLIST_HEAD(, VirtIOVideoFormat) format_list[VIRTIO_VIDEO_FORMAT_LIST_NUM];
     void *opaque;
     QemuMutex mutex;
-    QEMUBH *event_bh;
     AioContext *ctx;
 };
 

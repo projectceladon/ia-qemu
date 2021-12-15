@@ -30,8 +30,10 @@ int virtio_video_profile_range(uint32_t format, uint32_t *min, uint32_t *max);
 int virtio_video_level_range(uint32_t format, uint32_t *min, uint32_t *max);
 void virtio_video_init_format(VirtIOVideoFormat *fmt, uint32_t format);
 
+int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event);
+int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work);
+
 void virtio_video_report_event(VirtIOVideo *v, uint32_t event,
     uint32_t stream_id);
-int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work);
 
 #endif /* QEMU_VIRTIO_VIDEO_UTIL_H */

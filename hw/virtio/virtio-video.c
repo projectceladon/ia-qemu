@@ -26,6 +26,7 @@
 #include "qapi/error.h"
 #include "exec/address-spaces.h"
 #include "hw/virtio/virtio-video.h"
+#include "virtio-video-util.h"
 #include "virtio-video-msdk.h"
 
 static struct {
@@ -617,48 +618,6 @@ static void virtio_video_command_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
     }
 }
 
-static int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event)
-{
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-    virtio_video_event resp = {0};
-
-    resp.event_type = event->event_type;
-    resp.stream_id = event->stream_id;
-
-    if (unlikely(iov_from_buf(event->elem->in_sg, event->elem->in_num, 0,
-                              &resp, sizeof(resp)) != sizeof(resp))) {
-        virtio_error(vdev, "virtio-video event input incorrect");
-        virtqueue_detach_element(v->event_vq, event->elem, 0);
-        g_free(event->elem);
-        g_free(event);
-        return -1;
-    }
-
-    virtqueue_push(v->event_vq, event->elem, sizeof(resp));
-    virtio_notify(vdev, v->event_vq);
-
-    g_free(event->elem);
-    g_free(event);
-    return 0;
-}
-
-static void virtio_video_event_bh(void *opaque)
-{
-    VirtIODevice *vdev = opaque;
-    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-    VirtIOVideoEvent *event, *tmp_event;
-
-    qemu_mutex_lock(&v->mutex);
-    QTAILQ_FOREACH_SAFE(event, &v->event_queue, next, tmp_event) {
-        if (event->elem == NULL || event->event_type == 0)
-            break;
-
-        QTAILQ_REMOVE(&v->event_queue, event, next);
-        virtio_video_event_complete(vdev, event);
-    }
-    qemu_mutex_unlock(&v->mutex);
-}
-
 static void virtio_video_event_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
@@ -780,7 +739,6 @@ static void virtio_video_device_realize(DeviceState *dev, Error **errp)
     } else {
         v->ctx = qemu_get_aio_context();
     }
-    v->event_bh = aio_bh_new(v->ctx, virtio_video_event_bh, vdev);
 
     switch (v->backend) {
     case VIRTIO_VIDEO_BACKEND_MEDIA_SDK:
@@ -792,7 +750,6 @@ static void virtio_video_device_realize(DeviceState *dev, Error **errp)
 
     if (ret) {
         qemu_mutex_destroy(&v->mutex);
-        qemu_bh_delete(v->event_bh);
         if (v->conf.iothread) {
             object_unref(OBJECT(v->conf.iothread));
         }
@@ -843,7 +800,6 @@ static void virtio_video_device_unrealize(DeviceState *dev)
     }
 
     qemu_mutex_destroy(&v->mutex);
-    qemu_bh_delete(v->event_bh);
     if (v->conf.iothread) {
         object_unref(OBJECT(v->conf.iothread));
     }
