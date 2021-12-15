@@ -207,7 +207,7 @@ static int virtio_video_decode_one_frame(VirtIOVideoWork *work)
 
 done:
     QTAILQ_REMOVE(&stream->pending_work, work, next);
-    QTAILQ_INSERT_TAIL(&stream->queued_work, work, next);
+    QTAILQ_INSERT_TAIL(&stream->input_work, work, next);
     qemu_event_set(&m_session->notifier);
     return 0;
 }
@@ -279,29 +279,31 @@ static void *virtio_video_decode_thread(void *arg)
 
             /* initiate decoding for potentially multiple pending requests */
             QTAILQ_FOREACH_SAFE(work, &stream->pending_work, next, tmp_work) {
-                if (virtio_video_decode_one_frame(work) < 0)
-                    goto error;
+                if (virtio_video_decode_one_frame(work) < 0) {
+                    work->timestamp = 0;
+                    work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+                    QTAILQ_REMOVE(&stream->pending_work, work, next);
+                    aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, work);
+                }
             }
 
             stream->state = STREAM_STATE_RUNNING;
             break;
         case STREAM_STATE_RUNNING:
-            QTAILQ_FOREACH(work, &stream->queued_work, next) {
-                if (work->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
-                    m_frame = work->opaque;
-                    break;
-                }
-            }
-            if (work == NULL) {
+            if (QTAILQ_EMPTY(&stream->input_work) || QTAILQ_EMPTY(&stream->output_work)) {
                 qemu_mutex_unlock(&stream->mutex);
                 qemu_event_wait(&m_session->notifier);
                 qemu_event_reset(&m_session->notifier);
                 continue;
             }
 
-            QTAILQ_REMOVE(&stream->queued_work, work, next);
+            work = QTAILQ_FIRST(&stream->input_work);
+            work_out = QTAILQ_FIRST(&stream->output_work);
+            QTAILQ_REMOVE(&stream->input_work, work, next);
+            QTAILQ_REMOVE(&stream->output_work, work_out, next);
             qemu_mutex_unlock(&stream->mutex);
 
+            m_frame = work->opaque;
             if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12) {
                 status = MFXVideoCORE_SyncOperation(m_session->session, m_frame->sync, MFX_INFINITE);
             } else {
@@ -313,17 +315,22 @@ static void *virtio_video_decode_thread(void *arg)
             if (status != MFX_ERR_NONE) {
                 VIRTVID_ERROR("stream 0x%x MFXVideoCORE_SyncOperation failed with err %d",
                               stream->id, status);
-                goto error;
+                ret = -1;
+            } else {
+                ret = stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12 ?
+                      m_frame->surface->surface.Data.Corrupted :
+                      m_frame->vpp_surface->surface.Data.Corrupted;
             }
 
-            qemu_mutex_lock(&stream->mutex);
-            QTAILQ_FOREACH(work_out, &stream->queued_work, next) {
-                if (work_out->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
-                    break;
-                }
-            }
-            if (work_out == NULL) {
-                goto error;
+            /* Push output work back to output work queue */
+            if (ret != 0) {
+                work->timestamp = 0;
+                work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+                aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, work);
+                qemu_mutex_lock(&stream->mutex);
+                QTAILQ_INSERT_HEAD(&stream->output_work, work_out, next);
+                qemu_mutex_unlock(&stream->mutex);
+                continue;
             }
 
             if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12) {
@@ -332,15 +339,21 @@ static void *virtio_video_decode_thread(void *arg)
                 ret = virtio_video_msdk_output_surface(m_frame->vpp_surface, work_out->resource);
             }
             if (ret < 0) {
+                /* we can do nothing if guest buffer is too small */
+                virtqueue_detach_element(v->cmd_vq, work->elem, 0);
+                virtqueue_detach_element(v->cmd_vq, work_out->elem, 0);
+                g_free(work->elem);
+                g_free(work_out->elem);
+                g_free(work);
+                g_free(work_out);
                 goto error;
             }
 
             work_out->timestamp = work->timestamp;
             work->timestamp = 0;
-            QTAILQ_REMOVE(&stream->queued_work, work_out, next);
             aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, work);
             aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, work_out);
-            break;
+            continue;
         default:
             break;
         }
@@ -544,7 +557,8 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
         QLIST_INIT(&stream->resource_list[i]);
     }
     QTAILQ_INIT(&stream->pending_work);
-    QTAILQ_INIT(&stream->queued_work);
+    QTAILQ_INIT(&stream->input_work);
+    QTAILQ_INIT(&stream->output_work);
     qemu_mutex_init(&stream->mutex);
 
     qemu_event_init(&m_session->notifier, false);
@@ -682,7 +696,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
                 return len;
             }
         }
-        QTAILQ_FOREACH(work, &stream->queued_work, next) {
+        QTAILQ_FOREACH(work, &stream->input_work, next) {
             if (resource->id == work->resource->id) {
                 qemu_mutex_unlock(&stream->mutex);
                 return len;
@@ -703,9 +717,9 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         work->opaque = m_frame;
 
         /*
-         * Input resources first go to the pending work list. After the
+         * Input resources first go to the pending work queue. After the
          * DecodeFrameAsync function is called for them, they are moved to the
-         * queued work list.
+         * input work queue.
          */
         QTAILQ_INSERT_TAIL(&stream->pending_work, work, next);
         switch (stream->state) {
@@ -746,13 +760,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         }
 
         qemu_mutex_lock(&stream->mutex);
-        QTAILQ_FOREACH(work, &stream->pending_work, next) {
-            if (resource->id == work->resource->id) {
-                qemu_mutex_unlock(&stream->mutex);
-                return len;
-            }
-        }
-        QTAILQ_FOREACH(work, &stream->queued_work, next) {
+        QTAILQ_FOREACH(work, &stream->output_work, next) {
             if (resource->id == work->resource->id) {
                 qemu_mutex_unlock(&stream->mutex);
                 return len;
@@ -766,10 +774,12 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         work->queue_type = req->queue_type;
 
         /*
-         * Output resource is just a container for the decoded frame, it does
-         * not involve submitting MediaSDK tasks.
+         * Output resources are just containers for decoded frames. They go
+         * directly to output work queue since no MediaSDK task is required to
+         * be submitted.
          */
-        QTAILQ_INSERT_TAIL(&stream->queued_work, work, next);
+        QTAILQ_INSERT_TAIL(&stream->output_work, work, next);
+        qemu_event_set(&m_session->notifier);
         qemu_mutex_unlock(&stream->mutex);
 
         len = 0;

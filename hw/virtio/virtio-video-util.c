@@ -129,7 +129,9 @@ int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event)
     return 0;
 }
 
-/* @work must be removed from @pending_work or @queued_work first */
+/*
+ * @work must be removed from @pending_work, @input_work or @output_work first
+ */
 int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work)
 {
     VirtIOVideoStream *stream = work->parent;

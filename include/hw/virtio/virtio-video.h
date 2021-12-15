@@ -161,7 +161,8 @@ struct VirtIOVideoStream {
     QLIST_HEAD(, VirtIOVideoResource)
         resource_list[VIRTIO_VIDEO_RESOURCE_LIST_NUM];
     QTAILQ_HEAD(, VirtIOVideoWork) pending_work;
-    QTAILQ_HEAD(, VirtIOVideoWork) queued_work;
+    QTAILQ_HEAD(, VirtIOVideoWork) input_work;
+    QTAILQ_HEAD(, VirtIOVideoWork) output_work;
     QLIST_ENTRY(VirtIOVideoStream) next;
 };
 
