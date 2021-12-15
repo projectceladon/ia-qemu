@@ -208,6 +208,7 @@ static int virtio_video_decode_one_frame(VirtIOVideoWork *work)
 done:
     QTAILQ_REMOVE(&stream->pending_work, work, next);
     QTAILQ_INSERT_TAIL(&stream->queued_work, work, next);
+    qemu_event_set(&m_session->notifier);
     return 0;
 }
 
@@ -292,7 +293,10 @@ static void *virtio_video_decode_thread(void *arg)
                 }
             }
             if (work == NULL) {
-                break;
+                qemu_mutex_unlock(&stream->mutex);
+                qemu_event_wait(&m_session->notifier);
+                qemu_event_reset(&m_session->notifier);
+                continue;
             }
 
             QTAILQ_REMOVE(&stream->queued_work, work, next);
