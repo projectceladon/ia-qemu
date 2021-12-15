@@ -243,7 +243,11 @@ static void *virtio_video_decode_thread(void *arg)
     VirtIOVideoStream *stream = arg;
     VirtIOVideo *v = stream->parent;
     VirtIOVideoWork *work, *tmp_work;
+    VirtIOVideoWork *work_out;
     MsdkSession *m_session = stream->opaque;
+    MsdkFrame *m_frame;
+    mfxStatus status;
+    int ret;
 
     while (true) {
         qemu_mutex_lock(&stream->mutex);
@@ -283,6 +287,7 @@ static void *virtio_video_decode_thread(void *arg)
         case STREAM_STATE_RUNNING:
             QTAILQ_FOREACH(work, &stream->queued_work, next) {
                 if (work->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
+                    m_frame = work->opaque;
                     break;
                 }
             }
@@ -290,7 +295,47 @@ static void *virtio_video_decode_thread(void *arg)
                 break;
             }
 
-            /* TODO: waiting for the output, and copy it to guest */
+            QTAILQ_REMOVE(&stream->queued_work, work, next);
+            qemu_mutex_unlock(&stream->mutex);
+
+            if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12) {
+                status = MFXVideoCORE_SyncOperation(m_session->session, m_frame->sync, MFX_INFINITE);
+            } else {
+                status = MFXVideoCORE_SyncOperation(m_session->session, m_frame->vpp_sync, MFX_INFINITE);
+                if (status == MFX_ERR_ABORTED) {
+                    status = MFXVideoCORE_SyncOperation(m_session->session, m_frame->sync, MFX_INFINITE);
+                }
+            }
+            if (status != MFX_ERR_NONE) {
+                VIRTVID_ERROR("stream 0x%x MFXVideoCORE_SyncOperation failed with err %d",
+                              stream->id, status);
+                goto error;
+            }
+
+            qemu_mutex_lock(&stream->mutex);
+            QTAILQ_FOREACH(work_out, &stream->queued_work, next) {
+                if (work_out->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) {
+                    break;
+                }
+            }
+            if (work_out == NULL) {
+                goto error;
+            }
+
+            if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12) {
+                ret = virtio_video_msdk_output_surface(m_frame->surface, work_out->resource);
+            } else {
+                ret = virtio_video_msdk_output_surface(m_frame->vpp_surface, work_out->resource);
+            }
+            if (ret < 0) {
+                goto error;
+            }
+
+            work_out->timestamp = work->timestamp;
+            work->timestamp = 0;
+            QTAILQ_REMOVE(&stream->queued_work, work_out, next);
+            aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, work);
+            aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, work_out);
             break;
         default:
             break;

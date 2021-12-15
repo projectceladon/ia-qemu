@@ -44,6 +44,9 @@ int virtio_video_msdk_init_vpp_param_dec(mfxVideoParam *param, mfxVideoParam *vp
     VirtIOVideoStream *stream);
 void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     mfxFrameAllocRequest *alloc_req, mfxFrameInfo *info, bool vpp);
+int virtio_video_msdk_output_surface(MsdkSurface *surface,
+    VirtIOVideoResource *resource);
+
 void virtio_video_msdk_load_plugin(mfxSession session, uint32_t format, bool encode);
 void virtio_video_msdk_unload_plugin(mfxSession session, uint32_t format, bool encode);
 int virtio_video_msdk_init_handle(VirtIOVideo *vdev);

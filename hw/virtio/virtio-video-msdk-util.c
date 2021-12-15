@@ -340,6 +340,130 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     }
 }
 
+static int virtio_video_msdk_memcpy_singlebuffer(VirtIOVideoResource *res,
+    uint32_t idx, mfxU8 *src, uint32_t size)
+{
+    VirtIOVideoResourceSlice *slice;
+    uint32_t begin = res->plane_offsets[idx], end = begin + size;
+    uint32_t base = 0, diff, len;
+    int i;
+
+    for (i = 0; i < res->num_entries[0]; i++, base+= slice->page.len) {
+        slice = &res->slices[0][i];
+        if (begin >= base + slice->page.len)
+            continue;
+        /* begin >= base is always true */
+        diff = begin - base;
+        len = slice->page.len - diff;
+        if (end <= base + slice->page.len) {
+            memcpy(slice->page.hva + diff, src, size);
+            return 0;
+        } else {
+            memcpy(slice->page.hva + diff, src, len);
+            begin += len;
+            size -= len;
+        }
+    }
+
+    if (size > 0) {
+        VIRTVID_ERROR("Output buffer insufficient to contain the frame");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int virtio_video_msdk_memcpy_perplane(VirtIOVideoResource *res,
+    uint32_t idx, mfxU8 *src, uint32_t size)
+{
+    VirtIOVideoResourceSlice *slice;
+    int i;
+
+    for (i = 0; i < res->num_entries[idx]; i++) {
+        slice = &res->slices[idx][i];
+        if (size <= slice->page.len) {
+            memcpy(slice->page.hva, src, size);
+            return 0;
+        } else {
+            memcpy(slice->page.hva, src, slice->page.len);
+            size -= slice->page.len;
+        }
+    }
+
+    if (size > 0) {
+        VIRTVID_ERROR("Output buffer insufficient to contain the frame");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int virtio_video_msdk_memcpy(VirtIOVideoResource *res, uint32_t idx,
+    mfxU8 *src, uint32_t size)
+{
+    switch (res->planes_layout) {
+    case VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER:
+        return virtio_video_msdk_memcpy_singlebuffer(res, idx, src, size);
+    case VIRTIO_VIDEO_PLANES_LAYOUT_PER_PLANE:
+        return virtio_video_msdk_memcpy_perplane(res, idx, src, size);
+    default:
+        return -1;
+    }
+}
+
+int virtio_video_msdk_output_surface(MsdkSurface *surface, VirtIOVideoResource *resource)
+{
+    mfxFrameSurface1 *frame = &surface->surface;
+    uint32_t width, height;
+    int ret = 0;
+
+    width = frame->Info.Width;
+    height = frame->Info.Height;
+    switch (frame->Info.FourCC) {
+    case MFX_FOURCC_RGB4:
+        if (resource->num_planes != 4)
+            goto error;
+
+        ret += virtio_video_msdk_memcpy(resource, 0, frame->Data.A, width * height);
+        ret += virtio_video_msdk_memcpy(resource, 1, frame->Data.R, width * height);
+        ret += virtio_video_msdk_memcpy(resource, 2, frame->Data.G, width * height);
+        ret += virtio_video_msdk_memcpy(resource, 3, frame->Data.B, width * height);
+        break;
+    case MFX_FOURCC_NV12:
+        if (resource->num_planes != 2)
+            goto error;
+
+        ret += virtio_video_msdk_memcpy(resource, 0, frame->Data.Y, width * height);
+        ret += virtio_video_msdk_memcpy(resource, 1, frame->Data.U, width * height / 2);
+        break;
+    case MFX_FOURCC_IYUV:
+        if (resource->num_planes != 3)
+            goto error;
+
+        ret += virtio_video_msdk_memcpy(resource, 0, frame->Data.Y, width * height);
+        ret += virtio_video_msdk_memcpy(resource, 0, frame->Data.U, width * height / 4);
+        ret += virtio_video_msdk_memcpy(resource, 0, frame->Data.V, width * height / 4);
+        break;
+    case MFX_FOURCC_YV12:
+        if (resource->num_planes != 3)
+            goto error;
+
+        ret += virtio_video_msdk_memcpy(resource, 0, frame->Data.Y, width * height);
+        ret += virtio_video_msdk_memcpy(resource, 0, frame->Data.V, width * height / 4);
+        ret += virtio_video_msdk_memcpy(resource, 0, frame->Data.U, width * height / 4);
+        break;
+    default:
+        break;
+    }
+
+    surface->used = false;
+    return ret < 0 ? -1 : 0;
+
+error:
+    surface->used = false;
+    return -1;
+}
+
 static const mfxPluginUID* virtio_video_msdk_find_plugin(uint32_t format, bool encode)
 {
     if (encode) {
