@@ -233,6 +233,60 @@ static void virtio_video_decode_submit_one_frame_bh(void *opaque)
     qemu_mutex_unlock(&stream->mutex);
 }
 
+static int virtio_video_decode_retrieve_one_frame(VirtIOVideoWork *work_in,
+    VirtIOVideoWork *work_out)
+{
+    VirtIOVideoStream *stream = work_in->parent;
+    MsdkSession *m_session = stream->opaque;
+    MsdkFrame *m_frame = work_in->opaque;
+    mfxStatus status;
+    uint32_t corrupted;
+    int ret;
+
+    if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12) {
+        status = MFXVideoCORE_SyncOperation(m_session->session, m_frame->sync, MFX_INFINITE);
+    } else {
+        status = MFXVideoCORE_SyncOperation(m_session->session, m_frame->vpp_sync, MFX_INFINITE);
+        if (status == MFX_ERR_ABORTED) {
+            status = MFXVideoCORE_SyncOperation(m_session->session, m_frame->sync, MFX_INFINITE);
+        }
+    }
+
+    if (status != MFX_ERR_NONE) {
+        VIRTVID_ERROR("stream 0x%x MFXVideoCORE_SyncOperation failed with err %d",
+                      stream->id, status);
+        corrupted = 0;
+    } else {
+        corrupted = stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12 ?
+              m_frame->surface->surface.Data.Corrupted :
+              m_frame->vpp_surface->surface.Data.Corrupted;
+    }
+
+    /* Push output work back to output work queue */
+    if (status != MFX_ERR_NONE || corrupted != 0) {
+        work_in->timestamp = 0;
+        work_in->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+        virtio_video_work_done(work_in);
+        qemu_mutex_lock(&stream->mutex);
+        QTAILQ_INSERT_HEAD(&stream->output_work, work_out, next);
+        qemu_mutex_unlock(&stream->mutex);
+        return 0;
+    }
+
+    if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12) {
+        ret = virtio_video_msdk_output_surface(m_frame->surface, work_out->resource);
+    } else {
+        ret = virtio_video_msdk_output_surface(m_frame->vpp_surface, work_out->resource);
+    }
+    if (ret < 0)
+        return -1;
+
+    work_out->timestamp = work_in->timestamp;
+    work_in->timestamp = 0;
+    virtio_video_work_done(work_in);
+    virtio_video_work_done(work_out);
+    return 0;
+}
 
 static void *virtio_video_decode_thread(void *arg)
 {
@@ -241,9 +295,6 @@ static void *virtio_video_decode_thread(void *arg)
     VirtIOVideoWork *work, *tmp_work;
     VirtIOVideoWork *work_out;
     MsdkSession *m_session = stream->opaque;
-    MsdkFrame *m_frame;
-    mfxStatus status;
-    int ret;
 
     while (true) {
         qemu_mutex_lock(&stream->mutex);
@@ -298,42 +349,7 @@ static void *virtio_video_decode_thread(void *arg)
             QTAILQ_REMOVE(&stream->output_work, work_out, next);
             qemu_mutex_unlock(&stream->mutex);
 
-            m_frame = work->opaque;
-            if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12) {
-                status = MFXVideoCORE_SyncOperation(m_session->session, m_frame->sync, MFX_INFINITE);
-            } else {
-                status = MFXVideoCORE_SyncOperation(m_session->session, m_frame->vpp_sync, MFX_INFINITE);
-                if (status == MFX_ERR_ABORTED) {
-                    status = MFXVideoCORE_SyncOperation(m_session->session, m_frame->sync, MFX_INFINITE);
-                }
-            }
-            if (status != MFX_ERR_NONE) {
-                VIRTVID_ERROR("stream 0x%x MFXVideoCORE_SyncOperation failed with err %d",
-                              stream->id, status);
-                ret = -1;
-            } else {
-                ret = stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12 ?
-                      m_frame->surface->surface.Data.Corrupted :
-                      m_frame->vpp_surface->surface.Data.Corrupted;
-            }
-
-            /* Push output work back to output work queue */
-            if (ret != 0) {
-                work->timestamp = 0;
-                work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
-                virtio_video_work_done(work);
-                qemu_mutex_lock(&stream->mutex);
-                QTAILQ_INSERT_HEAD(&stream->output_work, work_out, next);
-                qemu_mutex_unlock(&stream->mutex);
-                continue;
-            }
-
-            if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12) {
-                ret = virtio_video_msdk_output_surface(m_frame->surface, work_out->resource);
-            } else {
-                ret = virtio_video_msdk_output_surface(m_frame->vpp_surface, work_out->resource);
-            }
-            if (ret < 0) {
+            if (virtio_video_decode_retrieve_one_frame(work, work_out) < 0) {
                 /* we can do nothing if guest buffer is too small */
                 virtqueue_detach_element(v->cmd_vq, work->elem, 0);
                 virtqueue_detach_element(v->cmd_vq, work_out->elem, 0);
@@ -343,11 +359,6 @@ static void *virtio_video_decode_thread(void *arg)
                 g_free(work_out);
                 goto error;
             }
-
-            work_out->timestamp = work->timestamp;
-            work->timestamp = 0;
-            virtio_video_work_done(work);
-            virtio_video_work_done(work_out);
             continue;
         default:
             break;
