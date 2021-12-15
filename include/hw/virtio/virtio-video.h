@@ -195,7 +195,7 @@ typedef struct VirtIOVideoEvent {
     VirtQueueElement *elem;
     uint32_t event_type;
     uint32_t stream_id;
-    QLIST_ENTRY(VirtIOVideoEvent) next;
+    QTAILQ_ENTRY(VirtIOVideoEvent) next;
 } VirtIOVideoEvent;
 
 struct VirtIOVideo {
@@ -205,7 +205,7 @@ struct VirtIOVideo {
     virtio_video_backend backend;
     virtio_video_config config;
     VirtQueue *cmd_vq, *event_vq;
-    QLIST_HEAD(, VirtIOVideoEvent) event_list;
+    QTAILQ_HEAD(, VirtIOVideoEvent) event_queue;
     QLIST_HEAD(, VirtIOVideoStream) stream_list;
     QLIST_HEAD(, VirtIOVideoFormat) format_list[VIRTIO_VIDEO_FORMAT_LIST_NUM];
     void *opaque;

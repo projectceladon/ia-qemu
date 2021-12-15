@@ -156,7 +156,7 @@ static void *virtio_video_decode_thread(void *arg)
                 break;
             }
 
-            /* TODO: report resolution changed event */
+            virtio_video_report_event(v, VIRTIO_VIDEO_EVENT_DECODER_RESOLUTION_CHANGED, stream->id);
 
             stream->state = STREAM_STATE_RUNNING;
             break;

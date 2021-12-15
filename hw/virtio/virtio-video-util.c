@@ -97,6 +97,28 @@ void virtio_video_init_format(VirtIOVideoFormat *fmt, uint32_t format)
     fmt->level.values = NULL;
 }
 
+void virtio_video_report_event(VirtIOVideo *v, uint32_t event, uint32_t stream_id)
+{
+    VirtIOVideoEvent *ev;
+
+    qemu_mutex_lock(&v->mutex);
+
+    ev = QTAILQ_FIRST(&v->event_queue);
+    if (ev && ev->elem) {
+        ev->event_type = event;
+        ev->stream_id = stream_id;
+        qemu_bh_schedule(v->event_bh);
+        qemu_mutex_unlock(&v->mutex);
+        return;
+    }
+
+    ev = g_new0(VirtIOVideoEvent, 1);
+    ev->event_type = event;
+    ev->stream_id = stream_id;
+    QTAILQ_INSERT_TAIL(&v->event_queue, ev, next);
+    qemu_mutex_unlock(&v->mutex);
+}
+
 /* @work must be removed from @pending_work or @queued_work first */
 int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work)
 {

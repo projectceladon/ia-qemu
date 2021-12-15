@@ -617,51 +617,52 @@ static void virtio_video_command_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
     }
 }
 
+static int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event)
+{
+    VirtIOVideo *v = VIRTIO_VIDEO(vdev);
+    virtio_video_event resp = {0};
+
+    resp.event_type = event->event_type;
+    resp.stream_id = event->stream_id;
+
+    if (unlikely(iov_from_buf(event->elem->in_sg, event->elem->in_num, 0,
+                              &resp, sizeof(resp)) != sizeof(resp))) {
+        virtio_error(vdev, "virtio-video event input incorrect");
+        virtqueue_detach_element(v->event_vq, event->elem, 0);
+        g_free(event->elem);
+        g_free(event);
+        return -1;
+    }
+
+    virtqueue_push(v->event_vq, event->elem, sizeof(resp));
+    virtio_notify(vdev, v->event_vq);
+
+    g_free(event->elem);
+    g_free(event);
+    return 0;
+}
+
 static void virtio_video_event_bh(void *opaque)
 {
     VirtIODevice *vdev = opaque;
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-    VirtIOVideoEvent *ev;
-    virtio_video_event resp = {0};
+    VirtIOVideoEvent *event, *tmp_event;
 
     qemu_mutex_lock(&v->mutex);
-
-    if (QLIST_EMPTY(&v->event_list))
-        goto done;
-
-    QLIST_FOREACH(ev, &v->event_list, next) {
-        if (ev->event_type != 0)
+    QTAILQ_FOREACH_SAFE(event, &v->event_queue, next, tmp_event) {
+        if (event->elem == NULL || event->event_type == 0)
             break;
+
+        QTAILQ_REMOVE(&v->event_queue, event, next);
+        virtio_video_event_complete(vdev, event);
     }
-    if (ev == NULL)
-        goto done;
-
-    QLIST_REMOVE(ev, next);
-    resp.event_type = ev->event_type;
-    resp.stream_id = ev->stream_id;
-
-    if (unlikely(iov_from_buf(ev->elem->in_sg, ev->elem->in_num, 0,
-                              &resp, sizeof(resp)) != sizeof(resp))) {
-        virtio_error(vdev, "virtio-video event input incorrect");
-        virtqueue_detach_element(v->event_vq, ev->elem, 0);
-        g_free(ev->elem);
-        g_free(ev);
-        goto done;
-    }
-
-    virtqueue_push(v->event_vq, ev->elem, sizeof(resp));
-    virtio_notify(vdev, v->event_vq);
-    g_free(ev->elem);
-    g_free(ev);
-
-done:
     qemu_mutex_unlock(&v->mutex);
 }
 
 static void virtio_video_event_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-    VirtIOVideoEvent *ev;
+    VirtIOVideoEvent *event;
     VirtQueueElement *elem;
 
     for (;;) {
@@ -679,21 +680,32 @@ static void virtio_video_event_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
             break;
         }
 
+        qemu_mutex_lock(&v->mutex);
+
+        /* handle pending event */
+        event = QTAILQ_FIRST(&v->event_queue);
+        if (event && event->elem == NULL) {
+            event->elem = elem;
+            QTAILQ_REMOVE(&v->event_queue, event, next);
+            virtio_video_event_complete(vdev, event);
+            qemu_mutex_unlock(&v->mutex);
+            continue;
+        }
+
         if (elem->in_sg[0].iov_len < sizeof(virtio_video_event)) {
             virtio_error(vdev, "virtio-video event input too short");
             virtqueue_detach_element(vq, elem, 0);
             g_free(elem);
+            qemu_mutex_unlock(&v->mutex);
             break;
         }
 
         /* event type = 0 means no event assigned yet */
-        ev = g_new(VirtIOVideoEvent, 1);
-        ev->elem = elem;
-        ev->event_type = 0;
-        ev->stream_id = 0;
-
-        qemu_mutex_lock(&v->mutex);
-        QLIST_INSERT_HEAD(&v->event_list, ev, next);
+        event = g_new(VirtIOVideoEvent, 1);
+        event->elem = elem;
+        event->event_type = 0;
+        event->stream_id = 0;
+        QTAILQ_INSERT_TAIL(&v->event_queue, event, next);
         qemu_mutex_unlock(&v->mutex);
     }
 }
@@ -756,7 +768,7 @@ static void virtio_video_device_realize(DeviceState *dev, Error **errp)
     v->cmd_vq = virtio_add_queue(vdev, VIRTIO_VIDEO_VQ_SIZE, virtio_video_command_vq_cb);
     v->event_vq = virtio_add_queue(vdev, VIRTIO_VIDEO_VQ_SIZE, virtio_video_event_vq_cb);
 
-    QLIST_INIT(&v->event_list);
+    QTAILQ_INIT(&v->event_queue);
     QLIST_INIT(&v->stream_list);
     for (i = 0; i < VIRTIO_VIDEO_FORMAT_LIST_NUM; i++)
         QLIST_INIT(&v->format_list[i]);
@@ -795,7 +807,7 @@ static void virtio_video_device_unrealize(DeviceState *dev)
 {
     VirtIODevice *vdev = VIRTIO_DEVICE(dev);
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-    VirtIOVideoEvent *ev, *tmp_ev;
+    VirtIOVideoEvent *event, *tmp_event;
     VirtIOVideoFormat *fmt, *tmp_fmt;
     VirtIOVideoFormatFrame *frame, *tmp_frame;
     int i;
@@ -808,10 +820,12 @@ static void virtio_video_device_unrealize(DeviceState *dev)
         break;
     }
 
-    QLIST_FOREACH_SAFE(ev, &v->event_list, next, tmp_ev) {
-        virtqueue_detach_element(v->event_vq, ev->elem, 0);
-        g_free(ev->elem);
-        g_free(ev);
+    QTAILQ_FOREACH_SAFE(event, &v->event_queue, next, tmp_event) {
+        if (event->elem) {
+            virtqueue_detach_element(v->event_vq, event->elem, 0);
+            g_free(event->elem);
+        }
+        g_free(event);
     }
 
     for (i = 0; i < VIRTIO_VIDEO_FORMAT_LIST_NUM; i++) {
