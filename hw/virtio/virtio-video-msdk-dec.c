@@ -361,7 +361,8 @@ static void *virtio_video_decode_thread(void *arg)
                 g_free(work_out->elem);
                 g_free(work);
                 g_free(work_out);
-                goto error;
+                virtio_video_report_event(v, VIRTIO_VIDEO_EVENT_ERROR, stream->id);
+                goto done;
             }
             continue;
         default:
@@ -380,11 +381,6 @@ done:
     MFXClose(m_session->session);
 
     return NULL;
-
-error:
-    virtio_video_report_event(v, VIRTIO_VIDEO_EVENT_ERROR, stream->id);
-    qemu_mutex_unlock(&stream->mutex);
-    goto done;
 }
 
 size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
