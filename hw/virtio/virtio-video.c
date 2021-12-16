@@ -232,6 +232,7 @@ static int virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
                                              section.offset_within_region;
                 res->slices[i][j].page.len = entries[num_entries].length;
                 num_entries++;
+                memory_region_unref(section.mr);
             }
         }
         g_free(entries);
