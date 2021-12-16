@@ -271,6 +271,7 @@ static int virtio_video_decode_retrieve_one_frame(VirtIOVideoWork *work_in,
     if (status != MFX_ERR_NONE || corrupted != 0) {
         work_in->timestamp = 0;
         work_in->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+        g_free(work_in->opaque);
         virtio_video_work_done(work_in);
         qemu_mutex_lock(&stream->mutex);
         QTAILQ_INSERT_HEAD(&stream->output_work, work_out, next);
@@ -288,6 +289,7 @@ static int virtio_video_decode_retrieve_one_frame(VirtIOVideoWork *work_in,
 
     work_out->timestamp = work_in->timestamp;
     work_in->timestamp = 0;
+    g_free(work_in->opaque);
     virtio_video_work_done(work_in);
     virtio_video_work_done(work_out);
     return 0;
@@ -321,6 +323,7 @@ static void *virtio_video_decode_thread(void *arg)
             if (virtio_video_decode_parse_header(work) < 0) {
                 work->timestamp = 0;
                 QTAILQ_REMOVE(&stream->pending_work, work, next);
+                g_free(work->opaque);
                 virtio_video_work_done(work);
                 break;
             }
@@ -333,6 +336,7 @@ static void *virtio_video_decode_thread(void *arg)
                     work->timestamp = 0;
                     work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
                     QTAILQ_REMOVE(&stream->pending_work, work, next);
+                    g_free(work->opaque);
                     virtio_video_work_done(work);
                 }
             }
@@ -357,6 +361,7 @@ static void *virtio_video_decode_thread(void *arg)
                 /* we can do nothing if guest buffer is too small */
                 virtqueue_detach_element(v->cmd_vq, work->elem, 0);
                 virtqueue_detach_element(v->cmd_vq, work_out->elem, 0);
+                g_free(work->opaque);
                 g_free(work->elem);
                 g_free(work_out->elem);
                 g_free(work);
@@ -403,6 +408,7 @@ static void *virtio_video_decode_thread(void *arg)
                 /* we can do nothing if guest buffer is too small */
                 virtqueue_detach_element(v->cmd_vq, work->elem, 0);
                 virtqueue_detach_element(v->cmd_vq, work_out->elem, 0);
+                g_free(work->opaque);
                 g_free(work->elem);
                 g_free(work_out->elem);
                 g_free(work);
@@ -807,6 +813,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         case STREAM_STATE_DRAIN:
             /* Return VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION */
             QTAILQ_REMOVE(&stream->pending_work, work, next);
+            g_free(work->opaque);
             qemu_mutex_unlock(&stream->mutex);
             return len;
         default:
