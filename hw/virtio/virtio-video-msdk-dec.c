@@ -1029,6 +1029,24 @@ size_t virtio_video_msdk_dec_set_params(VirtIOVideo *v,
                 stream->in.params.plane_formats[i].stride =
                     req->params.plane_formats[i].stride;
             }
+            switch (req->params.format) {
+            case VIRTIO_VIDEO_FORMAT_H264:
+                stream->control.profile = VIRTIO_VIDEO_PROFILE_H264_BASELINE;
+                stream->control.level = VIRTIO_VIDEO_LEVEL_H264_1_0;
+                break;
+            case VIRTIO_VIDEO_FORMAT_HEVC:
+                stream->control.profile = VIRTIO_VIDEO_PROFILE_HEVC_MAIN;
+                stream->control.level = VIRTIO_VIDEO_LEVEL_HEVC_1_0;
+                break;
+            case VIRTIO_VIDEO_FORMAT_VP8:
+                stream->control.profile = VIRTIO_VIDEO_PROFILE_VP8_PROFILE0;
+                break;
+            case VIRTIO_VIDEO_FORMAT_VP9:
+                stream->control.profile = VIRTIO_VIDEO_PROFILE_VP9_PROFILE0;
+                break;
+            default:
+                break;
+            }
             if (req->params.num_planes > 1) {
                 VIRTVID_WARN("    %s: stream 0x%x num_planes of input queue set to %d, should be 1",
                         __func__, stream->id, req->params.num_planes);
