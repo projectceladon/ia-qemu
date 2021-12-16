@@ -90,6 +90,7 @@ typedef enum virtio_video_stream_state {
     STREAM_STATE_WAIT_METADATA, /* decoder only */
     STREAM_STATE_RUNNING,
     STREAM_STATE_DRAIN,
+    STREAM_STATE_CLEAR,
 } virtio_video_stream_state;
 
 typedef union VirtIOVideoResourceSlice {
@@ -147,12 +148,15 @@ typedef struct VirtIOVideoControlInfo {
     uint32_t level;
 } VirtIOVideoControlInfo;
 
+/* stream-wide commands such as CMD_STREAM_DRAIN and CMD_QUEUE_CLEAR */
+typedef struct VirtIOVideoCmd {
+    VirtQueueElement *elem;
+    uint32_t cmd_type;
+    QTAILQ_ENTRY(VirtIOVideoCmd) next;
+} VirtIOVideoCmd;
+
 typedef struct VirtIOVideo VirtIOVideo;
 
-/**
- * @elem: tracks the virtqueue element for the current command (e.g.
- *        CMD_STREAM_DRAIN) being processed
- */
 struct VirtIOVideoStream {
     uint32_t id;
     char tag[64];
@@ -160,12 +164,12 @@ struct VirtIOVideoStream {
     VirtIOVideoQueueInfo in;
     VirtIOVideoQueueInfo out;
     VirtIOVideoControlInfo control;
-    VirtQueueElement *elem;
     virtio_video_stream_state state;
     QemuMutex mutex;
     void *opaque;
     QLIST_HEAD(, VirtIOVideoResource)
         resource_list[VIRTIO_VIDEO_RESOURCE_LIST_NUM];
+    QTAILQ_HEAD(, VirtIOVideoCmd) pending_cmds;
     QTAILQ_HEAD(, VirtIOVideoWork) pending_work;
     QTAILQ_HEAD(, VirtIOVideoWork) input_work;
     QTAILQ_HEAD(, VirtIOVideoWork) output_work;

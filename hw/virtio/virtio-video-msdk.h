@@ -36,6 +36,8 @@
 #define VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE  16
 #define VIRTIO_VIDEO_MSDK_DIM_STEP_OTHERS       32
 
+#define VIRTIO_VIDEO_MSDK_TIME_TO_WAIT          500
+
 typedef struct MsdkSurface {
     mfxFrameSurface1 surface;
     bool used;
@@ -88,7 +90,8 @@ size_t virtio_video_msdk_cmd_resource_queue(VirtIOVideo *v,
 size_t virtio_video_msdk_cmd_resource_destroy_all(VirtIOVideo *v,
     virtio_video_resource_destroy_all *req, virtio_video_cmd_hdr *resp);
 size_t virtio_video_msdk_cmd_queue_clear(VirtIOVideo *v,
-    virtio_video_queue_clear *req, virtio_video_cmd_hdr *resp);
+    virtio_video_queue_clear *req, virtio_video_cmd_hdr *resp,
+    VirtQueueElement *elem);
 size_t virtio_video_msdk_cmd_get_params(VirtIOVideo *v,
     virtio_video_get_params *req, virtio_video_get_params_resp *resp);
 size_t virtio_video_msdk_cmd_set_params(VirtIOVideo *v,

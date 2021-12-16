@@ -281,13 +281,14 @@ static size_t virtio_video_process_cmd_resource_destroy_all(VirtIODevice *vdev,
 }
 
 static size_t virtio_video_process_cmd_queue_clear(VirtIODevice *vdev,
-    virtio_video_queue_clear *req, virtio_video_cmd_hdr *resp)
+    virtio_video_queue_clear *req, virtio_video_cmd_hdr *resp,
+    VirtQueueElement *elem)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
     switch (v->backend) {
     case VIRTIO_VIDEO_BACKEND_MEDIA_SDK:
-        return virtio_video_msdk_cmd_queue_clear(v, req, resp);
+        return virtio_video_msdk_cmd_queue_clear(v, req, resp, elem);
     default:
         return 0;
     }
@@ -505,7 +506,11 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         CMD_GET_REQ(&req, sizeof(req));
         VIRTVID_DEBUG("    queue_type 0x%x", req.queue_type);
 
-        len = virtio_video_process_cmd_queue_clear(vdev, &req, &resp);
+        len = virtio_video_process_cmd_queue_clear(vdev, &req, &resp, elem);
+        if (len == 0) {
+            async = true;
+            break;
+        }
         CMD_SET_RESP(&resp, len, false);
         break;
     }
