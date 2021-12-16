@@ -40,16 +40,20 @@ static int virtio_video_decode_parse_header(VirtIOVideoWork *work)
 
     memset(&alloc_req, 0, sizeof(alloc_req));
     memset(&vpp_req, 0, sizeof(alloc_req) * 2);
+    work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
 
     virtio_video_msdk_load_plugin(m_session->session, stream->in.params.format, false);
     if (virtio_video_msdk_init_param_dec(&param, stream) < 0)
         return -1;
 
-    /* TODO: handle MFX_ERR_MORE_DATA */
     status = MFXVideoDECODE_DecodeHeader(m_session->session, &m_frame->bitstream, &param);
     if (status != MFX_ERR_NONE) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_DecodeHeader failed with err %d",
-                      stream->id, status);
+        if (status == MFX_ERR_MORE_DATA) {
+            work->flags = 0;
+        } else {
+            VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_DecodeHeader failed with err %d",
+                          stream->id, status);
+        }
         return -1;
     }
 
@@ -111,6 +115,7 @@ done:
 
     stream->control.profile = virtio_video_msdk_to_profile(param.mfx.CodecProfile);
     stream->control.level = virtio_video_msdk_to_level(param.mfx.CodecLevel);
+    work->flags = 0;
     return 0;
 
 error_vpp:
@@ -315,7 +320,6 @@ static void *virtio_video_decode_thread(void *arg)
             work = QTAILQ_FIRST(&stream->pending_work);
             if (virtio_video_decode_parse_header(work) < 0) {
                 work->timestamp = 0;
-                work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
                 QTAILQ_REMOVE(&stream->pending_work, work, next);
                 virtio_video_work_done(work);
                 break;
