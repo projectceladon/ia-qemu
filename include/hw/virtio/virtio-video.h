@@ -89,6 +89,7 @@ typedef enum virtio_video_stream_state {
     STREAM_STATE_INIT = 0,
     STREAM_STATE_WAIT_METADATA, /* decoder only */
     STREAM_STATE_RUNNING,
+    STREAM_STATE_DRAIN,
 } virtio_video_stream_state;
 
 typedef union VirtIOVideoResourceSlice {
@@ -148,6 +149,10 @@ typedef struct VirtIOVideoControlInfo {
 
 typedef struct VirtIOVideo VirtIOVideo;
 
+/**
+ * @elem: tracks the virtqueue element for the current command (e.g.
+ *        CMD_STREAM_DRAIN) being processed
+ */
 struct VirtIOVideoStream {
     uint32_t id;
     char tag[64];
@@ -155,6 +160,7 @@ struct VirtIOVideoStream {
     VirtIOVideoQueueInfo in;
     VirtIOVideoQueueInfo out;
     VirtIOVideoControlInfo control;
+    VirtQueueElement *elem;
     virtio_video_stream_state state;
     QemuMutex mutex;
     void *opaque;

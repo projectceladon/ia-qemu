@@ -365,6 +365,52 @@ static void *virtio_video_decode_thread(void *arg)
                 goto done;
             }
             continue;
+        case STREAM_STATE_DRAIN:
+            if (QTAILQ_EMPTY(&stream->output_work)) {
+                qemu_mutex_unlock(&stream->mutex);
+                qemu_event_wait(&m_session->notifier);
+                qemu_event_reset(&m_session->notifier);
+                continue;
+            }
+            work_out = QTAILQ_FIRST(&stream->output_work);
+            QTAILQ_REMOVE(&stream->output_work, work_out, next);
+
+            /*
+             * NOTE: According to frontend code, EOS buffer should be a standalone
+             * empty buffer. This requirement will change when frontend driver
+             * is updated.
+             */
+            if (QTAILQ_EMPTY(&stream->input_work)) {
+                work_out->timestamp = 0;
+                work_out->flags = VIRTIO_VIDEO_BUFFER_FLAG_EOS;
+                virtio_video_work_done(work);
+
+                /*
+                 * If guest starts decoding another bitstream, we can detect
+                 * that through MFXVideoDECODE_DecodeFrameAsync return value
+                 * and do reinitialization there.
+                 */
+                virtio_video_drain_done(stream);
+                stream->state = STREAM_STATE_RUNNING;
+                break;
+            }
+
+            work = QTAILQ_FIRST(&stream->input_work);
+            QTAILQ_REMOVE(&stream->input_work, work, next);
+            qemu_mutex_unlock(&stream->mutex);
+
+            if (virtio_video_decode_retrieve_one_frame(work, work_out) < 0) {
+                /* we can do nothing if guest buffer is too small */
+                virtqueue_detach_element(v->cmd_vq, work->elem, 0);
+                virtqueue_detach_element(v->cmd_vq, work_out->elem, 0);
+                g_free(work->elem);
+                g_free(work_out->elem);
+                g_free(work);
+                g_free(work_out);
+                virtio_video_report_event(v, VIRTIO_VIDEO_EVENT_ERROR, stream->id);
+                goto done;
+            }
+            continue;
         default:
             break;
         }
@@ -558,6 +604,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
         break;
     }
 
+    stream->elem = NULL;
     stream->state = STREAM_STATE_INIT;
     for (i = 0; i < VIRTIO_VIDEO_RESOURCE_LIST_NUM; i++) {
         QLIST_INIT(&stream->resource_list[i]);
@@ -644,8 +691,24 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
         return len;
     }
 
-    /* TODO: implement STREAM_DRAIN logic */
-    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+    qemu_mutex_lock(&stream->mutex);
+    switch (stream->state) {
+    case STREAM_STATE_INIT:
+    case STREAM_STATE_WAIT_METADATA:
+        resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
+        break;
+    case STREAM_STATE_RUNNING:
+        stream->elem = elem;
+        stream->state = STREAM_STATE_DRAIN;
+        qemu_mutex_unlock(&stream->mutex);
+        return 0;
+    case STREAM_STATE_DRAIN:
+        resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+        break;
+    default:
+        break;
+    }
+    qemu_mutex_unlock(&stream->mutex);
     return len;
 }
 
@@ -741,6 +804,11 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
             aio_bh_schedule_oneshot(v->ctx,
                     virtio_video_decode_submit_one_frame_bh, work);
             break;
+        case STREAM_STATE_DRAIN:
+            /* Return VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION */
+            QTAILQ_REMOVE(&stream->pending_work, work, next);
+            qemu_mutex_unlock(&stream->mutex);
+            return len;
         default:
             break;
         }

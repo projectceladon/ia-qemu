@@ -176,6 +176,40 @@ void virtio_video_work_done(VirtIOVideoWork *work)
     aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, work);
 }
 
+static void virtio_video_drain_bh(void *opaque)
+{
+    VirtIOVideoStream *stream = opaque;
+    VirtIOVideo *v = stream->parent;
+    VirtIODevice *vdev = VIRTIO_DEVICE(v);
+    virtio_video_cmd_hdr resp = {0};
+
+    resp.type = VIRTIO_VIDEO_RESP_OK_NODATA;
+    resp.stream_id = stream->id;
+
+    qemu_mutex_lock(&stream->mutex);
+    if (unlikely(iov_from_buf(stream->elem->in_sg, stream->elem->in_num, 0,
+                              &resp, sizeof(resp)) != sizeof(resp))) {
+        virtio_error(vdev, "virtio-video command response incorrect");
+        virtqueue_detach_element(v->cmd_vq, stream->elem, 0);
+        goto done;
+    }
+
+    virtqueue_push(v->cmd_vq, stream->elem, sizeof(resp));
+    virtio_notify(vdev, v->cmd_vq);
+
+done:
+    g_free(stream->elem);
+    stream->elem = NULL;
+    qemu_mutex_unlock(&stream->mutex);
+}
+
+void virtio_video_drain_done(VirtIOVideoStream *stream)
+{
+    VirtIOVideo *v = stream->parent;
+
+    aio_bh_schedule_oneshot(v->ctx, virtio_video_drain_bh, stream);
+}
+
 static void virtio_video_event_bh(void *opaque)
 {
     struct virtio_video_event_bh_arg *s = opaque;
