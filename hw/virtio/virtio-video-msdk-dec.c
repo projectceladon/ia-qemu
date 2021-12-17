@@ -314,16 +314,12 @@ static void *virtio_video_decode_thread(void *arg)
         qemu_mutex_lock(&stream->mutex);
         switch (stream->state) {
         case STREAM_STATE_INIT:
-            qemu_mutex_unlock(&stream->mutex);
-
-            /* Waiting for initial request which contains the header */
-            qemu_event_wait(&m_session->notifier);
-            qemu_event_reset(&m_session->notifier);
-            continue;
-        case STREAM_STATE_WAIT_METADATA:
+            /* Waiting for the initial request which contains the header */
             if (QTAILQ_EMPTY(&stream->pending_work)) {
-                VIRTVID_ERROR("BUG: decode thread is woken up with empty input request queue");
-                break;
+                qemu_mutex_unlock(&stream->mutex);
+                qemu_event_wait(&m_session->notifier);
+                qemu_event_reset(&m_session->notifier);
+                continue;
             }
 
             work = QTAILQ_FIRST(&stream->pending_work);
@@ -348,6 +344,7 @@ static void *virtio_video_decode_thread(void *arg)
                 }
             }
 
+            /* It is not allowed to change stream params from now on. */
             stream->state = STREAM_STATE_RUNNING;
             break;
         case STREAM_STATE_RUNNING:
@@ -720,7 +717,6 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
     qemu_mutex_lock(&stream->mutex);
     switch (stream->state) {
     case STREAM_STATE_INIT:
-    case STREAM_STATE_WAIT_METADATA:
         resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
         break;
     case STREAM_STATE_RUNNING:
@@ -823,12 +819,8 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         QTAILQ_INSERT_TAIL(&stream->pending_work, work, next);
         switch (stream->state) {
         case STREAM_STATE_INIT:
-            /* It is not allowed to change parameters from now on. */
-            stream->state = STREAM_STATE_WAIT_METADATA;
-            qemu_event_set(&m_session->notifier);
-            break;
-        case STREAM_STATE_WAIT_METADATA:
             /* Do not decode the frame in case the initialization is not done yet. */
+            qemu_event_set(&m_session->notifier);
             break;
         case STREAM_STATE_RUNNING:
             aio_bh_schedule_oneshot(v->ctx,
@@ -982,9 +974,6 @@ size_t virtio_video_msdk_dec_queue_clear(VirtIOVideo *v,
         qemu_mutex_lock(&stream->mutex);
         switch (stream->state) {
         case STREAM_STATE_INIT:
-            resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
-            break;
-        case STREAM_STATE_WAIT_METADATA:
             QTAILQ_FOREACH_SAFE(work, &stream->pending_work, next, tmp_work) {
                 work->timestamp = 0;
                 work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;

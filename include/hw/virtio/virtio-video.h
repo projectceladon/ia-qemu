@@ -87,7 +87,6 @@ typedef enum virtio_video_backend {
 
 typedef enum virtio_video_stream_state {
     STREAM_STATE_INIT = 0,
-    STREAM_STATE_WAIT_METADATA, /* decoder only */
     STREAM_STATE_RUNNING,
     STREAM_STATE_DRAIN,
     STREAM_STATE_CLEAR,
