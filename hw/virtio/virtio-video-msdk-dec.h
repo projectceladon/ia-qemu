@@ -36,7 +36,8 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
     virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp,
     VirtQueueElement *elem);
 size_t virtio_video_msdk_dec_resource_destroy_all(VirtIOVideo *v,
-    virtio_video_resource_destroy_all *req, virtio_video_cmd_hdr *resp);
+    virtio_video_resource_destroy_all *req, virtio_video_cmd_hdr *resp,
+    VirtQueueElement *elem);
 size_t virtio_video_msdk_dec_queue_clear(VirtIOVideo *v,
     virtio_video_queue_clear *req, virtio_video_cmd_hdr *resp,
     VirtQueueElement *elem);

@@ -29,6 +29,7 @@
 int virtio_video_profile_range(uint32_t format, uint32_t *min, uint32_t *max);
 int virtio_video_level_range(uint32_t format, uint32_t *min, uint32_t *max);
 void virtio_video_init_format(VirtIOVideoFormat *fmt, uint32_t format);
+void virtio_video_destroy_resource_list(VirtIOVideoStream *stream, bool in);
 
 int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event);
 int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work);
@@ -36,7 +37,9 @@ int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work);
 void virtio_video_work_done(VirtIOVideoWork *work);
 void virtio_video_stream_drain_done(VirtIOVideoStream *stream);
 void virtio_video_stream_drain_failed(VirtIOVideoStream *stream);
+void virtio_video_resource_destroy_all_done(VirtIOVideoStream *stream);
 void virtio_video_queue_clear_done(VirtIOVideoStream *stream);
+void virtio_video_queue_clear_failed(VirtIOVideoStream *stream);
 void virtio_video_report_event(VirtIOVideo *v, uint32_t event,
     uint32_t stream_id);
 

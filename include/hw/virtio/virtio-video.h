@@ -89,6 +89,7 @@ typedef enum virtio_video_stream_state {
     STREAM_STATE_INIT = 0,
     STREAM_STATE_RUNNING,
     STREAM_STATE_DRAIN,
+    STREAM_STATE_RESOURCE_DESTROY,
     STREAM_STATE_CLEAR,
 } virtio_video_stream_state;
 

@@ -103,6 +103,21 @@ void virtio_video_init_format(VirtIOVideoFormat *fmt, uint32_t format)
     fmt->level.values = NULL;
 }
 
+void virtio_video_destroy_resource_list(VirtIOVideoStream *stream, bool in)
+{
+    VirtIOVideoResource *res, *tmp_res;
+    int i, dir = in ? VIRTIO_VIDEO_RESOURCE_LIST_INPUT :
+                      VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT;
+
+    QLIST_FOREACH_SAFE(res, &stream->resource_list[dir], next, tmp_res) {
+        QLIST_REMOVE(res, next);
+        for (i = 0; i < res->num_planes; i++) {
+            g_free(res->slices[i]);
+        }
+        g_free(res);
+    }
+}
+
 /* @event must be removed from @event_queue first */
 int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event)
 {
@@ -198,6 +213,9 @@ static void virtio_video_cmd_others_complete(VirtIOVideoStream *stream,
         case VIRTIO_VIDEO_CMD_STREAM_DRAIN:
             VIRTVID_ERROR("BUG: no pending stream drain request, but try to return");
             break;
+        case VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL:
+            VIRTVID_ERROR("BUG: no pending resource destroy all request, but try to return");
+            break;
         case VIRTIO_VIDEO_CMD_QUEUE_CLEAR:
             VIRTVID_ERROR("BUG: no pending queue clear request, but try to return");
             break;
@@ -253,18 +271,46 @@ void virtio_video_stream_drain_failed(VirtIOVideoStream *stream)
     aio_bh_schedule_oneshot(v->ctx, virtio_video_stream_drain_failed_bh, stream);
 }
 
-static void virtio_video_queue_clear_bh(void *opaque)
+static void virtio_video_resource_destroy_all_bh(void *opaque)
+{
+    VirtIOVideoStream *stream = opaque;
+
+    virtio_video_cmd_others_complete(stream, VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL, true);
+}
+
+void virtio_video_resource_destroy_all_done(VirtIOVideoStream *stream)
+{
+    VirtIOVideo *v = stream->parent;
+
+    aio_bh_schedule_oneshot(v->ctx, virtio_video_resource_destroy_all_bh, stream);
+}
+
+static void virtio_video_queue_clear_done_bh(void *opaque)
 {
     VirtIOVideoStream *stream = opaque;
 
     virtio_video_cmd_others_complete(stream, VIRTIO_VIDEO_CMD_QUEUE_CLEAR, true);
 }
 
+static void virtio_video_queue_clear_failed_bh(void *opaque)
+{
+    VirtIOVideoStream *stream = opaque;
+
+    virtio_video_cmd_others_complete(stream, VIRTIO_VIDEO_CMD_QUEUE_CLEAR, false);
+}
+
 void virtio_video_queue_clear_done(VirtIOVideoStream *stream)
 {
     VirtIOVideo *v = stream->parent;
 
-    aio_bh_schedule_oneshot(v->ctx, virtio_video_queue_clear_bh, stream);
+    aio_bh_schedule_oneshot(v->ctx, virtio_video_queue_clear_done_bh, stream);
+}
+
+void virtio_video_queue_clear_failed(VirtIOVideoStream *stream)
+{
+    VirtIOVideo *v = stream->parent;
+
+    aio_bh_schedule_oneshot(v->ctx, virtio_video_queue_clear_failed_bh, stream);
 }
 
 static void virtio_video_event_bh(void *opaque)

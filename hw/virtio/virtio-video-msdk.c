@@ -89,13 +89,14 @@ size_t virtio_video_msdk_cmd_resource_queue(VirtIOVideo *v,
 }
 
 size_t virtio_video_msdk_cmd_resource_destroy_all(VirtIOVideo *v,
-    virtio_video_resource_destroy_all *req, virtio_video_cmd_hdr *resp)
+    virtio_video_resource_destroy_all *req, virtio_video_cmd_hdr *resp,
+    VirtQueueElement *elem)
 {
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
-        return virtio_video_msdk_dec_resource_destroy_all(v, req, resp);
+        return virtio_video_msdk_dec_resource_destroy_all(v, req, resp, elem);
     default:
         break;
     }
