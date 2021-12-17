@@ -329,6 +329,18 @@ static void *virtio_video_decode_thread(void *arg)
                 QTAILQ_REMOVE(&stream->pending_work, work, next);
                 g_free(work->opaque);
                 virtio_video_work_done(work);
+
+                /*
+                 * If the stream doesn't even begin to decode, then stream
+                 * drain is meaningless.
+                 */
+                if (!QTAILQ_EMPTY(&stream->pending_work))
+                    break;
+                cmd = QTAILQ_FIRST(&stream->pending_cmds);
+                if (cmd && cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
+                    QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
+                    virtio_video_cmd_failed(cmd);
+                }
                 break;
             }
 
@@ -745,7 +757,7 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
     VirtIOVideoCmd *cmd;
     size_t len = 0;
 
-    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
@@ -755,6 +767,7 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
         }
     }
     if (stream == NULL) {
+        resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
         return len;
     }
 
@@ -762,10 +775,10 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
     switch (stream->state) {
     case STREAM_STATE_INIT:
         cmd = QTAILQ_FIRST(&stream->pending_cmds);
-        if (cmd && cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
-            resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+        if (cmd && cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN)
             break;
-        }
+        if (QTAILQ_EMPTY(&stream->pending_work))
+            break;
         /* fall through */
     case STREAM_STATE_RUNNING:
         cmd = g_new(VirtIOVideoCmd, 1);
@@ -779,7 +792,7 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
         return 0;
     case STREAM_STATE_DRAIN:
     case STREAM_STATE_CLEAR:
-        resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+        /* Return VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION */
         break;
     default:
         break;
