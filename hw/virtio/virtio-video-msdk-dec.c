@@ -994,8 +994,10 @@ size_t virtio_video_msdk_dec_queue_clear(VirtIOVideo *v,
             }
             resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
             break;
-        case STREAM_STATE_RUNNING:
         case STREAM_STATE_DRAIN:
+            virtio_video_stream_drain_failed(stream);
+            /* fall through */
+        case STREAM_STATE_RUNNING:
             cmd = g_new(VirtIOVideoCmd, 1);
             cmd->elem = elem;
             cmd->cmd_type = VIRTIO_VIDEO_CMD_QUEUE_CLEAR;

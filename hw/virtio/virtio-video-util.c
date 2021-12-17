@@ -176,14 +176,16 @@ void virtio_video_work_done(VirtIOVideoWork *work)
     aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, work);
 }
 
-static void virtio_video_cmd_others_complete(VirtIOVideoStream *stream, uint32_t cmd_type)
+static void virtio_video_cmd_others_complete(VirtIOVideoStream *stream,
+                                             uint32_t cmd_type, bool success)
 {
     VirtIOVideoCmd *cmd;
     VirtIOVideo *v = stream->parent;
     VirtIODevice *vdev = VIRTIO_DEVICE(v);
     virtio_video_cmd_hdr resp = {0};
 
-    resp.type = VIRTIO_VIDEO_RESP_OK_NODATA;
+    resp.type = success ? VIRTIO_VIDEO_RESP_OK_NODATA :
+                          VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
     resp.stream_id = stream->id;
 
     qemu_mutex_lock(&stream->mutex);
@@ -223,25 +225,39 @@ done:
     qemu_mutex_unlock(&stream->mutex);
 }
 
-static void virtio_video_stream_drain_bh(void *opaque)
+static void virtio_video_stream_drain_done_bh(void *opaque)
 {
     VirtIOVideoStream *stream = opaque;
 
-    virtio_video_cmd_others_complete(stream, VIRTIO_VIDEO_CMD_STREAM_DRAIN);
+    virtio_video_cmd_others_complete(stream, VIRTIO_VIDEO_CMD_STREAM_DRAIN, true);
+}
+
+static void virtio_video_stream_drain_failed_bh(void *opaque)
+{
+    VirtIOVideoStream *stream = opaque;
+
+    virtio_video_cmd_others_complete(stream, VIRTIO_VIDEO_CMD_STREAM_DRAIN, false);
 }
 
 void virtio_video_stream_drain_done(VirtIOVideoStream *stream)
 {
     VirtIOVideo *v = stream->parent;
 
-    aio_bh_schedule_oneshot(v->ctx, virtio_video_stream_drain_bh, stream);
+    aio_bh_schedule_oneshot(v->ctx, virtio_video_stream_drain_done_bh, stream);
+}
+
+void virtio_video_stream_drain_failed(VirtIOVideoStream *stream)
+{
+    VirtIOVideo *v = stream->parent;
+
+    aio_bh_schedule_oneshot(v->ctx, virtio_video_stream_drain_failed_bh, stream);
 }
 
 static void virtio_video_queue_clear_bh(void *opaque)
 {
     VirtIOVideoStream *stream = opaque;
 
-    virtio_video_cmd_others_complete(stream, VIRTIO_VIDEO_CMD_QUEUE_CLEAR);
+    virtio_video_cmd_others_complete(stream, VIRTIO_VIDEO_CMD_QUEUE_CLEAR, true);
 }
 
 void virtio_video_queue_clear_done(VirtIOVideoStream *stream)
