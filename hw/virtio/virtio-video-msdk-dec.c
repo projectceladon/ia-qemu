@@ -881,6 +881,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
             cmd = QTAILQ_FIRST(&stream->pending_cmds);
             if (cmd && cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
                 g_free(work->opaque);
+                g_free(work);
                 qemu_mutex_unlock(&stream->mutex);
                 return len;
             }
@@ -896,6 +897,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         case STREAM_STATE_CLEAR:
             /* Return VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION */
             g_free(work->opaque);
+            g_free(work);
             qemu_mutex_unlock(&stream->mutex);
             return len;
         default:
