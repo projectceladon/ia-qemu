@@ -340,6 +340,37 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     }
 }
 
+static void virtio_video_msdk_uninit_surface(MsdkSurface *surface)
+{
+    switch (surface->surface.Info.FourCC) {
+    case MFX_FOURCC_RGB4:
+        g_free(surface->surface.Data.A);
+        break;
+    case MFX_FOURCC_NV12:
+    case MFX_FOURCC_IYUV:
+    case MFX_FOURCC_YV12:
+        g_free(surface->surface.Data.Y);
+        break;
+    default:
+        break;
+    }
+    g_free(surface);
+}
+
+void virtio_video_msdk_uninit_surface_pools(MsdkSession *session)
+{
+    MsdkSurface *surface, *tmp_surface;
+
+    QLIST_FOREACH_SAFE(surface, &session->surface_pool, next, tmp_surface) {
+        QLIST_REMOVE(surface, next);
+        virtio_video_msdk_uninit_surface(surface);
+    }
+    QLIST_FOREACH_SAFE(surface, &session->vpp_surface_pool, next, tmp_surface) {
+        QLIST_REMOVE(surface, next);
+        virtio_video_msdk_uninit_surface(surface);
+    }
+}
+
 static int virtio_video_msdk_memcpy_singlebuffer(VirtIOVideoResource *res,
     uint32_t idx, mfxU8 *src, uint32_t size)
 {

@@ -478,9 +478,11 @@ done:
         MFXVideoVPP_Close(m_session->session);
     }
     MFXVideoDECODE_Close(m_session->session);
-
     virtio_video_msdk_unload_plugin(m_session->session, stream->in.params.format, false);
     MFXClose(m_session->session);
+
+    qemu_event_destroy(&m_session->notifier);
+    virtio_video_msdk_uninit_surface_pools(m_session);
     return NULL;
 
 error:
