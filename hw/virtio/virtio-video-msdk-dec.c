@@ -256,7 +256,9 @@ static int virtio_video_decode_retrieve_one_frame(VirtIOVideoWork *work_in,
             status = MFXVideoCORE_SyncOperation(m_session->session,
                     m_frame->vpp_sync, VIRTIO_VIDEO_MSDK_TIME_TO_WAIT);
         }
-        if (status == MFX_WRN_IN_EXECUTION && stream->state == STREAM_STATE_CLEAR) {
+        if (status == MFX_WRN_IN_EXECUTION &&
+                (stream->state == STREAM_STATE_CLEAR ||
+                 stream->state == STREAM_STATE_TERMINATE)) {
             goto cancel;
         }
     } while (status == MFX_WRN_IN_EXECUTION);
@@ -467,6 +469,30 @@ static void *virtio_video_decode_thread(void *arg)
             if (QTAILQ_EMPTY(&stream->pending_cmds))
                 stream->state = STREAM_STATE_RUNNING;
             break;
+        case STREAM_STATE_TERMINATE:
+            QTAILQ_FOREACH_SAFE(work, &stream->pending_work, next, tmp_work) {
+                work->timestamp = 0;
+                work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+                QTAILQ_REMOVE(&stream->pending_work, work, next);
+                g_free(work->opaque);
+                virtio_video_work_done(work);
+            }
+            QTAILQ_FOREACH_SAFE(work, &stream->input_work, next, tmp_work) {
+                work->timestamp = 0;
+                work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+                QTAILQ_REMOVE(&stream->input_work, work, next);
+                g_free(work->opaque);
+                virtio_video_work_done(work);
+            }
+            QTAILQ_FOREACH_SAFE(work, &stream->output_work, next, tmp_work) {
+                work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+                QTAILQ_REMOVE(&stream->output_work, work, next);
+                virtio_video_work_done(work);
+            }
+            virtio_video_destroy_resource_list(stream, true);
+            virtio_video_destroy_resource_list(stream, false);
+            qemu_mutex_unlock(&stream->mutex);
+            goto done;
         default:
             break;
         }
@@ -698,44 +724,95 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     return len;
 }
 
-size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
-    virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp)
+static int virtio_video_msdk_dec_stream_terminate(VirtIOVideoStream *stream)
 {
-    MsdkSession *m_session;
-    VirtIOVideoStream *stream, *next = NULL;
-    VirtIOVideoResource *res, *next_res = NULL;
-    size_t len = 0;
-    int i;
+    VirtIOVideoCmd *cmd, *tmp_cmd;
+    MsdkSession *m_session = stream->opaque;
 
-    /* TODO: rewrite STREAM_DESTROY logic */
-    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
-    resp->stream_id = req->hdr.stream_id;
-    len = sizeof(*resp);
-
-    QLIST_FOREACH_SAFE(stream, &v->stream_list, next, next) {
-        if (stream->id == req->hdr.stream_id) {
-            resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
-            m_session = stream->opaque;
-
-            qemu_thread_join(&m_session->thread);
-            m_session->thread.thread = 0;
-
-            for (i = 0; i < VIRTIO_VIDEO_RESOURCE_LIST_NUM; i++) {
-                QLIST_FOREACH_SAFE(res, &stream->resource_list[i], next, next_res) {
-                    QLIST_SAFE_REMOVE(res, next);
-                    g_free(res);
-                }
+    qemu_mutex_lock(&stream->mutex);
+    switch (stream->state) {
+    case STREAM_STATE_INIT:
+        cmd = QTAILQ_FIRST(&stream->pending_cmds);
+        if (cmd && cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
+            QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
+            virtio_video_cmd_failed(cmd);
+        }
+        break;
+    case STREAM_STATE_RUNNING:
+        break;
+    case STREAM_STATE_DRAIN:
+        cmd = QTAILQ_FIRST(&stream->pending_cmds);
+        if (cmd == NULL || cmd->cmd_type != VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
+            VIRTVID_ERROR("BUG: stream drain cancelled but failed to report to guest");
+        } else {
+            QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
+            virtio_video_cmd_failed(cmd);
+        }
+        break;
+    case STREAM_STATE_CLEAR:
+        QTAILQ_FOREACH_SAFE(cmd, &stream->pending_cmds, next, tmp_cmd) {
+            if (cmd->cmd_type != VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL &&
+                cmd->cmd_type != VIRTIO_VIDEO_CMD_QUEUE_CLEAR) {
+                break;
             }
+            QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
+            virtio_video_cmd_failed(cmd);
+        }
+        break;
+    case STREAM_STATE_TERMINATE:
+        qemu_mutex_unlock(&stream->mutex);
+        return -1;
+    default:
+        break;
+    }
 
-            qemu_mutex_destroy(&stream->mutex);
-            g_free(m_session);
-            QLIST_SAFE_REMOVE(stream, next);
-            g_free(stream);
-            VIRTVID_DEBUG("    %s: stream 0x%x destroyed", __func__, req->hdr.stream_id);
-            break;
+    /* There should be no pending commands according our protocol. */
+    if (!QTAILQ_EMPTY(&stream->pending_cmds)) {
+        VIRTVID_ERROR("BUG: Found remaining pending cmds when there should be none");
+        QTAILQ_FOREACH_SAFE(cmd, &stream->pending_cmds, next, tmp_cmd) {
+            QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
+            virtio_video_cmd_failed(cmd);
         }
     }
 
+    stream->state = STREAM_STATE_TERMINATE;
+    qemu_event_set(&m_session->notifier);
+    qemu_mutex_unlock(&stream->mutex);
+    return 0;
+}
+
+size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
+    virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp)
+{
+    VirtIOVideoStream *stream;
+    MsdkSession *m_session;
+    size_t len;
+
+    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+    resp->stream_id = req->hdr.stream_id;
+    len = sizeof(*resp);
+
+    QLIST_FOREACH(stream, &v->stream_list, next) {
+        if (stream->id == req->hdr.stream_id) {
+            m_session = stream->opaque;
+            break;
+        }
+    }
+    if (stream == NULL) {
+        resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+        return len;
+    }
+
+    if (virtio_video_msdk_dec_stream_terminate(stream) < 0)
+        return len;
+
+    qemu_thread_join(&m_session->thread);
+    QLIST_REMOVE(stream, next);
+    qemu_mutex_destroy(&stream->mutex);
+    g_free(m_session);
+    g_free(stream);
+
+    resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
     return len;
 }
 
@@ -794,6 +871,7 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
         return 0;
     case STREAM_STATE_DRAIN:
     case STREAM_STATE_CLEAR:
+    case STREAM_STATE_TERMINATE:
         /* Return VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION */
         break;
     default:
@@ -897,6 +975,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
             break;
         case STREAM_STATE_DRAIN:
         case STREAM_STATE_CLEAR:
+        case STREAM_STATE_TERMINATE:
             /* Return VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION */
             g_free(work->opaque);
             g_free(work);
@@ -940,6 +1019,10 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
                 qemu_mutex_unlock(&stream->mutex);
                 return len;
             }
+        }
+        if (stream->state == STREAM_STATE_TERMINATE) {
+            qemu_mutex_unlock(&stream->mutex);
+            return len;
         }
 
         work = g_new0(VirtIOVideoWork, 1);
@@ -1044,6 +1127,7 @@ enqueue:
                 goto enqueue;
 
             /* fall through */
+        case STREAM_STATE_TERMINATE:
         default:
             resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
             break;
@@ -1052,6 +1136,12 @@ enqueue:
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
         qemu_mutex_lock(&stream->mutex);
+        if (stream->state == STREAM_STATE_TERMINATE) {
+            resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+            qemu_mutex_unlock(&stream->mutex);
+            break;
+        }
+
         QTAILQ_FOREACH_SAFE(work, &stream->output_work, next, tmp_work) {
             work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
             QTAILQ_REMOVE(&stream->output_work, work, next);
@@ -1628,14 +1718,18 @@ out:
 void virtio_video_uninit_msdk_dec(VirtIOVideo *v)
 {
     VirtIOVideoStream *stream, *tmp_stream;
+    MsdkSession *m_session;
 
     QLIST_FOREACH_SAFE(stream, &v->stream_list, next, tmp_stream) {
-        virtio_video_stream_destroy req = {0};
-        virtio_video_cmd_hdr resp = {0};
+        m_session = stream->opaque;
 
-        /* Destroy all in case CMD_STREAM_DESTROY not called on some stream */
-        req.hdr.stream_id = stream->id;
-        virtio_video_msdk_dec_stream_destroy(v, &req, &resp);
+        virtio_video_msdk_dec_stream_terminate(stream);
+        qemu_thread_join(&m_session->thread);
+
+        QLIST_REMOVE(stream, next);
+        qemu_mutex_destroy(&stream->mutex);
+        g_free(m_session);
+        g_free(stream);
     }
 
     virtio_video_msdk_uninit_handle(v);
