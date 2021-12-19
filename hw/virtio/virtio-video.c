@@ -144,7 +144,7 @@ static size_t virtio_video_process_cmd_stream_drain(VirtIODevice *vdev,
     }
 }
 
-static int virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
+static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     virtio_video_resource_create *req, virtio_video_cmd_hdr *resp,
     VirtQueueElement *elem)
 {
@@ -157,6 +157,7 @@ static int virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
 
     resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
     resp->stream_id = req->hdr.stream_id;
+    len = sizeof(*resp);
 
     QLIST_FOREACH(stream, &v->stream_list, next) {
         if (stream->id == req->hdr.stream_id) {
@@ -165,7 +166,7 @@ static int virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     }
     if (stream == NULL) {
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
-        return 0;
+        return len;
     }
 
     switch (req->queue_type) {
@@ -179,13 +180,13 @@ static int virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
         break;
     default:
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
-        return 0;
+        return len;
     }
 
     QLIST_FOREACH(res, &stream->resource_list[dir], next) {
         if (res->id == req->resource_id) {
             resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
-            return 0;
+            return len;
         }
     }
 
@@ -219,7 +220,7 @@ static int virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
             virtio_error(vdev, "virtio-video resource create data incorrect");
             g_free(entries);
             g_free(res);
-            return -1;
+            return 0;
         }
 
         for (i = 0, num_entries = 0; i < res->num_planes; i++) {
@@ -243,15 +244,15 @@ static int virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
         /* TODO: support object memory type */
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
         VIRTVID_ERROR("%s: Unsupported memory type (object)", __func__);
-        return 0;
+        return len;
     }
     default:
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
-        return 0;
+        return len;
     }
 
     QLIST_INSERT_HEAD(&stream->resource_list[dir], res, next);
-    return 0;
+    return sizeof(*resp);
 }
 
 static size_t virtio_video_process_cmd_resource_queue(VirtIODevice *vdev,
@@ -466,9 +467,10 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         VIRTVID_DEBUG("    queue_type 0x%x, resource_id 0x%x, planes_layout 0x%x, num_planes 0x%x",
                         req.queue_type, req.resource_id, req.planes_layout, req.num_planes);
 
-        if (virtio_video_process_cmd_resource_create(vdev, &req, &resp, elem) < 1)
+        len = virtio_video_process_cmd_resource_create(vdev, &req, &resp, elem);
+        if (len == 0)
             return -1;
-        CMD_SET_RESP(&resp, sizeof(resp), false);
+        CMD_SET_RESP(&resp, len, false);
         break;
     }
     case VIRTIO_VIDEO_CMD_RESOURCE_QUEUE:
