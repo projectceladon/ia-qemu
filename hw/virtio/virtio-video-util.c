@@ -31,6 +31,65 @@ struct virtio_video_event_bh_arg {
     uint32_t stream_id;
 };
 
+static struct {
+    virtio_video_cmd_type cmd;
+    const char *name;
+} virtio_video_cmds[] = {
+    {VIRTIO_VIDEO_CMD_QUERY_CAPABILITY, "QUERY_CAPABILITY"},
+    {VIRTIO_VIDEO_CMD_STREAM_CREATE, "STREAM_CREATE"},
+    {VIRTIO_VIDEO_CMD_STREAM_DESTROY, "STREAM_DESTROY"},
+    {VIRTIO_VIDEO_CMD_STREAM_DRAIN, "STREAM_DRAIN"},
+    {VIRTIO_VIDEO_CMD_RESOURCE_CREATE, "RESOURCE_CREATE"},
+    {VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL, "RESOURCE_DESTROY_ALL"},
+    {VIRTIO_VIDEO_CMD_RESOURCE_QUEUE, "RESOURCE_QUEUE"},
+    {VIRTIO_VIDEO_CMD_QUEUE_CLEAR, "QUEUE_CLEAR"},
+    {VIRTIO_VIDEO_CMD_GET_PARAMS, "GET_PARAMS"},
+    {VIRTIO_VIDEO_CMD_SET_PARAMS, "SET_PARAMS"},
+    {VIRTIO_VIDEO_CMD_QUERY_CONTROL, "QUERY_CONTROL"},
+    {VIRTIO_VIDEO_CMD_GET_CONTROL, "GET_CONTROL"},
+    {VIRTIO_VIDEO_CMD_SET_CONTROL, "SET_CONTROL"},
+};
+
+static struct {
+    virtio_video_format format;
+    const char *name;
+} virtio_video_formats[] = {
+    {VIRTIO_VIDEO_FORMAT_ARGB8888, "ARGB8"},
+    {VIRTIO_VIDEO_FORMAT_BGRA8888, "BGRA8"},
+    {VIRTIO_VIDEO_FORMAT_NV12, "NV12"},
+    {VIRTIO_VIDEO_FORMAT_YUV420, "YUV420(IYUV)"},
+    {VIRTIO_VIDEO_FORMAT_YVU420, "YVU420(YV12)"},
+
+    {VIRTIO_VIDEO_FORMAT_MPEG2, "MPEG-2"},
+    {VIRTIO_VIDEO_FORMAT_MPEG4, "MPEG-4"},
+    {VIRTIO_VIDEO_FORMAT_H264, "H.264(AVC)"},
+    {VIRTIO_VIDEO_FORMAT_HEVC, "H.265(HEVC)"},
+    {VIRTIO_VIDEO_FORMAT_VP8, "VP8"},
+    {VIRTIO_VIDEO_FORMAT_VP9, "VP9"},
+};
+
+const char *virtio_video_cmd_name(uint32_t cmd) {
+    int i;
+
+    for (i = 0; i < ARRAY_SIZE(virtio_video_cmds); i++) {
+        if (virtio_video_cmds[i].cmd == cmd) {
+            return virtio_video_cmds[i].name;
+        }
+    }
+    return "UNKNOWN_CMD";
+}
+
+const char *virtio_video_format_name(uint32_t format) {
+    int i;
+
+    for (i = 0; i < ARRAY_SIZE(virtio_video_formats); i++) {
+        if (virtio_video_formats[i].format == format) {
+            return virtio_video_formats[i].name;
+        }
+    }
+    return "UNKNOWN_FORMAT";
+}
+
 int virtio_video_profile_range(uint32_t format, uint32_t *min, uint32_t *max)
 {
     if (min == NULL || max == NULL) {

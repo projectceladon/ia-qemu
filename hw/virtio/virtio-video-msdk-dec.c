@@ -21,6 +21,7 @@
  *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
 #include "qemu/osdep.h"
+#include "qemu/error-report.h"
 #include "virtio-video-util.h"
 #include "virtio-video-msdk.h"
 #include "virtio-video-msdk-dec.h"
@@ -1529,20 +1530,19 @@ int virtio_video_init_msdk_dec(VirtIOVideo *v)
     mfxVideoParam param = {0}, corrected_param = {0};
 
     if (virtio_video_msdk_init_handle(v)) {
-        VIRTVID_ERROR("Fail to create VA environment on DRM");
         return -1;
     }
 
     status = MFXInitEx(init_param, &session);
     if (status != MFX_ERR_NONE) {
-        VIRTVID_ERROR("MFXInitEx returns %d", status);
+        error_report("MFXInitEx failed: %d", status);
         return -1;
     }
 
     m_handle = v->opaque;
     status = MFXVideoCORE_SetHandle(session, MFX_HANDLE_VA_DISPLAY, m_handle->va_handle);
     if (status != MFX_ERR_NONE) {
-        VIRTVID_ERROR("MFXVideoCORE_SetHandle returns %d", status);
+        error_report("MFXVideoCORE_SetHandle failed: %d", status);
         MFXClose(session);
         return -1;
     }
@@ -1561,7 +1561,8 @@ int virtio_video_init_msdk_dec(VirtIOVideo *v)
         param.mfx.CodecId = msdk_format;
         status = MFXVideoDECODE_Query(session, NULL, &param);
         if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
-            VIRTVID_DEBUG("format %x isn't supported by MSDK, status %d", in_format, status);
+            DPRINTF("Input codec %s isn't supported by MediaSDK: %d\n",
+                    virtio_video_format_name(in_format), status);
             continue;
         }
 
@@ -1602,7 +1603,8 @@ int virtio_video_init_msdk_dec(VirtIOVideo *v)
         }
 
         if (w_min == 0 || h_min == 0 || w_max == 0 || h_max == 0) {
-            VIRTVID_DEBUG("failed to query frame size for format %x", in_format);
+            DPRINTF("Failed to query frame size for input codec %s\n",
+                    virtio_video_format_name(in_format));
             goto out;
         }
 
@@ -1629,12 +1631,14 @@ int virtio_video_init_msdk_dec(VirtIOVideo *v)
         QLIST_INSERT_HEAD(&in_fmt->frames, in_fmt_frame, next);
         QLIST_INSERT_HEAD(&v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT], in_fmt, next);
 
-        VIRTVID_DEBUG("Add input caps for format %x, width [%d, %d]@%d, "
-                      "height [%d, %d]@%d, rate [%d, %d]@%d", in_format,
-                      w_min, w_max, in_fmt_frame->frame.width.step,
-                      h_min, h_max, in_fmt_frame->frame.height.step,
-                      in_fmt_frame->frame_rates[0].min, in_fmt_frame->frame_rates[0].max,
-                      in_fmt_frame->frame_rates[0].step);
+        DPRINTF("Input capability %s: "
+                "width [%d, %d] @%d, height [%d, %d] @%d, rate [%d, %d] @%d\n",
+                virtio_video_format_name(in_format),
+                w_min, w_max, in_fmt_frame->frame.width.step,
+                h_min, h_max, in_fmt_frame->frame.height.step,
+                in_fmt_frame->frame_rates[0].min,
+                in_fmt_frame->frame_rates[0].max,
+                in_fmt_frame->frame_rates[0].step);
 
         /* Query supported profiles */
         if (virtio_video_profile_range(in_format, &ctrl_min, &ctrl_max) < 0)
@@ -1695,13 +1699,14 @@ out:
         QLIST_INSERT_HEAD(&out_fmt->frames, out_fmt_frame, next);
         QLIST_INSERT_HEAD(&v->format_list[VIRTIO_VIDEO_FORMAT_LIST_OUTPUT], out_fmt, next);
 
-        VIRTVID_DEBUG("Add output caps for format %x, width [%d, %d]@%d, "
-                      "height [%d, %d]@%d, rate [%d, %d]@%d", out_format[i],
-                      out_fmt_frame->frame.width.min, out_fmt_frame->frame.width.max,
-                      out_fmt_frame->frame.width.step, out_fmt_frame->frame.height.min,
-                      out_fmt_frame->frame.height.max, out_fmt_frame->frame.height.step,
-                      out_fmt_frame->frame_rates[0].min, out_fmt_frame->frame_rates[0].max,
-                      out_fmt_frame->frame_rates[0].step);
+        DPRINTF("Output capability %s: "
+                "width [%d, %d] @%d, height [%d, %d] @%d, rate [%d, %d] @%d\n",
+                virtio_video_format_name(out_format[i]),
+                out_fmt_frame->frame.width.min, out_fmt_frame->frame.width.max,
+                out_fmt_frame->frame.width.step, out_fmt_frame->frame.height.min,
+                out_fmt_frame->frame.height.max, out_fmt_frame->frame.height.step,
+                out_fmt_frame->frame_rates[0].min, out_fmt_frame->frame_rates[0].max,
+                out_fmt_frame->frame_rates[0].step);
     }
 
     QLIST_FOREACH(in_fmt, &v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT], next) {
@@ -1711,7 +1716,6 @@ out:
     }
 
     MFXClose(session);
-
     return 0;
 }
 

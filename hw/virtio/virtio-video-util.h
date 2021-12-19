@@ -26,6 +26,8 @@
 
 #include "hw/virtio/virtio-video.h"
 
+const char *virtio_video_cmd_name(uint32_t cmd);
+const char *virtio_video_format_name(uint32_t format);
 int virtio_video_profile_range(uint32_t format, uint32_t *min, uint32_t *max);
 int virtio_video_level_range(uint32_t format, uint32_t *min, uint32_t *max);
 void virtio_video_init_format(VirtIOVideoFormat *fmt, uint32_t format);

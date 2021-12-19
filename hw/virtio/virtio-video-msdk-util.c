@@ -22,6 +22,7 @@
  *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
 #include "qemu/osdep.h"
+#include "qemu/error-report.h"
 #include "virtio-video-msdk.h"
 #include "virtio-video-msdk-util.h"
 #include "mfx/mfxplugin.h"
@@ -527,7 +528,6 @@ static const mfxPluginUID* virtio_video_msdk_find_plugin(uint32_t format, bool e
 /* Load plugin if required */
 void virtio_video_msdk_load_plugin(mfxSession session, uint32_t format, bool encode)
 {
-    mfxStatus status;
     const mfxPluginUID *pluginUID;
 
     if (session == NULL) {
@@ -536,14 +536,12 @@ void virtio_video_msdk_load_plugin(mfxSession session, uint32_t format, bool enc
 
     pluginUID = virtio_video_msdk_find_plugin(format, encode);
     if (pluginUID != NULL) {
-        status = MFXVideoUSER_Load(session, pluginUID, 1);
-        VIRTVID_VERBOSE("Load MFX plugin for format %x, status %d", format, status);
+        MFXVideoUSER_Load(session, pluginUID, 1);
     }
 }
 
 void virtio_video_msdk_unload_plugin(mfxSession session, uint32_t format, bool encode)
 {
-    mfxStatus status;
     const mfxPluginUID *pluginUID;
 
     if (session == NULL) {
@@ -552,8 +550,7 @@ void virtio_video_msdk_unload_plugin(mfxSession session, uint32_t format, bool e
 
     pluginUID = virtio_video_msdk_find_plugin(format, encode);
     if (pluginUID != NULL) {
-        status = MFXVideoUSER_UnLoad(session, pluginUID);
-        VIRTVID_VERBOSE("Unload MFX plugin for format %x, status %d", format, status);
+        MFXVideoUSER_UnLoad(session, pluginUID);
     }
 }
 
@@ -565,14 +562,14 @@ int virtio_video_msdk_init_handle(VirtIOVideo *v)
 
     msdk->drm_fd = open(VIRTIO_VIDEO_DRM_DEVICE, O_RDWR);
     if (msdk->drm_fd < 0) {
-        VIRTVID_ERROR("error open DRM_DEVICE %s\n", VIRTIO_VIDEO_DRM_DEVICE);
+        error_report("Failed to open %s", VIRTIO_VIDEO_DRM_DEVICE);
         g_free(msdk);
         return -1;
     }
 
     msdk->va_handle = vaGetDisplayDRM(msdk->drm_fd);
     if (!msdk->va_handle) {
-        VIRTVID_ERROR("error vaGetDisplayDRM for %s\n", VIRTIO_VIDEO_DRM_DEVICE);
+        error_report("Failed to get VA display for %s", VIRTIO_VIDEO_DRM_DEVICE);
         close(msdk->drm_fd);
         g_free(msdk);
         return -1;
@@ -580,8 +577,7 @@ int virtio_video_msdk_init_handle(VirtIOVideo *v)
 
     va_status = vaInitialize(msdk->va_handle, &major, &minor);
     if (va_status != VA_STATUS_SUCCESS) {
-        VIRTVID_ERROR("error vaInitialize for %s, status %d\n",
-                VIRTIO_VIDEO_DRM_DEVICE, va_status);
+        error_report("vaInitialize failed: %d", va_status);
         vaTerminate(msdk->va_handle);
         close(msdk->drm_fd);
         g_free(msdk);

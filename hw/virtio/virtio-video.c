@@ -23,6 +23,7 @@
 #include "qemu/osdep.h"
 #include "qemu/iov.h"
 #include "qemu/main-loop.h"
+#include "qemu/error-report.h"
 #include "qapi/error.h"
 #include "exec/address-spaces.h"
 #include "hw/virtio/virtio-video.h"
@@ -60,15 +61,18 @@ static size_t virtio_video_process_cmd_query_capability(VirtIODevice *vdev,
     switch(req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
         idx = VIRTIO_VIDEO_FORMAT_LIST_INPUT;
+        DPRINTF("CMD_QUERY_CAPABILITY: query input formats\n");
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
         idx = VIRTIO_VIDEO_FORMAT_LIST_OUTPUT;
+        DPRINTF("CMD_QUERY_CAPABILITY: query output formats\n");
         break;
     default:
         /* The request is invalid, respond with an error */
         *resp = g_malloc0(sizeof(virtio_video_cmd_hdr));
         ((virtio_video_cmd_hdr *)(*resp))->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
         ((virtio_video_cmd_hdr *)(*resp))->stream_id = req->hdr.stream_id;
+        error_report("CMD_QUERY_CAPABILITY: invalid queue type 0x%x", req->queue_type);
         return sizeof(virtio_video_cmd_hdr);
     }
 
@@ -362,7 +366,7 @@ static size_t virtio_video_process_cmd_set_control(VirtIODevice *vdev,
     }
 }
 
-/*
+/**
  * Process the command requested without blocking. The responce will not be
  * ready if the requested operation is blocking. The command will be recorded
  * and complete asynchronously.
@@ -400,7 +404,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
     } while (0)
 
     CMD_GET_REQ(&hdr, sizeof(hdr));
-    VIRTVID_DEBUG("cmd 0x%x, stream 0x%x", hdr.type, hdr.stream_id);
+    DPRINTF("command %s, stream %d\n", virtio_video_cmd_name(hdr.type), hdr.stream_id);
 
     switch (hdr.type) {
     case VIRTIO_VIDEO_CMD_QUERY_CAPABILITY:
@@ -409,7 +413,6 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         virtio_video_query_capability_resp *resp = NULL;
 
         CMD_GET_REQ(&req, sizeof(req));
-        VIRTVID_DEBUG("    queue_type 0x%x", req.queue_type);
 
         len = virtio_video_process_cmd_query_capability(vdev, &req, &resp);
         CMD_SET_RESP(resp, len, true);
@@ -585,7 +588,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         break;
     }
     default:
-        VIRTVID_ERROR("Unknown cmd 0x%x, stream 0x%x", hdr.type, hdr.stream_id);
+        error_report("Unsupported cmd opcode: 0x%x", hdr.type);
         break;
     }
 
@@ -604,9 +607,6 @@ static void virtio_video_command_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
         elem = virtqueue_pop(vq, sizeof(VirtQueueElement));
         if (!elem)
             break;
-
-        VIRTVID_VERBOSE("cmd_vq index(%d) len(%d) ndescs(%d) out_num(%d) in_num(%d)",
-                elem->index, elem->len, elem->ndescs, elem->out_num, elem->in_num);
 
         if (elem->out_num < 1 || elem->in_num < 1) {
             virtio_error(vdev, "virtio-video command missing headers");
@@ -641,9 +641,6 @@ static void virtio_video_event_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
         elem = virtqueue_pop(vq, sizeof(VirtQueueElement));
         if (!elem)
             break;
-
-        VIRTVID_VERBOSE("event_vq index(%d) len(%d) ndescs(%d) out_num(%d) in_num(%d)",
-                elem->index, elem->len, elem->ndescs, elem->out_num, elem->in_num);
 
         if (elem->in_num < 1) {
             virtio_error(vdev, "virtio-video event missing input");
@@ -719,8 +716,6 @@ static void virtio_video_device_realize(DeviceState *dev, Error **errp)
         error_setg(errp, "Unknown virtio-video backend %s", v->conf.backend);
         return;
     }
-
-    VIRTVID_DEBUG("model %d(%s), backend %d(%s)", v->model, v->conf.model, v->backend, v->conf.backend);
 
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:

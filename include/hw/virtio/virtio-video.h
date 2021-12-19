@@ -25,34 +25,23 @@
 
 #include "standard-headers/linux/virtio_video.h"
 #include "hw/virtio/virtio.h"
-#include "qemu/timer.h"
 #include "sysemu/iothread.h"
 #include "block/aio.h"
 
-#define VIRTIO_VIDEO_DEBUG
+#define DEBUG_VIRTIO_VIDEO
 
-#define VIRTIO_VIDEO_DEBUG_LEVEL_QUIET 0
-#define VIRTIO_VIDEO_DEBUG_LEVEL_ERROR 1
-#define VIRTIO_VIDEO_DEBUG_LEVEL_WARN 2
-#define VIRTIO_VIDEO_DEBUG_LEVEL_DEBUG 3
-#define VIRTIO_VIDEO_DEBUG_LEVEL_VERBOSE 4
-#define VIRTIO_VIDEO_DEBUG_DEVEL VIRTIO_VIDEO_DEBUG_LEVEL_DEBUG
-
-#ifdef VIRTIO_VIDEO_DEBUG
-#define VIRTVID_PRINT(lvl, fmt, ...) do { \
-        if (lvl <= VIRTIO_VIDEO_DEBUG_DEVEL) \
-        printf("[%ld]virtio-video: " fmt"\n" , get_clock(), ## __VA_ARGS__); \
-    } while (0)
-#define VIRTVID_ERROR(fmt, ...) VIRTVID_PRINT(VIRTIO_VIDEO_DEBUG_LEVEL_ERROR, fmt, ## __VA_ARGS__)
-#define VIRTVID_WARN(fmt, ...) VIRTVID_PRINT(VIRTIO_VIDEO_DEBUG_LEVEL_WARN, fmt, ## __VA_ARGS__)
-#define VIRTVID_DEBUG(fmt, ...) VIRTVID_PRINT(VIRTIO_VIDEO_DEBUG_LEVEL_DEBUG, fmt, ## __VA_ARGS__)
-#define VIRTVID_VERBOSE(fmt, ...) VIRTVID_PRINT(VIRTIO_VIDEO_DEBUG_LEVEL_VERBOSE, fmt, ## __VA_ARGS__)
+#ifdef DEBUG_VIRTIO_VIDEO
+#define DPRINTF(fmt, ...) \
+    do { fprintf(stderr, "virtio_video: " fmt, ## __VA_ARGS__); } while (0)
 #else
-#define VIRTVID_ERROR(fmt, ...) do { } while (0)
-#define VIRTVID_WARN(fmt, ...) do { } while (0)
-#define VIRTVID_DEBUG(fmt, ...) do { } while (0)
-#define VIRTVID_VERBOSE(fmt, ...) do { } while (0)
+#define DPRINTF(fmt, ...) do { } while (0)
 #endif
+
+/* remove when all converted to new style */
+#define VIRTVID_ERROR(fmt, ...) DPRINTF(fmt"\n", ## __VA_ARGS__)
+#define VIRTVID_WARN(fmt, ...) DPRINTF(fmt"\n", ## __VA_ARGS__)
+#define VIRTVID_DEBUG(fmt, ...) DPRINTF(fmt"\n", ## __VA_ARGS__)
+#define VIRTVID_VERBOSE(fmt, ...) DPRINTF(fmt"\n", ## __VA_ARGS__)
 
 #define TYPE_VIRTIO_VIDEO "virtio-video-device"
 
