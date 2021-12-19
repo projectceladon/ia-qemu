@@ -61,11 +61,11 @@ static size_t virtio_video_process_cmd_query_capability(VirtIODevice *vdev,
     switch(req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
         idx = VIRTIO_VIDEO_FORMAT_LIST_INPUT;
-        DPRINTF("CMD_QUERY_CAPABILITY: query input formats\n");
+        DPRINTF("CMD_QUERY_CAPABILITY: reported input formats\n");
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
         idx = VIRTIO_VIDEO_FORMAT_LIST_OUTPUT;
-        DPRINTF("CMD_QUERY_CAPABILITY: query output formats\n");
+        DPRINTF("CMD_QUERY_CAPABILITY: reported output formats\n");
         break;
     default:
         /* The request is invalid, respond with an error */
@@ -413,7 +413,6 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         virtio_video_query_capability_resp *resp = NULL;
 
         CMD_GET_REQ(&req, sizeof(req));
-
         len = virtio_video_process_cmd_query_capability(vdev, &req, &resp);
         CMD_SET_RESP(resp, len, true);
         g_free(resp);
@@ -531,8 +530,6 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         virtio_video_get_params_resp resp = {0};
 
         CMD_GET_REQ(&req, sizeof(req));
-        VIRTVID_DEBUG("    queue_type 0x%x", req.queue_type);
-
         len = virtio_video_process_cmd_get_params(vdev, &req, &resp);
         CMD_SET_RESP(&resp, len, false);
         break;
@@ -543,8 +540,6 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         virtio_video_cmd_hdr resp = {0};
 
         CMD_GET_REQ(&req, sizeof(req));
-        VIRTVID_DEBUG("    queue_type 0x%x", req.params.queue_type);
-
         len = virtio_video_process_cmd_set_params(vdev, &req, &resp);
         CMD_SET_RESP(&resp, len, false);
         break;
@@ -555,8 +550,6 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         virtio_video_query_control_resp *resp = NULL;
 
         CMD_GET_REQ(&req, sizeof(req));
-        VIRTVID_DEBUG("    control 0x%x", req.control);
-
         len = virtio_video_process_cmd_query_control(vdev, &req, &resp);
         CMD_SET_RESP(resp, len, true);
         g_free(resp);
@@ -568,8 +561,6 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         virtio_video_get_control_resp *resp = NULL;
 
         CMD_GET_REQ(&req, sizeof(req));
-        VIRTVID_DEBUG("    control 0x%x", req.control);
-
         len = virtio_video_process_cmd_get_control(vdev, &req, &resp);
         CMD_SET_RESP(resp, len, true);
         g_free(resp);
@@ -581,8 +572,6 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         virtio_video_set_control_resp resp = {0};
 
         CMD_GET_REQ(&req, sizeof(req));
-        VIRTVID_DEBUG("    control 0x%x", req.control);
-
         len = virtio_video_process_cmd_set_control(vdev, &req, &resp);
         CMD_SET_RESP(&resp, len, false);
         break;
