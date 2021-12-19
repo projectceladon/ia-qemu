@@ -342,7 +342,7 @@ static void *virtio_video_decode_thread(void *arg)
                 cmd = QTAILQ_FIRST(&stream->pending_cmds);
                 if (cmd && cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
                     QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-                    virtio_video_cmd_failed(cmd);
+                    virtio_video_cmd_cancel(cmd);
                 }
                 break;
             }
@@ -736,7 +736,7 @@ static int virtio_video_msdk_dec_stream_terminate(VirtIOVideoStream *stream)
         cmd = QTAILQ_FIRST(&stream->pending_cmds);
         if (cmd && cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
             QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-            virtio_video_cmd_failed(cmd);
+            virtio_video_cmd_cancel(cmd);
         }
         break;
     case STREAM_STATE_RUNNING:
@@ -747,7 +747,7 @@ static int virtio_video_msdk_dec_stream_terminate(VirtIOVideoStream *stream)
             VIRTVID_ERROR("BUG: stream drain cancelled but failed to report to guest");
         } else {
             QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-            virtio_video_cmd_failed(cmd);
+            virtio_video_cmd_cancel(cmd);
         }
         break;
     case STREAM_STATE_CLEAR:
@@ -757,7 +757,7 @@ static int virtio_video_msdk_dec_stream_terminate(VirtIOVideoStream *stream)
                 break;
             }
             QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-            virtio_video_cmd_failed(cmd);
+            virtio_video_cmd_cancel(cmd);
         }
         break;
     case STREAM_STATE_TERMINATE:
@@ -772,7 +772,7 @@ static int virtio_video_msdk_dec_stream_terminate(VirtIOVideoStream *stream)
         VIRTVID_ERROR("BUG: Found remaining pending cmds when there should be none");
         QTAILQ_FOREACH_SAFE(cmd, &stream->pending_cmds, next, tmp_cmd) {
             QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-            virtio_video_cmd_failed(cmd);
+            virtio_video_cmd_cancel(cmd);
         }
     }
 
@@ -1079,7 +1079,7 @@ static size_t virtio_video_msdk_dec_resource_clear(VirtIOVideoStream *stream,
             /* Cancel the pending CMD_STREAM_DRAIN */
             if (cmd && cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
                 QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-                virtio_video_cmd_failed(cmd);
+                virtio_video_cmd_cancel(cmd);
             }
 
             QTAILQ_FOREACH_SAFE(work, &stream->pending_work, next, tmp_work) {
@@ -1089,8 +1089,14 @@ static size_t virtio_video_msdk_dec_resource_clear(VirtIOVideoStream *stream,
                 g_free(work->opaque);
                 virtio_video_work_done(work);
             }
-            if (destroy)
+            if (destroy) {
                 virtio_video_destroy_resource_list(stream, true);
+                DPRINTF("CMD_RESOURCE_DESTROY_ALL: stream %d input resources "
+                        "destroyed\n", stream->id);
+            } else {
+                DPRINTF("CMD_QUEUE_CLEAR: stream %d input queue cleared\n",
+                        stream->id);
+            }
             break;
         case STREAM_STATE_RUNNING:
             stream->state = STREAM_STATE_CLEAR;
@@ -1102,14 +1108,23 @@ enqueue:
                                       VIRTIO_VIDEO_CMD_QUEUE_CLEAR;
             QTAILQ_INSERT_TAIL(&stream->pending_cmds, cmd, next);
             qemu_event_set(&m_session->notifier);
+
+            if (destroy) {
+                DPRINTF("CMD_RESOURCE_DESTROY_ALL (async): stream %d start to "
+                        "destroy input resources\n", stream->id);
+            } else {
+                DPRINTF("CMD_QUEUE_CLEAR (async): stream %d start to "
+                        "clear input queue\n", stream->id);
+            }
             qemu_mutex_unlock(&stream->mutex);
             return 0;
         case STREAM_STATE_DRAIN:
             if (cmd == NULL || cmd->cmd_type != VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
-                VIRTVID_ERROR("BUG: stream drain cancelled but failed to report to guest");
+                error_report("BUG: expected in-flight CMD_STREAM_DRAIN "
+                             "but not found");
             } else {
                 QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-                virtio_video_cmd_failed(cmd);
+                virtio_video_cmd_cancel(cmd);
             }
             stream->state = STREAM_STATE_CLEAR;
             goto enqueue;
@@ -1148,8 +1163,14 @@ enqueue:
             QTAILQ_REMOVE(&stream->output_work, work, next);
             virtio_video_work_done(work);
         }
-        if (destroy)
+        if (destroy) {
             virtio_video_destroy_resource_list(stream, false);
+            DPRINTF("CMD_RESOURCE_DESTROY_ALL: stream %d output resources "
+                    "destroyed\n", stream->id);
+        } else {
+            DPRINTF("CMD_QUEUE_CLEAR: stream %d output queue cleared\n",
+                    stream->id);
+        }
         qemu_mutex_unlock(&stream->mutex);
         break;
     default:

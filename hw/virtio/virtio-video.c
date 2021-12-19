@@ -498,8 +498,6 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         virtio_video_cmd_hdr resp = {0};
 
         CMD_GET_REQ(&req, sizeof(req));
-        VIRTVID_DEBUG("    queue_type 0x%x", req.queue_type);
-
         len = virtio_video_process_cmd_resource_destroy_all(vdev, &req, &resp, elem);
         if (len == 0) {
             async = true;
@@ -514,8 +512,6 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         virtio_video_cmd_hdr resp = {0};
 
         CMD_GET_REQ(&req, sizeof(req));
-        VIRTVID_DEBUG("    queue_type 0x%x", req.queue_type);
-
         len = virtio_video_process_cmd_queue_clear(vdev, &req, &resp, elem);
         if (len == 0) {
             async = true;

@@ -177,6 +177,17 @@ void virtio_video_destroy_resource_list(VirtIOVideoStream *stream, bool in)
     }
 }
 
+static const char *virtio_video_event_name(uint32_t event) {
+    switch (event) {
+    case VIRTIO_VIDEO_EVENT_ERROR:
+        return "ERROR";
+    case VIRTIO_VIDEO_EVENT_DECODER_RESOLUTION_CHANGED:
+        return "DECODER_RESOLUTION_CHANGED";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 /* @event must be removed from @event_queue first */
 int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event)
 {
@@ -198,6 +209,7 @@ int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event)
     virtqueue_push(v->event_vq, event->elem, sizeof(resp));
     virtio_notify(vdev, v->event_vq);
 
+    DPRINTF("event %s triggered\n", virtio_video_event_name(resp.event_type));
     g_free(event->elem);
     g_free(event);
     return 0;
@@ -271,6 +283,19 @@ static void virtio_video_cmd_others_complete(VirtIOVideoCmd *cmd, bool success)
     virtqueue_push(v->cmd_vq, cmd->elem, sizeof(resp));
     virtio_notify(vdev, v->cmd_vq);
 
+    switch (cmd->cmd_type) {
+    case VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL:
+        DPRINTF("CMD_RESOURCE_DESTROY_ALL (async) for stream %d %s\n",
+                stream->id, success ? "done" : "cancelled");
+        break;
+    case VIRTIO_VIDEO_CMD_QUEUE_CLEAR:
+        DPRINTF("CMD_QUEUE_CLEAR (async) for stream %d %s\n",
+                stream->id, success ? "done" : "cancelled");
+        break;
+    default:
+        break;
+    }
+
 done:
     g_free(cmd->elem);
     g_free(cmd);
@@ -283,7 +308,7 @@ static void virtio_video_cmd_done_bh(void *opaque)
     virtio_video_cmd_others_complete(cmd, true);
 }
 
-static void virtio_video_cmd_failed_bh(void *opaque)
+static void virtio_video_cmd_cancel_bh(void *opaque)
 {
     VirtIOVideoCmd *cmd = opaque;
 
@@ -298,12 +323,12 @@ void virtio_video_cmd_done(VirtIOVideoCmd *cmd)
     aio_bh_schedule_oneshot(v->ctx, virtio_video_cmd_done_bh, cmd);
 }
 
-void virtio_video_cmd_failed(VirtIOVideoCmd *cmd)
+void virtio_video_cmd_cancel(VirtIOVideoCmd *cmd)
 {
     VirtIOVideoStream *stream = cmd->parent;
     VirtIOVideo *v = stream->parent;
 
-    aio_bh_schedule_oneshot(v->ctx, virtio_video_cmd_failed_bh, cmd);
+    aio_bh_schedule_oneshot(v->ctx, virtio_video_cmd_cancel_bh, cmd);
 }
 
 static void virtio_video_event_bh(void *opaque)
@@ -334,7 +359,8 @@ done:
     g_free(opaque);
 }
 
-void virtio_video_report_event(VirtIOVideo *v, uint32_t event, uint32_t stream_id)
+void virtio_video_report_event(VirtIOVideo *v, uint32_t event,
+    uint32_t stream_id)
 {
     struct virtio_video_event_bh_arg *s;
 
