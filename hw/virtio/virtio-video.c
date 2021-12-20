@@ -61,11 +61,11 @@ static size_t virtio_video_process_cmd_query_capability(VirtIODevice *vdev,
 
     switch(req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
-        dir = VIRTIO_VIDEO_FORMAT_LIST_INPUT;
+        dir = VIRTIO_VIDEO_QUEUE_INPUT;
         DPRINTF("CMD_QUERY_CAPABILITY: reported input formats\n");
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
-        dir = VIRTIO_VIDEO_FORMAT_LIST_OUTPUT;
+        dir = VIRTIO_VIDEO_QUEUE_OUTPUT;
         DPRINTF("CMD_QUERY_CAPABILITY: reported output formats\n");
         break;
     default:
@@ -213,11 +213,11 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     switch (req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
         mem_type = stream->in.mem_type;
-        dir = VIRTIO_VIDEO_RESOURCE_LIST_INPUT;
+        dir = VIRTIO_VIDEO_QUEUE_INPUT;
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
         mem_type = stream->out.mem_type;
-        dir = VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT;
+        dir = VIRTIO_VIDEO_QUEUE_OUTPUT;
         break;
     default:
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
@@ -735,10 +735,12 @@ static void virtio_video_device_realize(DeviceState *dev, Error **errp)
 
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
-        virtio_init(vdev, "virtio-video", VIRTIO_ID_VIDEO_ENC, sizeof(virtio_video_config));
+        virtio_init(vdev, "virtio-video", VIRTIO_ID_VIDEO_ENC,
+                    sizeof(virtio_video_config));
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
-        virtio_init(vdev, "virtio-video", VIRTIO_ID_VIDEO_DEC, sizeof(virtio_video_config));
+        virtio_init(vdev, "virtio-video", VIRTIO_ID_VIDEO_DEC,
+                    sizeof(virtio_video_config));
         break;
     default:
         return;
@@ -748,12 +750,14 @@ static void virtio_video_device_realize(DeviceState *dev, Error **errp)
     v->config.max_caps_length = VIRTIO_VIDEO_CAPS_LENGTH_MAX;
     v->config.max_resp_length = VIRTIO_VIDEO_RESPONSE_LENGTH_MAX;
 
-    v->cmd_vq = virtio_add_queue(vdev, VIRTIO_VIDEO_VQ_SIZE, virtio_video_command_vq_cb);
-    v->event_vq = virtio_add_queue(vdev, VIRTIO_VIDEO_VQ_SIZE, virtio_video_event_vq_cb);
+    v->cmd_vq = virtio_add_queue(vdev, VIRTIO_VIDEO_VQ_SIZE,
+                                 virtio_video_command_vq_cb);
+    v->event_vq = virtio_add_queue(vdev, VIRTIO_VIDEO_VQ_SIZE,
+                                   virtio_video_event_vq_cb);
 
     QTAILQ_INIT(&v->event_queue);
     QLIST_INIT(&v->stream_list);
-    for (i = 0; i < VIRTIO_VIDEO_FORMAT_LIST_NUM; i++)
+    for (i = 0; i < VIRTIO_VIDEO_QUEUE_NUM; i++)
         QLIST_INIT(&v->format_list[i]);
 
     qemu_mutex_init(&v->mutex);
@@ -780,7 +784,8 @@ static void virtio_video_device_realize(DeviceState *dev, Error **errp)
         virtio_del_queue(vdev, 0);
         virtio_del_queue(vdev, 1);
         virtio_cleanup(vdev);
-        error_setg(errp, "Failed to initialize %s:%s", v->conf.model, v->conf.backend);
+        error_setg(errp, "Failed to initialize %s:%s", v->conf.model,
+                   v->conf.backend);
     }
 }
 
@@ -809,7 +814,7 @@ static void virtio_video_device_unrealize(DeviceState *dev)
         g_free(event);
     }
 
-    for (i = 0; i < VIRTIO_VIDEO_FORMAT_LIST_NUM; i++) {
+    for (i = 0; i < VIRTIO_VIDEO_QUEUE_NUM; i++) {
         QLIST_FOREACH_SAFE(fmt, &v->format_list[i], next, tmp_fmt) {
             QLIST_FOREACH_SAFE(frame, &fmt->frames, next, tmp_frame) {
                 g_free(frame->frame_rates);

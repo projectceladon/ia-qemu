@@ -51,13 +51,9 @@
 #define VIRTIO_VIDEO_CAPS_LENGTH_MAX 1024
 #define VIRTIO_VIDEO_RESPONSE_LENGTH_MAX 1024
 
-#define VIRTIO_VIDEO_FORMAT_LIST_NUM    2
-#define VIRTIO_VIDEO_FORMAT_LIST_INPUT  0
-#define VIRTIO_VIDEO_FORMAT_LIST_OUTPUT 1
-
-#define VIRTIO_VIDEO_RESOURCE_LIST_NUM      2
-#define VIRTIO_VIDEO_RESOURCE_LIST_INPUT    0
-#define VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT   1
+#define VIRTIO_VIDEO_QUEUE_NUM 2
+#define VIRTIO_VIDEO_QUEUE_INPUT 0
+#define VIRTIO_VIDEO_QUEUE_OUTPUT 1
 
 #define VIRTIO_VIDEO(obj) \
         OBJECT_CHECK(VirtIOVideo, (obj), TYPE_VIRTIO_VIDEO)
@@ -157,8 +153,7 @@ struct VirtIOVideoStream {
     virtio_video_stream_state state;
     QemuMutex mutex;
     void *opaque;
-    QLIST_HEAD(, VirtIOVideoResource)
-        resource_list[VIRTIO_VIDEO_RESOURCE_LIST_NUM];
+    QLIST_HEAD(, VirtIOVideoResource) resource_list[VIRTIO_VIDEO_QUEUE_NUM];
     QTAILQ_HEAD(, VirtIOVideoCmd) pending_cmds;
     QTAILQ_HEAD(, VirtIOVideoWork) pending_work;
     QTAILQ_HEAD(, VirtIOVideoWork) input_work;
@@ -208,7 +203,7 @@ struct VirtIOVideo {
     VirtQueue *cmd_vq, *event_vq;
     QTAILQ_HEAD(, VirtIOVideoEvent) event_queue;
     QLIST_HEAD(, VirtIOVideoStream) stream_list;
-    QLIST_HEAD(, VirtIOVideoFormat) format_list[VIRTIO_VIDEO_FORMAT_LIST_NUM];
+    QLIST_HEAD(, VirtIOVideoFormat) format_list[VIRTIO_VIDEO_QUEUE_NUM];
     void *opaque;
     QemuMutex mutex;
     AioContext *ctx;

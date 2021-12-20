@@ -166,8 +166,7 @@ void virtio_video_destroy_resource_list(VirtIOVideoStream *stream, bool in)
 {
     VirtIOVideoResource *res, *tmp_res;
     VirtIOVideoResourceSlice *slice;
-    int i, j, dir = in ? VIRTIO_VIDEO_RESOURCE_LIST_INPUT :
-                         VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT;
+    int i, j, dir = in ? VIRTIO_VIDEO_QUEUE_INPUT : VIRTIO_VIDEO_QUEUE_OUTPUT;
 
     QLIST_FOREACH_SAFE(res, &stream->resource_list[dir], next, tmp_res) {
         QLIST_REMOVE(res, next);

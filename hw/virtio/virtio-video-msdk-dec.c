@@ -562,7 +562,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
         return len;
     }
 
-    QLIST_FOREACH(fmt, &v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT], next) {
+    QLIST_FOREACH(fmt, &v->format_list[VIRTIO_VIDEO_QUEUE_INPUT], next) {
         if (fmt->desc.format == req->coded_format) {
             break;
         }
@@ -700,7 +700,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     }
 
     stream->state = STREAM_STATE_INIT;
-    for (i = 0; i < VIRTIO_VIDEO_RESOURCE_LIST_NUM; i++) {
+    for (i = 0; i < VIRTIO_VIDEO_QUEUE_NUM; i++) {
         QLIST_INIT(&stream->resource_list[i]);
     }
     QTAILQ_INIT(&stream->pending_cmds);
@@ -912,7 +912,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
     switch (req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
         QLIST_FOREACH(resource,
-                &stream->resource_list[VIRTIO_VIDEO_RESOURCE_LIST_INPUT], next) {
+                &stream->resource_list[VIRTIO_VIDEO_QUEUE_INPUT], next) {
             if (resource->id == req->resource_id) {
                 break;
             }
@@ -998,7 +998,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
         QLIST_FOREACH(resource,
-                &stream->resource_list[VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT], next) {
+                &stream->resource_list[VIRTIO_VIDEO_QUEUE_OUTPUT], next) {
             if (resource->id == req->resource_id) {
                 break;
             }
@@ -1369,7 +1369,7 @@ size_t virtio_video_msdk_dec_query_control(VirtIOVideo *v,
         virtio_video_query_control_profile *query = req_buf;
         virtio_video_query_control_resp_profile *resp_profile;
 
-        QLIST_FOREACH(fmt, &v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT], next) {
+        QLIST_FOREACH(fmt, &v->format_list[VIRTIO_VIDEO_QUEUE_INPUT], next) {
             if (fmt->desc.format == query->format) {
                 break;
             }
@@ -1402,7 +1402,7 @@ size_t virtio_video_msdk_dec_query_control(VirtIOVideo *v,
         virtio_video_query_control_level *query = req_buf;
         virtio_video_query_control_resp_level *resp_level;
 
-        QLIST_FOREACH(fmt, &v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT], next) {
+        QLIST_FOREACH(fmt, &v->format_list[VIRTIO_VIDEO_QUEUE_INPUT], next) {
             if (fmt->desc.format == query->format) {
                 break;
             }
@@ -1660,7 +1660,7 @@ int virtio_video_init_msdk_dec(VirtIOVideo *v)
 
         in_fmt->desc.num_frames++;
         QLIST_INSERT_HEAD(&in_fmt->frames, in_fmt_frame, next);
-        QLIST_INSERT_HEAD(&v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT], in_fmt, next);
+        QLIST_INSERT_HEAD(&v->format_list[VIRTIO_VIDEO_QUEUE_INPUT], in_fmt, next);
 
         DPRINTF("Input capability %s: "
                 "width [%d, %d] @%d, height [%d, %d] @%d, rate [%d, %d] @%d\n",
@@ -1711,7 +1711,7 @@ out:
      * For Decoding, frame size/rate of output depends on input, so only one
      * dummy frame desc is required for each output format.
      */
-    in_fmt = QLIST_FIRST(&v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT]);
+    in_fmt = QLIST_FIRST(&v->format_list[VIRTIO_VIDEO_QUEUE_INPUT]);
     in_fmt_frame = QLIST_FIRST(&in_fmt->frames);
     for (i = 0; i < ARRAY_SIZE(out_format); i++) {
         size_t len;
@@ -1728,7 +1728,7 @@ out:
 
         out_fmt->desc.num_frames++;
         QLIST_INSERT_HEAD(&out_fmt->frames, out_fmt_frame, next);
-        QLIST_INSERT_HEAD(&v->format_list[VIRTIO_VIDEO_FORMAT_LIST_OUTPUT], out_fmt, next);
+        QLIST_INSERT_HEAD(&v->format_list[VIRTIO_VIDEO_QUEUE_OUTPUT], out_fmt, next);
 
         DPRINTF("Output capability %s: "
                 "width [%d, %d] @%d, height [%d, %d] @%d, rate [%d, %d] @%d\n",
@@ -1740,7 +1740,7 @@ out:
                 out_fmt_frame->frame_rates[0].step);
     }
 
-    QLIST_FOREACH(in_fmt, &v->format_list[VIRTIO_VIDEO_FORMAT_LIST_INPUT], next) {
+    QLIST_FOREACH(in_fmt, &v->format_list[VIRTIO_VIDEO_QUEUE_INPUT], next) {
         for (i = 0; i < ARRAY_SIZE(out_format); i++) {
             in_fmt->desc.mask |= BIT_ULL(i);
         }
