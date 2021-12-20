@@ -49,34 +49,35 @@ static struct {
 };
 
 static size_t virtio_video_process_cmd_query_capability(VirtIODevice *vdev,
-    virtio_video_query_capability *req, virtio_video_query_capability_resp **resp)
+    virtio_video_query_capability *req,
+    virtio_video_query_capability_resp **resp)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoFormat *fmt;
     VirtIOVideoFormatFrame *fmt_frame;
-    int num_descs = 0, idx;
-    size_t len = sizeof(virtio_video_query_capability_resp);
+    int num_descs = 0, i, dir;
+    size_t len = sizeof(**resp);
     void *buf;
 
     switch(req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
-        idx = VIRTIO_VIDEO_FORMAT_LIST_INPUT;
+        dir = VIRTIO_VIDEO_FORMAT_LIST_INPUT;
         DPRINTF("CMD_QUERY_CAPABILITY: reported input formats\n");
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
-        idx = VIRTIO_VIDEO_FORMAT_LIST_OUTPUT;
+        dir = VIRTIO_VIDEO_FORMAT_LIST_OUTPUT;
         DPRINTF("CMD_QUERY_CAPABILITY: reported output formats\n");
         break;
     default:
-        /* The request is invalid, respond with an error */
-        *resp = g_malloc0(sizeof(virtio_video_cmd_hdr));
-        ((virtio_video_cmd_hdr *)(*resp))->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
-        ((virtio_video_cmd_hdr *)(*resp))->stream_id = req->hdr.stream_id;
-        error_report("CMD_QUERY_CAPABILITY: invalid queue type 0x%x", req->queue_type);
-        return sizeof(virtio_video_cmd_hdr);
+        *resp = g_malloc0(sizeof(**resp));
+        (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
+        (*resp)->hdr.stream_id = req->hdr.stream_id;
+        error_report("CMD_QUERY_CAPABILITY: invalid queue type 0x%x",
+                     req->queue_type);
+        return len;
     }
 
-    QLIST_FOREACH(fmt, &v->format_list[idx], next) {
+    QLIST_FOREACH(fmt, &v->format_list[dir], next) {
         num_descs++;
         len += sizeof(fmt->desc);
         QLIST_FOREACH(fmt_frame, &fmt->frames, next) {
@@ -91,14 +92,14 @@ static size_t virtio_video_process_cmd_query_capability(VirtIODevice *vdev,
     (*resp)->num_descs = num_descs;
 
     buf = (char *)(*resp) + sizeof(virtio_video_query_capability_resp);
-    QLIST_FOREACH(fmt, &v->format_list[idx], next) {
+    QLIST_FOREACH(fmt, &v->format_list[dir], next) {
         memcpy(buf, &fmt->desc, sizeof(fmt->desc));
         buf += sizeof(fmt->desc);
         QLIST_FOREACH(fmt_frame, &fmt->frames, next) {
             memcpy(buf, &fmt_frame->frame, sizeof(fmt_frame->frame));
             buf += sizeof(fmt_frame->frame);
-            for (idx = 0; idx < fmt_frame->frame.num_rates; idx++) {
-                memcpy(buf, &fmt_frame->frame_rates[idx],
+            for (i = 0; i < fmt_frame->frame.num_rates; i++) {
+                memcpy(buf, &fmt_frame->frame_rates[i],
                        sizeof(virtio_video_format_range));
                 buf += sizeof(virtio_video_format_range);
             }
