@@ -256,7 +256,8 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
 
         len = sizeof(virtio_video_mem_entry) * num_entries;
         entries = g_malloc(len);
-        if (unlikely(iov_to_buf(elem->out_sg, elem->out_num, 1, entries, len) != len)) {
+        if (unlikely(iov_to_buf(elem->out_sg, elem->out_num,
+                                sizeof(*req), entries, len) != len)) {
             virtio_error(vdev, "virtio-video resource create data incorrect");
             g_free(entries);
             g_free(res);
