@@ -1380,18 +1380,19 @@ size_t virtio_video_msdk_dec_query_control(VirtIOVideo *v,
             goto error;
         }
         if (fmt->profile.num == 0) {
-            error_report("CMD_QUERY_CONTROL: format %s does not support profiles",
-                         virtio_video_format_name(query->format));
+            error_report("CMD_QUERY_CONTROL: format %s does not support "
+                         "profiles", virtio_video_format_name(query->format));
             goto error;
         }
 
-        len += sizeof(virtio_video_query_control_resp_profile) +
-               sizeof(uint32_t) * fmt->profile.num;
+        len += sizeof(*resp_profile) + sizeof(uint32_t) * fmt->profile.num;
         *resp = g_malloc0(len);
+
         resp_profile = resp_buf = (char *)(*resp) + sizeof(**resp);
         resp_profile->num = fmt->profile.num;
-        resp_buf += sizeof(virtio_video_query_control_resp_profile);
-        memcpy(resp_buf, fmt->profile.values, sizeof(uint32_t) * fmt->profile.num);
+        resp_buf += sizeof(*resp_profile);
+        memcpy(resp_buf, fmt->profile.values,
+               sizeof(uint32_t) * fmt->profile.num);
 
         DPRINTF("CMD_QUERY_CONTROL: format %s reported %d supported profiles\n",
                 virtio_video_format_name(query->format), fmt->profile.num);
@@ -1413,17 +1414,17 @@ size_t virtio_video_msdk_dec_query_control(VirtIOVideo *v,
             goto error;
         }
         if (fmt->level.num == 0) {
-            error_report("CMD_QUERY_CONTROL: format %s does not support levels",
-                         virtio_video_format_name(query->format));
+            error_report("CMD_QUERY_CONTROL: format %s does not support "
+                         "levels", virtio_video_format_name(query->format));
             goto error;
         }
 
-        len += sizeof(virtio_video_query_control_resp_level) +
-               sizeof(uint32_t) * fmt->level.num;
+        len += sizeof(*resp_level) + sizeof(uint32_t) * fmt->level.num;
         *resp = g_malloc0(len);
+
         resp_level = resp_buf = (char *)(*resp) + sizeof(**resp);
         resp_level->num = fmt->level.num;
-        resp_buf += sizeof(virtio_video_query_control_resp_level);
+        resp_buf += sizeof(*resp_level);
         memcpy(resp_buf, fmt->level.values, sizeof(uint32_t) * fmt->level.num);
 
         DPRINTF("CMD_QUERY_CONTROL: format %s reported %d supported levels\n",
@@ -1431,10 +1432,12 @@ size_t virtio_video_msdk_dec_query_control(VirtIOVideo *v,
         break;
     }
     case VIRTIO_VIDEO_CONTROL_BITRATE:
-        error_report("CMD_QUERY_CONTROL: virtio-video-dec does not support bitrate");
+        error_report("CMD_QUERY_CONTROL: virtio-video-dec does not support "
+                     "bitrate");
         goto error;
     default:
-        error_report("CMD_QUERY_CONTROL: unsupported control type 0x%x", req->control);
+        error_report("CMD_QUERY_CONTROL: unsupported control type 0x%x",
+                     req->control);
         goto error;
     }
 
@@ -1523,8 +1526,8 @@ size_t virtio_video_msdk_dec_get_control(VirtIOVideo *v,
 error:
         *resp = g_malloc(sizeof(**resp));
         (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_UNSUPPORTED_CONTROL;
-        error_report("CMD_GET_CONTROL: stream %d does not support control type 0x%x",
-                     stream->id, req->control);
+        error_report("CMD_GET_CONTROL: stream %d does not support "
+                     "control type 0x%x", stream->id, req->control);
         break;
     }
 
