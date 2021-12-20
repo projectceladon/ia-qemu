@@ -85,7 +85,7 @@ typedef enum virtio_video_stream_state {
 typedef union VirtIOVideoResourceSlice {
     struct {
         void *hva;
-        uint32_t len;
+        hwaddr len;
     } page;
     struct {
         uint64_t uuid_low;

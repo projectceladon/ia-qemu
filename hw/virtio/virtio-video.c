@@ -148,6 +148,42 @@ static size_t virtio_video_process_cmd_stream_drain(VirtIODevice *vdev,
     }
 }
 
+static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
+    virtio_video_mem_entry *entries, bool output)
+{
+    VirtIOVideoResourceSlice *slice;
+    hwaddr len;
+    int i, j, n;
+
+    for (i = 0, n = 0; i < resource->num_planes; i++) {
+        resource->slices[i] = g_new0(VirtIOVideoResourceSlice,
+                                     resource->num_entries[i]);
+        for (j = 0; j < resource->num_entries[i]; j++, n++) {
+            len = entries[n].length;
+            slice = &resource->slices[i][j];
+
+            slice->page.hva = cpu_physical_memory_map(entries[n].addr,
+                                                      &len, output);
+            slice->page.len = len;
+            if (len < entries[n].length) {
+                cpu_physical_memory_unmap(slice->page.hva, len, false, 0);
+                goto error;
+            }
+        }
+    }
+    return 0;
+
+error:
+    for (n = 0; n < j; n++) {
+        slice = &resource->slices[i][n];
+        cpu_physical_memory_unmap(slice->page.hva, slice->page.len, false, 0);
+    }
+    for (n = 0; n <= i; n++) {
+        g_free(resource->slices[n]);
+    }
+    return -1;
+}
+
 static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     virtio_video_resource_create *req, virtio_video_cmd_hdr *resp,
     VirtQueueElement *elem)
@@ -157,7 +193,7 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     VirtIOVideoResource *res;
     virtio_video_mem_type mem_type;
     size_t len, num_entries = 0;
-    int i, j, dir;
+    int i, dir;
 
     resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
     resp->stream_id = req->hdr.stream_id;
@@ -216,7 +252,6 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     case VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES:
     {
         virtio_video_mem_entry *entries = NULL;
-        MemoryRegionSection section;
 
         len = sizeof(virtio_video_mem_entry) * num_entries;
         entries = g_malloc(len);
@@ -227,18 +262,13 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
             return 0;
         }
 
-        for (i = 0, num_entries = 0; i < res->num_planes; i++) {
-            res->slices[i] = g_new0(VirtIOVideoResourceSlice, res->num_entries[i]);
-            for (j = 0; j < res->num_entries[i]; j++) {
-                section = memory_region_find(get_system_memory(),
-                                             entries[num_entries].addr,
-                                             entries[num_entries].length);
-                res->slices[i][j].page.hva = memory_region_get_ram_ptr(section.mr) +
-                                             section.offset_within_region;
-                res->slices[i][j].page.len = entries[num_entries].length;
-                num_entries++;
-                memory_region_unref(section.mr);
-            }
+        if (virtio_video_resource_create_page(res, entries,
+                    req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) < 0) {
+            resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+            error_report("CMD_RESOURCE_CREATE: stream %d failed to map guest memory",
+                         stream->id);
+            g_free(entries);
+            return len;
         }
         g_free(entries);
         break;

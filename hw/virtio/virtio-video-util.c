@@ -165,12 +165,18 @@ void virtio_video_init_format(VirtIOVideoFormat *fmt, uint32_t format)
 void virtio_video_destroy_resource_list(VirtIOVideoStream *stream, bool in)
 {
     VirtIOVideoResource *res, *tmp_res;
-    int i, dir = in ? VIRTIO_VIDEO_RESOURCE_LIST_INPUT :
-                      VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT;
+    VirtIOVideoResourceSlice *slice;
+    int i, j, dir = in ? VIRTIO_VIDEO_RESOURCE_LIST_INPUT :
+                         VIRTIO_VIDEO_RESOURCE_LIST_OUTPUT;
 
     QLIST_FOREACH_SAFE(res, &stream->resource_list[dir], next, tmp_res) {
         QLIST_REMOVE(res, next);
         for (i = 0; i < res->num_planes; i++) {
+            for (j = 0; j < res->num_entries[i]; j++) {
+                slice = &res->slices[i][j];
+                cpu_physical_memory_unmap(slice->page.hva, slice->page.len,
+                                          !in, slice->page.len);
+            }
             g_free(res->slices[i]);
         }
         g_free(res);
