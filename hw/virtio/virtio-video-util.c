@@ -327,7 +327,7 @@ static int virtio_video_memcpy_singlebuffer(VirtIOVideoResource *res,
     }
 
     if (size > 0) {
-        error_report("CMD_RESOURCE_QUEUE (async): output buffer insufficient "
+        error_report("CMD_RESOURCE_QUEUE: output buffer insufficient "
                      "to contain the frame");
         return -1;
     }
@@ -353,7 +353,7 @@ static int virtio_video_memcpy_perplane(VirtIOVideoResource *res,
     }
 
     if (size > 0) {
-        error_report("CMD_RESOURCE_QUEUE (async): output buffer insufficient "
+        error_report("CMD_RESOURCE_QUEUE: output buffer insufficient "
                      "to contain the frame");
         return -1;
     }
@@ -423,7 +423,7 @@ int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work)
     VirtIODevice *vdev = VIRTIO_DEVICE(v);
     virtio_video_resource_queue_resp resp = {0};
 
-    resp.hdr.type = work->queue_type;
+    resp.hdr.type = VIRTIO_VIDEO_RESP_OK_NODATA;
     resp.hdr.stream_id = stream->id;
     resp.timestamp = work->timestamp;
     resp.flags = work->flags;
@@ -441,6 +441,9 @@ int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work)
     virtqueue_push(v->cmd_vq, work->elem, sizeof(resp));
     virtio_notify(vdev, v->cmd_vq);
 
+    DPRINTF("CMD_RESOURCE_QUEUE: stream %d dequeued %s resource %d\n",
+            stream->id, work->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT ?
+            "input" : "output", work->resource->id);
     g_free(work->elem);
     g_free(work);
     return 0;
