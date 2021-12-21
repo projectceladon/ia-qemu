@@ -188,7 +188,8 @@ int virtio_video_msdk_init_param(mfxVideoParam *param, uint32_t format)
     return 0;
 }
 
-int virtio_video_msdk_init_param_dec(mfxVideoParam *param, VirtIOVideoStream *stream)
+int virtio_video_msdk_init_param_dec(mfxVideoParam *param,
+    VirtIOVideoStream *stream)
 {
 
     if (virtio_video_msdk_init_param(param, stream->in.params.format) < 0)
@@ -218,10 +219,11 @@ int virtio_video_msdk_init_param_dec(mfxVideoParam *param, VirtIOVideoStream *st
     return 0;
 }
 
-int virtio_video_msdk_init_vpp_param_dec(mfxVideoParam *param, mfxVideoParam *vpp_param,
-    VirtIOVideoStream *stream)
+int virtio_video_msdk_init_vpp_param_dec(mfxVideoParam *param,
+    mfxVideoParam *vpp_param, VirtIOVideoStream *stream)
 {
-    uint32_t msdk_format = virtio_video_format_to_msdk(stream->out.params.format);
+    uint32_t msdk_format =
+        virtio_video_format_to_msdk(stream->out.params.format);
 
     if (param == NULL || vpp_param == NULL || msdk_format == 0)
         return -1;
@@ -302,17 +304,16 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
         surface->surface.Info = *info;
         switch (info->FourCC) {
         case MFX_FOURCC_RGB4:
-            surface->surface.Data.A = surface_buf;
-            surface->surface.Data.R = surface->surface.Data.A + width * height;
-            surface->surface.Data.G = surface->surface.Data.R + width * height;
-            surface->surface.Data.B = surface->surface.Data.G + width * height;
-            surface->surface.Data.PitchLow = width;
+            surface->surface.Data.B = surface_buf;
+            surface->surface.Data.G = surface->surface.Data.B + 1;
+            surface->surface.Data.R = surface->surface.Data.B + 2;
+            surface->surface.Data.A = surface->surface.Data.B + 3;
+            surface->surface.Data.PitchLow = width * 4;
             surface->surface.Data.PitchHigh = 0;
             break;
         case MFX_FOURCC_NV12:
             surface->surface.Data.Y = surface_buf;
-            surface->surface.Data.U = surface->surface.Data.Y + width * height;
-            surface->surface.Data.V = surface->surface.Data.U + 1;
+            surface->surface.Data.UV = surface->surface.Data.Y + width * height;
             surface->surface.Data.PitchLow = width;
             surface->surface.Data.PitchHigh = 0;
             break;
@@ -346,7 +347,7 @@ static void virtio_video_msdk_uninit_surface(MsdkSurface *surface)
 {
     switch (surface->surface.Info.FourCC) {
     case MFX_FOURCC_RGB4:
-        g_free(surface->surface.Data.A);
+        g_free(surface->surface.Data.B);
         break;
     case MFX_FOURCC_NV12:
     case MFX_FOURCC_IYUV:
@@ -373,7 +374,8 @@ void virtio_video_msdk_uninit_surface_pools(MsdkSession *session)
     }
 }
 
-int virtio_video_msdk_output_surface(MsdkSurface *surface, VirtIOVideoResource *resource)
+int virtio_video_msdk_output_surface(MsdkSurface *surface,
+    VirtIOVideoResource *resource)
 {
     mfxFrameSurface1 *frame = &surface->surface;
     uint32_t width, height;
@@ -383,13 +385,10 @@ int virtio_video_msdk_output_surface(MsdkSurface *surface, VirtIOVideoResource *
     height = frame->Info.Height;
     switch (frame->Info.FourCC) {
     case MFX_FOURCC_RGB4:
-        if (resource->num_planes != 4)
+        if (resource->num_planes != 1)
             goto error;
 
-        ret += virtio_video_memcpy(resource, 0, frame->Data.A, width * height);
-        ret += virtio_video_memcpy(resource, 1, frame->Data.R, width * height);
-        ret += virtio_video_memcpy(resource, 2, frame->Data.G, width * height);
-        ret += virtio_video_memcpy(resource, 3, frame->Data.B, width * height);
+        ret += virtio_video_memcpy(resource, 0, frame->Data.B, width * height * 4);
         break;
     case MFX_FOURCC_NV12:
         if (resource->num_planes != 2)
@@ -426,7 +425,8 @@ error:
     return -1;
 }
 
-static const mfxPluginUID* virtio_video_msdk_find_plugin(uint32_t format, bool encode)
+static const mfxPluginUID* virtio_video_msdk_find_plugin(uint32_t format,
+    bool encode)
 {
     if (encode) {
         switch (format) {
@@ -456,7 +456,8 @@ static const mfxPluginUID* virtio_video_msdk_find_plugin(uint32_t format, bool e
 }
 
 /* Load plugin if required */
-void virtio_video_msdk_load_plugin(mfxSession session, uint32_t format, bool encode)
+void virtio_video_msdk_load_plugin(mfxSession session, uint32_t format,
+    bool encode)
 {
     const mfxPluginUID *pluginUID;
 
@@ -470,7 +471,8 @@ void virtio_video_msdk_load_plugin(mfxSession session, uint32_t format, bool enc
     }
 }
 
-void virtio_video_msdk_unload_plugin(mfxSession session, uint32_t format, bool encode)
+void virtio_video_msdk_unload_plugin(mfxSession session, uint32_t format,
+    bool encode)
 {
     const mfxPluginUID *pluginUID;
 
@@ -499,7 +501,8 @@ int virtio_video_msdk_init_handle(VirtIOVideo *v)
 
     msdk->va_handle = vaGetDisplayDRM(msdk->drm_fd);
     if (!msdk->va_handle) {
-        error_report("Failed to get VA display for %s", VIRTIO_VIDEO_DRM_DEVICE);
+        error_report("Failed to get VA display for %s",
+                     VIRTIO_VIDEO_DRM_DEVICE);
         close(msdk->drm_fd);
         g_free(msdk);
         return -1;

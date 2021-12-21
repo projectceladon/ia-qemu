@@ -171,7 +171,7 @@ bool virtio_video_format_is_valid(uint32_t format, uint32_t num_planes)
     switch (format) {
     case VIRTIO_VIDEO_FORMAT_ARGB8888:
     case VIRTIO_VIDEO_FORMAT_BGRA8888:
-        return num_planes == 4;
+        return num_planes == 1;
     case VIRTIO_VIDEO_FORMAT_NV12:
         return num_planes == 2;
     case VIRTIO_VIDEO_FORMAT_YUV420:
@@ -192,19 +192,15 @@ bool virtio_video_format_is_valid(uint32_t format, uint32_t num_planes)
 
 bool virtio_video_param_fixup(virtio_video_params *params)
 {
-    int i;
-
     switch (params->format) {
     case VIRTIO_VIDEO_FORMAT_ARGB8888:
     case VIRTIO_VIDEO_FORMAT_BGRA8888:
-        if (params->num_planes == 4)
+        if (params->num_planes == 1)
             break;
-        params->num_planes = 4;
-        for (i = 0; i < 4; i++) {
-            params->plane_formats[0].plane_size =
-                params->frame_width * params->frame_height;
-            params->plane_formats[0].stride = params->frame_width;
-        }
+        params->num_planes = 1;
+        params->plane_formats[0].plane_size =
+            params->frame_width * params->frame_height * 4;
+        params->plane_formats[0].stride = params->frame_width * 4;
         return true;
     case VIRTIO_VIDEO_FORMAT_NV12:
         if (params->num_planes == 2)
