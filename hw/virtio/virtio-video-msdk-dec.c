@@ -1283,75 +1283,94 @@ size_t virtio_video_msdk_dec_set_params(VirtIOVideo *v,
         return len;
 
     resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
+    qemu_mutex_lock(&stream->mutex);
     switch (req->params.queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
-        if (stream->state == STREAM_STATE_INIT) {
-            /*
-             * The plane formats reflect frontend's organization of input
-             * bitstream. It will then be read through CMD_GET_PARAMS in case
-             * the backend does any adjustment, so just keep it.
-             *
-             * TODO: investigate if we should ignore it and just provide the
-             * frontend a default `plane_size` instead of 0.
-             */
-            stream->in.params.format = req->params.format;
-            stream->in.params.num_planes = req->params.num_planes;
-            for (i = 0; i < req->params.num_planes; i++) {
-                stream->in.params.plane_formats[i].plane_size =
-                    req->params.plane_formats[i].plane_size;
-                stream->in.params.plane_formats[i].stride =
-                    req->params.plane_formats[i].stride;
-            }
-            switch (req->params.format) {
-            case VIRTIO_VIDEO_FORMAT_H264:
-                stream->control.profile = VIRTIO_VIDEO_PROFILE_H264_BASELINE;
-                stream->control.level = VIRTIO_VIDEO_LEVEL_H264_1_0;
-                break;
-            case VIRTIO_VIDEO_FORMAT_HEVC:
-                stream->control.profile = VIRTIO_VIDEO_PROFILE_HEVC_MAIN;
-                stream->control.level = VIRTIO_VIDEO_LEVEL_HEVC_1_0;
-                break;
-            case VIRTIO_VIDEO_FORMAT_VP8:
-                stream->control.profile = VIRTIO_VIDEO_PROFILE_VP8_PROFILE0;
-                break;
-            case VIRTIO_VIDEO_FORMAT_VP9:
-                stream->control.profile = VIRTIO_VIDEO_PROFILE_VP9_PROFILE0;
-                break;
-            default:
-                break;
-            }
-            if (req->params.num_planes > 1) {
-                DPRINTF("CMD_SET_PARAMS: stream %d num_planes of input queue set to %d, should be 1\n",
-                        stream->id, req->params.num_planes);
-            }
-        } else {
+        if (stream->state != STREAM_STATE_INIT) {
+            resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
             error_report("CMD_SET_PARAMS: stream %d is not allowed to change "
                          "param after decoding has started", stream->id);
+            break;
         }
+
+        if (!virtio_video_format_is_codec(req->params.format)) {
+            error_report("CMD_SET_PARAMS: stream %d try to set decoder "
+                         "input queue format to %s", stream->id,
+                         virtio_video_format_name(req->params.format));
+            break;
+        }
+
+        stream->in.params.format = req->params.format;
+        stream->control.profile = 0;
+        stream->control.level = 0;
+        switch (req->params.format) {
+        case VIRTIO_VIDEO_FORMAT_H264:
+            stream->control.profile = VIRTIO_VIDEO_PROFILE_H264_BASELINE;
+            stream->control.level = VIRTIO_VIDEO_LEVEL_H264_1_0;
+            break;
+        case VIRTIO_VIDEO_FORMAT_HEVC:
+            stream->control.profile = VIRTIO_VIDEO_PROFILE_HEVC_MAIN;
+            stream->control.level = VIRTIO_VIDEO_LEVEL_HEVC_1_0;
+            break;
+        case VIRTIO_VIDEO_FORMAT_VP8:
+            stream->control.profile = VIRTIO_VIDEO_PROFILE_VP8_PROFILE0;
+            break;
+        case VIRTIO_VIDEO_FORMAT_VP9:
+            stream->control.profile = VIRTIO_VIDEO_PROFILE_VP9_PROFILE0;
+            break;
+        default:
+            break;
+        }
+        stream->in.params.num_planes = req->params.num_planes;
+        stream->in.params.plane_formats[0] = req->params.plane_formats[0];
+
+        if (virtio_video_param_fixup(&stream->in.params)) {
+            DPRINTF("CMD_SET_PARAMS: incompatible parameters, "
+                    "fixed up automatically\n");
+        }
+        DPRINTF("CMD_SET_PARAMS: stream %d set input format to %s\n",
+                stream->id, virtio_video_format_name(req->params.format));
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
-        /* Output parameters should be derived from input bitstream */
-        /* TODO: figure out if we need to process output crop */
-        if (stream->state == STREAM_STATE_INIT) {
-            /* TODO: do we need to do sanity check? */
-            stream->out.params.format = req->params.format;
-            stream->out.params.num_planes = req->params.num_planes;
-            for (i = 0; i < req->params.num_planes; i++) {
-                stream->out.params.plane_formats[i].plane_size =
-                    req->params.plane_formats[i].plane_size;
-                stream->out.params.plane_formats[i].stride =
-                    req->params.plane_formats[i].stride;
-            }
-        } else {
+        if (stream->state != STREAM_STATE_INIT) {
+            resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
             error_report("CMD_SET_PARAMS: stream %d is not allowed to change "
                          "param after decoding has started", stream->id);
         }
+
+        if (virtio_video_format_is_codec(req->params.format)) {
+            error_report("CMD_SET_PARAMS: stream %d try to set decoder "
+                         "output queue format to %s", stream->id,
+                         virtio_video_format_name(req->params.format));
+            break;
+        }
+
+        /*
+         * Output parameters should be derived from input bitstream. The
+         * frontend is only allowed to change pixel format.
+         *
+         * TODO: figure out if we should also allow setting output crop
+         */
+        stream->out.params.format = req->params.format;
+        stream->out.params.num_planes = req->params.num_planes;
+        for (i = 0; i < req->params.num_planes; i++) {
+            stream->out.params.plane_formats[i] = req->params.plane_formats[i];
+        }
+
+        if (virtio_video_param_fixup(&stream->out.params)) {
+            DPRINTF("CMD_SET_PARAMS: incompatible parameters, "
+                    "fixed up automatically\n");
+        }
+        DPRINTF("CMD_SET_PARAMS: stream %d set output format to %s\n",
+                stream->id, virtio_video_format_name(req->params.format));
         break;
     default:
-        resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+        resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
+        error_report("CMD_SET_PARAMS: invalid queue type 0x%x",
+                     req->params.queue_type);
         break;
     }
-
+    qemu_mutex_unlock(&stream->mutex);
     return len;
 }
 
@@ -1675,7 +1694,7 @@ int virtio_video_init_msdk_dec(VirtIOVideo *v)
                 in_fmt_frame->frame_rates[0].step);
 
         /* Query supported profiles */
-        if (virtio_video_profile_range(in_format, &ctrl_min, &ctrl_max) < 0)
+        if (virtio_video_format_profile_range(in_format, &ctrl_min, &ctrl_max) < 0)
             goto out;
         in_fmt->profile.values = g_malloc0(sizeof(uint32_t) * (ctrl_max - ctrl_min) + 1);
         for (ctrl = ctrl_min; ctrl <= ctrl_max; ctrl++) {
@@ -1691,7 +1710,7 @@ int virtio_video_init_msdk_dec(VirtIOVideo *v)
             g_free(in_fmt->profile.values);
 
         /* Query supported levels */
-        if (virtio_video_level_range(in_format, &ctrl_min, &ctrl_max) < 0)
+        if (virtio_video_format_level_range(in_format, &ctrl_min, &ctrl_max) < 0)
             goto out;
         in_fmt->level.values = g_malloc0(sizeof(uint32_t) * (ctrl_max - ctrl_min) + 1);
         param.mfx.CodecProfile = 0;

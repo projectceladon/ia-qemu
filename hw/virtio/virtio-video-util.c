@@ -90,7 +90,8 @@ const char *virtio_video_format_name(uint32_t format) {
     return "UNKNOWN_FORMAT";
 }
 
-int virtio_video_profile_range(uint32_t format, uint32_t *min, uint32_t *max)
+int virtio_video_format_profile_range(uint32_t format,
+    uint32_t *min, uint32_t *max)
 {
     if (min == NULL || max == NULL) {
         return -1;
@@ -120,7 +121,8 @@ int virtio_video_profile_range(uint32_t format, uint32_t *min, uint32_t *max)
     return 0;
 }
 
-int virtio_video_level_range(uint32_t format, uint32_t *min, uint32_t *max)
+int virtio_video_format_level_range(uint32_t format,
+    uint32_t *min, uint32_t *max)
 {
     if (min == NULL || max == NULL) {
         return -1;
@@ -140,6 +142,87 @@ int virtio_video_level_range(uint32_t format, uint32_t *min, uint32_t *max)
     }
 
     return 0;
+}
+
+bool virtio_video_format_is_codec(uint32_t format)
+{
+    switch (format) {
+    case VIRTIO_VIDEO_FORMAT_ARGB8888:
+    case VIRTIO_VIDEO_FORMAT_BGRA8888:
+    case VIRTIO_VIDEO_FORMAT_NV12:
+    case VIRTIO_VIDEO_FORMAT_YUV420:
+    case VIRTIO_VIDEO_FORMAT_YVU420:
+        return false;
+    case VIRTIO_VIDEO_FORMAT_MPEG2:
+    case VIRTIO_VIDEO_FORMAT_MPEG4:
+    case VIRTIO_VIDEO_FORMAT_H264:
+    case VIRTIO_VIDEO_FORMAT_HEVC:
+    case VIRTIO_VIDEO_FORMAT_VP8:
+    case VIRTIO_VIDEO_FORMAT_VP9:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool virtio_video_param_fixup(virtio_video_params *params)
+{
+    int i;
+
+    switch (params->format) {
+    case VIRTIO_VIDEO_FORMAT_ARGB8888:
+    case VIRTIO_VIDEO_FORMAT_BGRA8888:
+        if (params->num_planes == 4)
+            break;
+        params->num_planes = 4;
+        for (i = 0; i < 4; i++) {
+            params->plane_formats[0].plane_size =
+                params->frame_width * params->frame_height;
+            params->plane_formats[0].stride = params->frame_width;
+        }
+        return true;
+    case VIRTIO_VIDEO_FORMAT_NV12:
+        if (params->num_planes == 2)
+            break;
+        params->num_planes = 2;
+        params->plane_formats[0].plane_size =
+            params->frame_width * params->frame_height;
+        params->plane_formats[0].stride = params->frame_width;
+        params->plane_formats[1].plane_size =
+            params->frame_width * params->frame_height / 2;
+        params->plane_formats[1].stride = params->frame_width;
+        return true;
+    case VIRTIO_VIDEO_FORMAT_YUV420:
+    case VIRTIO_VIDEO_FORMAT_YVU420:
+        if (params->num_planes == 3)
+            break;
+        params->num_planes = 3;
+        params->plane_formats[0].plane_size =
+            params->frame_width * params->frame_height;
+        params->plane_formats[0].stride = params->frame_width;
+        params->plane_formats[1].plane_size =
+            params->frame_width * params->frame_height / 4;
+        params->plane_formats[1].stride = params->frame_width / 2;
+        params->plane_formats[2].plane_size =
+            params->frame_width * params->frame_height / 4;
+        params->plane_formats[2].stride = params->frame_width / 2;
+        return true;
+    case VIRTIO_VIDEO_FORMAT_MPEG2:
+    case VIRTIO_VIDEO_FORMAT_MPEG4:
+    case VIRTIO_VIDEO_FORMAT_H264:
+    case VIRTIO_VIDEO_FORMAT_HEVC:
+    case VIRTIO_VIDEO_FORMAT_VP8:
+    case VIRTIO_VIDEO_FORMAT_VP9:
+        /* multiplane for bitstream is undefined */
+        if (params->num_planes == 1)
+            break;
+        params->num_planes = 1;
+        return true;
+    default:
+        break;
+    }
+
+    return false;
 }
 
 void virtio_video_init_format(VirtIOVideoFormat *fmt, uint32_t format)
