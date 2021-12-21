@@ -658,7 +658,9 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
 
     /**
      * The output of decode device is frames of some pixel format. We choose
-     * NV12 as the default format but this can be changed by frontend.
+     * ARGB8 as the default format because virtio-gpu currently only support
+     * this format. The frontend can change the format later, but if it uses
+     * the default value, it can still work with virtio-gpu.
      *
      * @format:                     the default output format of MediaSDK is
      *                              NV12, to support other formats we need to
@@ -686,7 +688,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
      *                              for device output.
      */
     stream->out.params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT;
-    stream->out.params.format = VIRTIO_VIDEO_FORMAT_NV12;
+    stream->out.params.format = VIRTIO_VIDEO_FORMAT_ARGB8888;
     stream->out.params.min_buffers = 1;
     stream->out.params.max_buffers = 32;
     stream->out.params.frame_rate = fmt->frames.lh_first->frame_rates[0].max;
@@ -696,13 +698,11 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     stream->out.params.crop.top = 0;
     stream->out.params.crop.width = stream->out.params.frame_width;
     stream->out.params.crop.height = stream->out.params.frame_height;
-    stream->out.params.num_planes = 2;
+    stream->out.params.num_planes = 1;
     stream->out.params.plane_formats[0].plane_size =
-        stream->out.params.frame_width * stream->out.params.frame_height;
-    stream->out.params.plane_formats[0].stride = stream->out.params.frame_width;
-    stream->out.params.plane_formats[1].plane_size =
-        stream->out.params.frame_width * stream->out.params.frame_height / 2;
-    stream->out.params.plane_formats[1].stride = stream->out.params.frame_width;
+        stream->out.params.frame_width * stream->out.params.frame_height * 4;
+    stream->out.params.plane_formats[0].stride =
+        stream->out.params.frame_width * 4;
 
     /* Initialize control values */
     stream->control.bitrate = 0;
