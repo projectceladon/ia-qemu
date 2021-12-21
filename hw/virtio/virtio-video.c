@@ -191,12 +191,13 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *stream;
-    VirtIOVideoResource *res;
+    VirtIOVideoResource *resource;
+    virtio_video_format format;
     virtio_video_mem_type mem_type;
     size_t len, num_entries = 0;
     int i, dir;
 
-    resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
+    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
@@ -212,64 +213,87 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
 
     switch (req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
+        format = stream->in.params.format;
         mem_type = stream->in.mem_type;
         dir = VIRTIO_VIDEO_QUEUE_INPUT;
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
+        format = stream->out.params.format;
         mem_type = stream->out.mem_type;
         dir = VIRTIO_VIDEO_QUEUE_OUTPUT;
         break;
     default:
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
+        error_report("CMD_RESOURCE_CREATE: invalid queue type 0x%x",
+                     req->queue_type);
         return len;
     }
 
-    QLIST_FOREACH(res, &stream->resource_list[dir], next) {
-        if (res->id == req->resource_id) {
+    QLIST_FOREACH(resource, &stream->resource_list[dir], next) {
+        if (resource->id == req->resource_id) {
             resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
+            error_report("CMD_RESOURCE_CREATE: stream %d resource %d "
+                         "already created", stream->id, resource->id);
             return len;
         }
     }
 
-    /* Frontend will not set planes_layout sometimes, so do not return an error. */
-    if (req->planes_layout != VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER &&
-            req->planes_layout != VIRTIO_VIDEO_PLANES_LAYOUT_PER_PLANE) {
-        VIRTVID_WARN("    %s: stream 0x%x, create resource with invalid planes layout 0x%x",
-                __func__, stream->id, req->planes_layout);
+    if (!virtio_video_format_is_valid(format, req->num_planes)) {
+        resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
+        error_report("CMD_RESOURCE_CREATE: stream %d try to create a resource"
+                     "with %d planes for %s queue whose format is %s",
+                     stream->id, req->num_planes,
+                     dir == VIRTIO_VIDEO_QUEUE_INPUT ? "input" : "output",
+                     virtio_video_format_name(format));
+        return len;
     }
+
+    /* Frontend will not set planes_layout sometimes, try to fix it. */
+    if (req->planes_layout != VIRTIO_VIDEO_PLANES_LAYOUT_PER_PLANE &&
+            req->planes_layout != VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER) {
+        DPRINTF("CMD_RESOURCE_CREATE: stream %d meet invalid "
+                "planes layout (0x%x), fixed up automatically\n",
+                stream->id, req->planes_layout);
+        if (mem_type == VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES)
+            req->planes_layout = VIRTIO_VIDEO_PLANES_LAYOUT_PER_PLANE;
+        else
+            req->planes_layout = VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER;
+    }
+
+    resource = g_new0(VirtIOVideoResource, 1);
+    resource->id = req->resource_id;
+    resource->planes_layout = req->planes_layout;
+    resource->num_planes = req->num_planes;
+    memcpy(&resource->plane_offsets, &req->plane_offsets,
+           sizeof(resource->plane_offsets));
+    memcpy(&resource->num_entries, &req->num_entries,
+           sizeof(resource->num_entries));
 
     for (i = 0; i < req->num_planes; i++) {
         num_entries += req->num_entries[i];
     }
-
-    res = g_new0(VirtIOVideoResource, 1);
-    res->id = req->resource_id;
-    res->planes_layout = req->planes_layout;
-    res->num_planes = req->num_planes;
-    memcpy(&res->plane_offsets, &req->plane_offsets, sizeof(res->plane_offsets));
-    memcpy(&res->num_entries, &req->num_entries, sizeof(res->num_entries));
-
     switch (mem_type) {
     case VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES:
     {
-        virtio_video_mem_entry *entries = NULL;
+        virtio_video_mem_entry *entries;
+        size_t size;
 
-        len = sizeof(virtio_video_mem_entry) * num_entries;
-        entries = g_malloc(len);
+        size = sizeof(virtio_video_mem_entry) * num_entries;
+        entries = g_malloc(size);
         if (unlikely(iov_to_buf(elem->out_sg, elem->out_num,
-                                sizeof(*req), entries, len) != len)) {
+                                sizeof(*req), entries, size) != size)) {
             virtio_error(vdev, "virtio-video resource create data incorrect");
             g_free(entries);
-            g_free(res);
+            g_free(resource);
             return 0;
         }
 
-        if (virtio_video_resource_create_page(res, entries,
+        if (virtio_video_resource_create_page(resource, entries,
                     req->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT) < 0) {
-            resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
-            error_report("CMD_RESOURCE_CREATE: stream %d failed to map guest memory",
-                         stream->id);
+            error_report("CMD_RESOURCE_CREATE: stream %d failed to "
+                         "map guest memory", stream->id);
             g_free(entries);
+            g_free(resource);
             return len;
         }
         g_free(entries);
@@ -279,7 +303,8 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     {
         /* TODO: support object memory type */
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
-        VIRTVID_ERROR("%s: Unsupported memory type (object)", __func__);
+        error_report("CMD_RESOURCE_CREATE: stream %d unsupported "
+                     "memory type (object)", stream->id);
         return len;
     }
     default:
@@ -287,8 +312,11 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
         return len;
     }
 
-    QLIST_INSERT_HEAD(&stream->resource_list[dir], res, next);
-    return sizeof(*resp);
+    QLIST_INSERT_HEAD(&stream->resource_list[dir], resource, next);
+    DPRINTF("CMD_RESOURCE_CREATE: stream %d created %s resource %d\n",
+            stream->id, dir == VIRTIO_VIDEO_QUEUE_INPUT ? "input" : "output",
+            resource->id);
+    return len;
 }
 
 static size_t virtio_video_process_cmd_resource_queue(VirtIODevice *vdev,
@@ -436,7 +464,8 @@ static int virtio_video_process_command(VirtIODevice *vdev,
     } while (0)
 
     CMD_GET_REQ(&hdr, sizeof(hdr));
-    DPRINTF("command %s, stream %d\n", virtio_video_cmd_name(hdr.type), hdr.stream_id);
+    DPRINTF("command %s, stream %d\n", virtio_video_cmd_name(hdr.type),
+                                       hdr.stream_id);
 
     switch (hdr.type) {
     case VIRTIO_VIDEO_CMD_QUERY_CAPABILITY:
@@ -498,9 +527,6 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         }
 
         CMD_GET_REQ(&req, sizeof(req));
-        VIRTVID_DEBUG("    queue_type 0x%x, resource_id 0x%x, planes_layout 0x%x, num_planes 0x%x",
-                        req.queue_type, req.resource_id, req.planes_layout, req.num_planes);
-
         len = virtio_video_process_cmd_resource_create(vdev, &req, &resp, elem);
         if (len == 0)
             return -1;

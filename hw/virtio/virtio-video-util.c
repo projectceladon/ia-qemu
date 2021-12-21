@@ -165,6 +165,30 @@ bool virtio_video_format_is_codec(uint32_t format)
     }
 }
 
+bool virtio_video_format_is_valid(uint32_t format, uint32_t num_planes)
+{
+    switch (format) {
+    case VIRTIO_VIDEO_FORMAT_ARGB8888:
+    case VIRTIO_VIDEO_FORMAT_BGRA8888:
+        return num_planes == 4;
+    case VIRTIO_VIDEO_FORMAT_NV12:
+        return num_planes == 2;
+    case VIRTIO_VIDEO_FORMAT_YUV420:
+    case VIRTIO_VIDEO_FORMAT_YVU420:
+        return num_planes == 3;
+    case VIRTIO_VIDEO_FORMAT_MPEG2:
+    case VIRTIO_VIDEO_FORMAT_MPEG4:
+    case VIRTIO_VIDEO_FORMAT_H264:
+    case VIRTIO_VIDEO_FORMAT_HEVC:
+    case VIRTIO_VIDEO_FORMAT_VP8:
+    case VIRTIO_VIDEO_FORMAT_VP9:
+        /* multiplane for bitstream is undefined */
+        return num_planes == 1;
+    default:
+        return false;
+    }
+}
+
 bool virtio_video_param_fixup(virtio_video_params *params)
 {
     int i;
@@ -249,15 +273,26 @@ void virtio_video_destroy_resource_list(VirtIOVideoStream *stream, bool in)
 {
     VirtIOVideoResource *res, *tmp_res;
     VirtIOVideoResourceSlice *slice;
-    int i, j, dir = in ? VIRTIO_VIDEO_QUEUE_INPUT : VIRTIO_VIDEO_QUEUE_OUTPUT;
+    virtio_video_mem_type mem_type;
+    int i, j, dir;
+
+    if (in) {
+        mem_type = stream->in.mem_type;
+        dir = VIRTIO_VIDEO_QUEUE_INPUT;
+    } else {
+        mem_type = stream->out.mem_type;
+        dir = VIRTIO_VIDEO_QUEUE_OUTPUT;
+    }
 
     QLIST_FOREACH_SAFE(res, &stream->resource_list[dir], next, tmp_res) {
         QLIST_REMOVE(res, next);
         for (i = 0; i < res->num_planes; i++) {
             for (j = 0; j < res->num_entries[i]; j++) {
                 slice = &res->slices[i][j];
-                cpu_physical_memory_unmap(slice->page.hva, slice->page.len,
-                                          !in, slice->page.len);
+                if (mem_type == VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES) {
+                    cpu_physical_memory_unmap(slice->page.hva, slice->page.len,
+                                              !in, slice->page.len);
+                } /* TODO: support object memory type */
             }
             g_free(res->slices[i]);
         }
@@ -265,7 +300,8 @@ void virtio_video_destroy_resource_list(VirtIOVideoStream *stream, bool in)
     }
 }
 
-static const char *virtio_video_event_name(uint32_t event) {
+static const char *virtio_video_event_name(uint32_t event)
+{
     switch (event) {
     case VIRTIO_VIDEO_EVENT_ERROR:
         return "ERROR";

@@ -33,6 +33,7 @@ int virtio_video_format_profile_range(uint32_t format,
 int virtio_video_format_level_range(uint32_t format,
                                     uint32_t *min, uint32_t *max);
 bool virtio_video_format_is_codec(uint32_t format);
+bool virtio_video_format_is_valid(uint32_t format, uint32_t num_planes);
 bool virtio_video_param_fixup(virtio_video_params *params);
 
 void virtio_video_init_format(VirtIOVideoFormat *fmt, uint32_t format);
