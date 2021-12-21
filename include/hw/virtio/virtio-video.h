@@ -23,6 +23,9 @@
 #ifndef QEMU_VIRTIO_VIDEO_H
 #define QEMU_VIRTIO_VIDEO_H
 
+#include "mfx/mfxsession.h"
+#include "mfx/mfxstructures.h"
+
 #include "standard-headers/linux/virtio_video.h"
 #include "hw/virtio/virtio.h"
 #include "sysemu/iothread.h"
@@ -153,6 +156,7 @@ struct VirtIOVideoStream {
     virtio_video_stream_state state;
     QemuMutex mutex;
     void *opaque;
+    mfxBitstream bitstream_header;
     QLIST_HEAD(, VirtIOVideoResource) resource_list[VIRTIO_VIDEO_QUEUE_NUM];
     QTAILQ_HEAD(, VirtIOVideoCmd) pending_cmds;
     QTAILQ_HEAD(, VirtIOVideoWork) pending_work;

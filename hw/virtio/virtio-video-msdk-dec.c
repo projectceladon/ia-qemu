@@ -38,6 +38,8 @@ static int virtio_video_decode_parse_header(VirtIOVideoWork *work)
     mfxStatus status;
     mfxVideoParam param = {0}, vpp_param = {0};
     mfxFrameAllocRequest alloc_req, vpp_req[2];
+    int needed_length;
+    unsigned char *new_data;
 
     memset(&alloc_req, 0, sizeof(alloc_req));
     memset(&vpp_req, 0, sizeof(alloc_req) * 2);
@@ -47,7 +49,24 @@ static int virtio_video_decode_parse_header(VirtIOVideoWork *work)
     if (virtio_video_msdk_init_param_dec(&param, stream) < 0)
         return -1;
 
-    status = MFXVideoDECODE_DecodeHeader(m_session->session, &m_frame->bitstream, &param);
+    if (stream->bitstream_header.Data == NULL) {
+        stream->bitstream_header.Data = g_malloc0(m_frame->bitstream.MaxLength);
+        memcpy(stream->bitstream_header.Data, m_frame->bitstream.Data, m_frame->bitstream.MaxLength);
+        stream->bitstream_header.DataOffset = m_frame->bitstream.DataOffset;
+        stream->bitstream_header.DataLength = m_frame->bitstream.DataLength;
+        stream->bitstream_header.MaxLength = m_frame->bitstream.MaxLength;
+    } else {
+        needed_length = stream->bitstream_header.MaxLength + m_frame->bitstream.MaxLength;
+        new_data = realloc(stream->bitstream_header.Data, needed_length);
+        if (new_data) {
+            stream->bitstream_header.Data = new_data;
+            memcpy(stream->bitstream_header.Data + stream->bitstream_header.MaxLength, m_frame->bitstream.Data, m_frame->bitstream.MaxLength);
+            stream->bitstream_header.DataLength += m_frame->bitstream.DataLength;
+            stream->bitstream_header.MaxLength = needed_length;
+        }
+    }
+
+    status = MFXVideoDECODE_DecodeHeader(m_session->session, &stream->bitstream_header, &param);
     if (status != MFX_ERR_NONE) {
         if (status == MFX_ERR_MORE_DATA) {
             work->flags = 0;
@@ -811,6 +830,10 @@ size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
     QLIST_REMOVE(stream, next);
     qemu_mutex_destroy(&stream->mutex);
     g_free(m_session);
+    if (stream->bitstream_header.Data) {
+        g_free(stream->bitstream_header.Data);
+        stream->bitstream_header.Data = NULL;
+    }
     g_free(stream);
 
     resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
@@ -1786,6 +1809,10 @@ void virtio_video_uninit_msdk_dec(VirtIOVideo *v)
         QLIST_REMOVE(stream, next);
         qemu_mutex_destroy(&stream->mutex);
         g_free(m_session);
+        if (stream->bitstream_header.Data) {
+            g_free(stream->bitstream_header.Data);
+            stream->bitstream_header.Data = NULL;
+        }
         g_free(stream);
     }
 
