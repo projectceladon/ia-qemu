@@ -38,6 +38,8 @@ bool virtio_video_param_fixup(virtio_video_params *params);
 
 void virtio_video_init_format(VirtIOVideoFormat *fmt, uint32_t format);
 void virtio_video_destroy_resource_list(VirtIOVideoStream *stream, bool in);
+int virtio_video_memcpy(VirtIOVideoResource *res, uint32_t idx, void *src,
+                        uint32_t size);
 
 int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event);
 int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work);
