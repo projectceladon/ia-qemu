@@ -35,16 +35,10 @@
 
 #ifdef DEBUG_VIRTIO_VIDEO
 #define DPRINTF(fmt, ...) \
-    do { fprintf(stderr, "virtio_video: " fmt, ## __VA_ARGS__); } while (0)
+    do { fprintf(stderr, "virtio-video: " fmt, ## __VA_ARGS__); } while (0)
 #else
 #define DPRINTF(fmt, ...) do { } while (0)
 #endif
-
-/* remove when all converted to new style */
-#define VIRTVID_ERROR(fmt, ...) DPRINTF(fmt"\n", ## __VA_ARGS__)
-#define VIRTVID_WARN(fmt, ...) DPRINTF(fmt"\n", ## __VA_ARGS__)
-#define VIRTVID_DEBUG(fmt, ...) DPRINTF(fmt"\n", ## __VA_ARGS__)
-#define VIRTVID_VERBOSE(fmt, ...) DPRINTF(fmt"\n", ## __VA_ARGS__)
 
 #define TYPE_VIRTIO_VIDEO "virtio-video-device"
 

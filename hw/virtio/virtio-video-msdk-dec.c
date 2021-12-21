@@ -66,28 +66,29 @@ static int virtio_video_decode_parse_header(VirtIOVideoWork *work)
         }
     }
 
-    status = MFXVideoDECODE_DecodeHeader(m_session->session, &stream->bitstream_header, &param);
+    status = MFXVideoDECODE_DecodeHeader(m_session->session,
+                                         &stream->bitstream_header, &param);
     if (status != MFX_ERR_NONE) {
         if (status == MFX_ERR_MORE_DATA) {
             work->flags = 0;
         } else {
-            VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_DecodeHeader failed with err %d",
-                          stream->id, status);
+            error_report("virtio-video-decode/%d MFXVideoDECODE_DecodeHeader "
+                         "failed: %d", stream->id, status);
         }
         return -1;
     }
 
     status = MFXVideoDECODE_QueryIOSurf(m_session->session, &param, &alloc_req);
     if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_QueryIOSurf failed with err %d",
-                      stream->id, status);
+        error_report("virtio-video-decode/%d MFXVideoDECODE_QueryIOSurf "
+                      "failed: %d", stream->id, status);
         return -1;
     }
 
     status = MFXVideoDECODE_Init(m_session->session, &param);
     if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_Init failed with err %d",
-                      stream->id, status);
+        error_report("virtio-video-decode/%d MFXVideoDECODE_Init "
+                      "failed: %d", stream->id, status);
         return -1;
     }
 
@@ -99,15 +100,15 @@ static int virtio_video_decode_parse_header(VirtIOVideoWork *work)
 
     status = MFXVideoVPP_QueryIOSurf(m_session->session, &vpp_param, vpp_req);
     if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoVPP_QueryIOSurf failed with err %d",
-                      stream->id, status);
+        error_report("virtio-video-decode/%d MFXVideoVPP_QueryIOSurf "
+                      "failed: %d", stream->id, status);
         goto error_vpp;
     }
 
     status = MFXVideoVPP_Init(m_session->session, &vpp_param);
     if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoVPP_Init failed with err %d",
-                      stream->id, status);
+        error_report("virtio-video-decode/%d MFXVideoVPP_Init "
+                      "failed: %d", stream->id, status);
         goto error_vpp;
     }
 
@@ -158,7 +159,8 @@ static int virtio_video_decode_submit_one_frame(VirtIOVideoWork *work)
         }
     }
     if (work_surface == NULL) {
-        VIRTVID_ERROR("No available surface in surface pool");
+        error_report("virtio-video: stream %d no available surface "
+                     "in surface pool", stream->id);
         return -1;
     }
 
@@ -176,8 +178,9 @@ static int virtio_video_decode_submit_one_frame(VirtIOVideoWork *work)
         case MFX_ERR_MORE_SURFACE:
         case MFX_ERR_MORE_DATA:
         default:
-            VIRTVID_ERROR("stream 0x%x MFXVideoDECODE_DecodeFrameAsync failed with err %d",
-                          stream->id, status);
+            error_report("virtio-video: stream %d input resource %d "
+                         "MFXVideoDECODE_DecodeFrameAsync failed: %d",
+                         stream->id, work->resource->id, status);
             return -1;
         }
     } while (status == MFX_WRN_DEVICE_BUSY);
@@ -190,7 +193,8 @@ static int virtio_video_decode_submit_one_frame(VirtIOVideoWork *work)
         }
     }
     if (work_surface == NULL) {
-        VIRTVID_ERROR("BUG: Decode output surface not in surface pool");
+        error_report("virtio-video: BUG: stream %d decode output surface "
+                      "not in surface pool", stream->id);
         return -1;
     }
 
@@ -206,7 +210,8 @@ static int virtio_video_decode_submit_one_frame(VirtIOVideoWork *work)
         }
     }
     if (vpp_work_surface == NULL) {
-        VIRTVID_ERROR("No available surface in surface pool");
+        error_report("virtio-video: stream %d no available surface "
+                     "in vpp surface pool", stream->id);
         return -1;
     }
 
@@ -224,8 +229,9 @@ static int virtio_video_decode_submit_one_frame(VirtIOVideoWork *work)
         case MFX_ERR_MORE_SURFACE:
         case MFX_ERR_MORE_DATA:
         default:
-            VIRTVID_ERROR("stream 0x%x MFXVideoVPP_RunFrameVPPAsync failed with err %d",
-                          stream->id, status);
+            error_report("virtio-video: stream %d input resource %d "
+                         "MFXVideoVPP_RunFrameVPPAsync failed: %d",
+                         stream->id, work->resource->id, status);
             return -1;
         }
     } while (status == MFX_WRN_DEVICE_BUSY);
@@ -245,12 +251,16 @@ static void virtio_video_decode_submit_one_frame_bh(void *opaque)
 
     qemu_mutex_lock(&stream->mutex);
 
+    DPRINTF("stream %d input resource %d start to decode\n",
+            stream->id, work->resource->id);
     ret = virtio_video_decode_submit_one_frame(work);
     if (ret == 0) {
         qemu_mutex_unlock(&stream->mutex);
         return;
     }
 
+    DPRINTF("stream %d input resource %d failed to start decoding\n",
+            stream->id, work->resource->id);
     work->timestamp = 0;
     work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
     virtio_video_cmd_resource_queue_complete(work);
@@ -284,8 +294,8 @@ static int virtio_video_decode_retrieve_one_frame(VirtIOVideoWork *work_in,
     } while (status == MFX_WRN_IN_EXECUTION);
 
     if (status != MFX_ERR_NONE) {
-        VIRTVID_ERROR("stream 0x%x MFXVideoCORE_SyncOperation failed with err %d",
-                      stream->id, status);
+        error_report("virtio-video-decode/%d MFXVideoCORE_SyncOperation "
+                      "failed: %d", stream->id, status);
         corrupted = 0;
     } else {
         corrupted = stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12 ?
@@ -366,7 +376,8 @@ static void *virtio_video_decode_thread(void *arg)
                 break;
             }
 
-            virtio_video_report_event(v, VIRTIO_VIDEO_EVENT_DECODER_RESOLUTION_CHANGED, stream->id);
+            virtio_video_report_event(v,
+                    VIRTIO_VIDEO_EVENT_DECODER_RESOLUTION_CHANGED, stream->id);
 
             /* initiate decoding for potentially multiple pending requests */
             QTAILQ_FOREACH_SAFE(work, &stream->pending_work, next, tmp_work) {
@@ -428,8 +439,10 @@ static void *virtio_video_decode_thread(void *arg)
                 virtio_video_work_done(work);
 
                 cmd = QTAILQ_FIRST(&stream->pending_cmds);
-                if (cmd == NULL || cmd->cmd_type != VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
-                    VIRTVID_ERROR("BUG: stream drain done but failed report to guest");
+                if (cmd == NULL ||
+                        cmd->cmd_type != VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
+                    error_report("virtio-video: BUG: expected in-flight "
+                                 "CMD_STREAM_DRAIN but not found");
                 } else {
                     QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
                     virtio_video_cmd_done(cmd);
@@ -470,20 +483,25 @@ static void *virtio_video_decode_thread(void *arg)
             }
 
             cmd = QTAILQ_FIRST(&stream->pending_cmds);
-            if (cmd == NULL) {
-                VIRTVID_ERROR("BUG: queue clear/resource destroy all done but failed report to guest");
-            }
-            switch (cmd->cmd_type) {
-            case VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL:
-                virtio_video_destroy_resource_list(stream, true);
-                /* fall through */
-            case VIRTIO_VIDEO_CMD_QUEUE_CLEAR:
-                QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-                virtio_video_cmd_done(cmd);
-                break;
-            default:
-                VIRTVID_ERROR("BUG: queue clear/resource destroy all done but failed report to guest");
-                break;
+            if (cmd) {
+                switch (cmd->cmd_type) {
+                case VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL:
+                    virtio_video_destroy_resource_list(stream, true);
+                    /* fall through */
+                case VIRTIO_VIDEO_CMD_QUEUE_CLEAR:
+                    QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
+                    virtio_video_cmd_done(cmd);
+                    break;
+                default:
+                    error_report("virtio-video: BUG: expected in-flight "
+                                 "CMD_RESOURCE_DESTROY_ALL/CMD_QUEUE_CLEAR "
+                                 "but no found");
+                    break;
+                }
+            } else {
+                error_report("virtio-video: BUG: expected in-flight "
+                             "CMD_RESOURCE_DESTROY_ALL/CMD_QUEUE_CLEAR "
+                             "but no found");
             }
 
             if (QTAILQ_EMPTY(&stream->pending_cmds))
@@ -568,16 +586,15 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     QLIST_FOREACH(stream, &v->stream_list, next) {
         if (stream->id == resp->stream_id) {
             resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
-            VIRTVID_ERROR("    %s: stream id 0x%x is already used", __func__,
-                    resp->stream_id);
+            error_report("CMD_STREAM_CREATE: stream %d already created",
+                         resp->stream_id);
             return len;
         }
     }
 
     if (req->in_mem_type == VIRTIO_VIDEO_MEM_TYPE_VIRTIO_OBJECT ||
             req->out_mem_type == VIRTIO_VIDEO_MEM_TYPE_VIRTIO_OBJECT) {
-        VIRTVID_ERROR("    %s: stream 0x%x, unsupported mem type (object)",
-                __func__, resp->stream_id);
+        error_report("CMD_STREAM_CREATE: unsupported memory type (object)");
         return len;
     }
 
@@ -587,19 +604,15 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
         }
     }
     if (fmt == NULL) {
-        VIRTVID_ERROR("    %s: stream 0x%x, unsupported format 0x%x", __func__,
-                resp->stream_id, req->coded_format);
+        error_report("CMD_STREAM_CREATE: unsupported codec format %s",
+                     virtio_video_format_name(req->coded_format));
         return len;
     }
 
     m_session = g_new0(MsdkSession, 1);
-    if (m_session == NULL)
-        return len;
-
     status = MFXInitEx(param, &m_session->session);
     if (status != MFX_ERR_NONE) {
-        VIRTVID_ERROR("    %s: MFXInitEx returns %d for stream 0x%x", __func__,
-                status, resp->stream_id);
+        error_report("CMD_STREAM_CREATE: MFXInitEx failed: %d", status);
         g_free(m_session);
         return len;
     }
@@ -607,18 +620,14 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     status = MFXVideoCORE_SetHandle(m_session->session, MFX_HANDLE_VA_DISPLAY,
                                     m_handle->va_handle);
     if (status != MFX_ERR_NONE) {
-        VIRTVID_ERROR("    %s: MFXVideoCORE_SetHandle returns %d for stream 0x%x",
-                __func__, status, resp->stream_id);
+        error_report("CMD_STREAM_CREATE: MFXVideoCORE_SetHandle failed: %d",
+                     status);
         MFXClose(m_session->session);
         g_free(m_session);
         return len;
     }
 
     stream = g_new0(VirtIOVideoStream, 1);
-    if (stream == NULL) {
-        g_free(m_session);
-        return len;
-    }
     stream->opaque = m_session;
     stream->parent = v;
 
@@ -734,13 +743,15 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
 
     snprintf(thread_name, sizeof(thread_name), "virtio-video-decode/%d",
              stream->id);
-    qemu_thread_create(&m_session->thread, thread_name, virtio_video_decode_thread,
-                       stream, QEMU_THREAD_JOINABLE);
+    qemu_thread_create(&m_session->thread, thread_name,
+                       virtio_video_decode_thread, stream,
+                       QEMU_THREAD_JOINABLE);
 
     QLIST_INSERT_HEAD(&v->stream_list, stream, next);
     resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
 
-    VIRTVID_DEBUG("    %s: stream 0x%x created", __func__, stream->id);
+    DPRINTF("CMD_STREAM_CREATE: stream %d [%s] created\n",
+            stream->id, stream->tag);
     return len;
 }
 
@@ -763,7 +774,8 @@ static int virtio_video_msdk_dec_stream_terminate(VirtIOVideoStream *stream)
     case STREAM_STATE_DRAIN:
         cmd = QTAILQ_FIRST(&stream->pending_cmds);
         if (cmd == NULL || cmd->cmd_type != VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
-            VIRTVID_ERROR("BUG: stream drain cancelled but failed to report to guest");
+            error_report("virtio-video: BUG: expected in-flight "
+                         "CMD_STREAM_DRAIN but not found");
         } else {
             QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
             virtio_video_cmd_cancel(cmd);
@@ -780,6 +792,7 @@ static int virtio_video_msdk_dec_stream_terminate(VirtIOVideoStream *stream)
         }
         break;
     case STREAM_STATE_TERMINATE:
+        DPRINTF("stream %d already terminated\n", stream->id);
         qemu_mutex_unlock(&stream->mutex);
         return -1;
     default:
@@ -788,7 +801,8 @@ static int virtio_video_msdk_dec_stream_terminate(VirtIOVideoStream *stream)
 
     /* There should be no pending commands according our protocol. */
     if (!QTAILQ_EMPTY(&stream->pending_cmds)) {
-        VIRTVID_ERROR("BUG: Found remaining pending cmds when there should be none");
+        error_report("virtio-video: BUG: found in-flight commands "
+                     "while expected none");
         QTAILQ_FOREACH_SAFE(cmd, &stream->pending_cmds, next, tmp_cmd) {
             QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
             virtio_video_cmd_cancel(cmd);
@@ -871,6 +885,8 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
     }
     if (stream == NULL) {
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+        error_report("CMD_STREAM_DRAIN: stream %d not found",
+                     req->hdr.stream_id);
         return len;
     }
 
@@ -891,6 +907,8 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
         QTAILQ_INSERT_TAIL(&stream->pending_cmds, cmd, next);
         if (stream->state == STREAM_STATE_RUNNING)
             stream->state = STREAM_STATE_DRAIN;
+        DPRINTF("CMD_STREAM_CREATE (async): stream %d start to drain\n",
+                stream->id);
         qemu_mutex_unlock(&stream->mutex);
         return 0;
     case STREAM_STATE_DRAIN:
@@ -901,6 +919,8 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
     default:
         break;
     }
+    DPRINTF("CMD_STREAM_DRAIN: stream %d currently unable to "
+            "serve the request", stream->id);
     qemu_mutex_unlock(&stream->mutex);
     return len;
 }
@@ -916,6 +936,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
     VirtIOVideoResource *resource;
     VirtIOVideoWork *work;
     size_t len;
+    int i;
 
     resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
     resp->hdr.stream_id = req->hdr.stream_id;
@@ -929,6 +950,8 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
     }
     if (stream == NULL) {
         resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+        error_report("CMD_RESOURCE_QUEUE: stream %d not found",
+                     req->hdr.stream_id);
         return len;
     }
 
@@ -942,25 +965,33 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         }
         if (resource == NULL) {
             resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
-            return len;
+            error_report("CMD_RESOURCE_QUEUE: stream %d input resource %d "
+                         "not found", stream->id, req->resource_id);
+            break;
         }
 
-        if (req->num_data_sizes != 1) {
-            VIRTVID_ERROR("    %s: stream 0x%x num_data_sizes=%d, should be 1 "
-                    "for resources on input queue", __func__, stream->id, req->num_data_sizes);
-            return len;
+        if (!virtio_video_format_is_valid(stream->in.params.format,
+                                          req->num_data_sizes)) {
+            resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
+            error_report("CMD_RESOURCE_QUEUE: stream %d try to queue "
+                         "a resource with num_data_sizes=%d for input queue "
+                         "whose format is %s", stream->id, req->num_data_sizes,
+                         virtio_video_format_name(stream->in.params.format));
+            break;
         }
 
-        /* The same resource cannot be queued again if already queued. */
         qemu_mutex_lock(&stream->mutex);
         QTAILQ_FOREACH(work, &stream->pending_work, next) {
             if (resource->id == work->resource->id) {
-                qemu_mutex_unlock(&stream->mutex);
-                return len;
+                goto error;
             }
         }
         QTAILQ_FOREACH(work, &stream->input_work, next) {
             if (resource->id == work->resource->id) {
+            error:
+                error_report("CMD_RESOURCE_QUEUE: stream %d input resource %d "
+                             "already queued, cannot be queued again",
+                             stream->id, resource->id);
                 qemu_mutex_unlock(&stream->mutex);
                 return len;
             }
@@ -987,6 +1018,8 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
                 g_free(work->opaque);
                 g_free(work);
                 qemu_mutex_unlock(&stream->mutex);
+                DPRINTF("CMD_RESOURCE_QUEUE: stream %d currently unable to "
+                        "queue input resources\n", stream->id);
                 return len;
             }
 
@@ -1004,6 +1037,8 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
             g_free(work->opaque);
             g_free(work);
             qemu_mutex_unlock(&stream->mutex);
+            DPRINTF("CMD_RESOURCE_QUEUE: stream %d currently unable to "
+                    "queue input resources\n", stream->id);
             return len;
         default:
             break;
@@ -1017,6 +1052,8 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         QTAILQ_INSERT_TAIL(&stream->pending_work, work, next);
         qemu_mutex_unlock(&stream->mutex);
 
+        DPRINTF("CMD_RESOURCE_QUEUE: stream %d queued input resource %d\n",
+                stream->id, resource->id);
         len = 0;
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
@@ -1028,24 +1065,56 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         }
         if (resource == NULL) {
             resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
+            error_report("CMD_RESOURCE_QUEUE: stream %d output resource %d "
+                         "not found", stream->id, req->resource_id);
             break;
+        }
+
+        if (!virtio_video_format_is_valid(stream->out.params.format,
+                                          req->num_data_sizes)) {
+            resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
+            error_report("CMD_RESOURCE_QUEUE: stream %d try to queue "
+                         "a resource with num_data_sizes=%d for output queue "
+                         "whose format is %s", stream->id, req->num_data_sizes,
+                         virtio_video_format_name(stream->out.params.format));
+            break;
+        }
+
+        /* The output size is determined by backend. */
+        for (i = 0; i < req->num_data_sizes; i++) {
+            if (req->data_sizes[i] != 0) {
+                error_report("CMD_RESOURCE_QUEUE: stream %d try to queue "
+                             "a resource with data_sizes[%d]=%d for "
+                             "output queue, which is not allowed",
+                             stream->id, i, req->data_sizes[i]);
+                resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
+                break;
+            }
         }
 
         /* Only input resources have timestamp assigned. */
         if (req->timestamp != 0) {
-            VIRTVID_WARN("    %s: stream 0x%x timestamp=%llu, should be 0 "
-                    "for resources on output queue", __func__, stream->id, req->timestamp);
+            error_report("CMD_RESOURCE_QUEUE: stream %d try to assign "
+                         "timestamp 0x%llx to output resource, which is "
+                         "not allowed", stream->id, req->timestamp);
+            resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
+            break;
         }
 
         qemu_mutex_lock(&stream->mutex);
         QTAILQ_FOREACH(work, &stream->output_work, next) {
             if (resource->id == work->resource->id) {
+                error_report("CMD_RESOURCE_QUEUE: stream %d output resource %d "
+                             "already queued, cannot be queued again",
+                             stream->id, resource->id);
                 qemu_mutex_unlock(&stream->mutex);
                 return len;
             }
         }
         if (stream->state == STREAM_STATE_TERMINATE) {
             qemu_mutex_unlock(&stream->mutex);
+            DPRINTF("CMD_RESOURCE_QUEUE: stream %d currently unable to "
+                    "queue output resources\n", stream->id);
             return len;
         }
 
@@ -1064,9 +1133,14 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         qemu_event_set(&m_session->notifier);
         qemu_mutex_unlock(&stream->mutex);
 
+        DPRINTF("CMD_RESOURCE_QUEUE: stream %d queued output resource %d\n",
+                stream->id, resource->id);
         len = 0;
         break;
     default:
+        resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
+        error_report("CMD_RESOURCE_QUEUE: invalid queue type 0x%x",
+                     req->queue_type);
         break;
     }
 
@@ -1143,8 +1217,8 @@ enqueue:
             return 0;
         case STREAM_STATE_DRAIN:
             if (cmd == NULL || cmd->cmd_type != VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
-                error_report("BUG: expected in-flight CMD_STREAM_DRAIN "
-                             "but not found");
+                error_report("virtio-video: BUG: expected in-flight "
+                             "CMD_STREAM_DRAIN but not found");
             } else {
                 QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
                 virtio_video_cmd_cancel(cmd);
@@ -1167,6 +1241,10 @@ enqueue:
 
             /* fall through */
         case STREAM_STATE_TERMINATE:
+            DPRINTF("%s: stream %d currently unable to serve the request",
+                    destroy ? "CMD_RESOURCE_DESTROY_ALL" : "CMD_QUEUE_CLEAR",
+                    stream->id);
+            /* fall through */
         default:
             resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
             break;
@@ -1177,6 +1255,9 @@ enqueue:
         qemu_mutex_lock(&stream->mutex);
         if (stream->state == STREAM_STATE_TERMINATE) {
             resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+            DPRINTF("%s: stream %d currently unable to serve the request",
+                    destroy ? "CMD_RESOURCE_DESTROY_ALL" : "CMD_QUEUE_CLEAR",
+                    stream->id);
             qemu_mutex_unlock(&stream->mutex);
             break;
         }
@@ -1197,6 +1278,10 @@ enqueue:
         qemu_mutex_unlock(&stream->mutex);
         break;
     default:
+        resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
+        error_report("%s: invalid queue type 0x%x",
+                     destroy ? "CMD_RESOURCE_DESTROY_ALL" : "CMD_QUEUE_CLEAR",
+                     queue_type);
         break;
     }
 
@@ -1218,6 +1303,8 @@ size_t virtio_video_msdk_dec_resource_destroy_all(VirtIOVideo *v,
         }
     }
     if (stream == NULL) {
+        error_report("CMD_RESOURCE_DESTROY_ALL: stream %d not found",
+                     req->hdr.stream_id);
         return sizeof(*resp);
     }
 
@@ -1230,11 +1317,9 @@ size_t virtio_video_msdk_dec_queue_clear(VirtIOVideo *v,
     VirtQueueElement *elem)
 {
     VirtIOVideoStream *stream;
-    size_t len;
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
     resp->stream_id = req->hdr.stream_id;
-    len = sizeof(*resp);
 
     QLIST_FOREACH(stream, &v->stream_list, next) {
         if (stream->id == req->hdr.stream_id) {
@@ -1242,7 +1327,9 @@ size_t virtio_video_msdk_dec_queue_clear(VirtIOVideo *v,
         }
     }
     if (stream == NULL) {
-        return len;
+        error_report("CMD_QUEUE_CLEAR: stream %d not found",
+                     req->hdr.stream_id);
+        return sizeof(*resp);
     }
 
     return virtio_video_msdk_dec_resource_clear(stream, req->queue_type,
@@ -1264,8 +1351,11 @@ size_t virtio_video_msdk_dec_get_params(VirtIOVideo *v,
             break;
         }
     }
-    if (stream == NULL)
+    if (stream == NULL) {
+        error_report("CMD_GET_PARAMS: stream %d not found",
+                     req->hdr.stream_id);
         return len;
+    }
 
     resp->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_PARAMS;
     switch (req->queue_type) {
@@ -1278,7 +1368,7 @@ size_t virtio_video_msdk_dec_get_params(VirtIOVideo *v,
         DPRINTF("CMD_GET_PARAMS: reported output params\n");
         break;
     default:
-        resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+        resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
         error_report("CMD_GET_PARAMS: invalid queue type 0x%x", req->queue_type);
         break;
     }
@@ -1302,8 +1392,11 @@ size_t virtio_video_msdk_dec_set_params(VirtIOVideo *v,
             break;
         }
     }
-    if (stream == NULL)
+    if (stream == NULL) {
+        error_report("CMD_SET_PARAMS: stream %d not found",
+                     req->hdr.stream_id);
         return len;
+    }
 
     resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
     qemu_mutex_lock(&stream->mutex);
@@ -1509,6 +1602,8 @@ size_t virtio_video_msdk_dec_get_control(VirtIOVideo *v,
         *resp = g_malloc(sizeof(**resp));
         (*resp)->hdr.stream_id = req->hdr.stream_id;
         (*resp)->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+        error_report("CMD_GET_CONTROL: stream %d not found",
+                     req->hdr.stream_id);
         return len;
     }
 

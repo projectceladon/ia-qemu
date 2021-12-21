@@ -407,7 +407,8 @@ int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event)
     virtqueue_push(v->event_vq, event->elem, sizeof(resp));
     virtio_notify(vdev, v->event_vq);
 
-    DPRINTF("event %s triggered\n", virtio_video_event_name(resp.event_type));
+    DPRINTF("stream %d event %s triggered\n", event->stream_id,
+            virtio_video_event_name(resp.event_type));
     g_free(event->elem);
     g_free(event);
     return 0;
@@ -441,9 +442,11 @@ int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work)
     virtqueue_push(v->cmd_vq, work->elem, sizeof(resp));
     virtio_notify(vdev, v->cmd_vq);
 
-    DPRINTF("CMD_RESOURCE_QUEUE: stream %d dequeued %s resource %d\n",
-            stream->id, work->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT ?
-            "input" : "output", work->resource->id);
+    DPRINTF("CMD_RESOURCE_QUEUE: stream %d dequeued %s resource %d "
+            "timestamp 0x%lx flags 0x%x size %d\n",  stream->id,
+            work->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT ?
+            "input" : "output", work->resource->id, work->timestamp,
+            work->flags, work->size);
     g_free(work->elem);
     g_free(work);
     return 0;
@@ -485,6 +488,10 @@ static void virtio_video_cmd_others_complete(VirtIOVideoCmd *cmd, bool success)
     virtio_notify(vdev, v->cmd_vq);
 
     switch (cmd->cmd_type) {
+    case VIRTIO_VIDEO_CMD_STREAM_DRAIN:
+        DPRINTF("CMD_STREAM_DRAIN (async) for stream %d %s\n",
+                stream->id, success ? "done" : "cancelled");
+        break;
     case VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL:
         DPRINTF("CMD_RESOURCE_DESTROY_ALL (async) for stream %d %s\n",
                 stream->id, success ? "done" : "cancelled");

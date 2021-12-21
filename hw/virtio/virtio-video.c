@@ -208,6 +208,8 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     }
     if (stream == NULL) {
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
+        error_report("CMD_RESOURCE_CREATE: stream %d not found",
+                     req->hdr.stream_id);
         return len;
     }
 
@@ -485,9 +487,6 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         virtio_video_cmd_hdr resp = {0};
 
         CMD_GET_REQ(&req, sizeof(req));
-        VIRTVID_DEBUG("    in_mem_type 0x%x, out_mem_type 0x%x, coded_format 0x%x, tag %s",
-                        req.in_mem_type, req.out_mem_type, req.coded_format, req.tag);
-
         len = virtio_video_process_cmd_stream_create(vdev, &req, &resp);
         CMD_SET_RESP(&resp, len, false);
         break;
@@ -539,9 +538,6 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         virtio_video_resource_queue_resp resp = {0};
 
         CMD_GET_REQ(&req, sizeof(req));
-        VIRTVID_DEBUG("    queue_type 0x%x, resource_id 0x%x, timestamp 0x%llx, num_data_sizes 0x%x",
-                        req.queue_type, req.resource_id, req.timestamp, req.num_data_sizes);
-
         len = virtio_video_process_cmd_resource_queue(vdev, &req, &resp, elem);
         if (len == 0) {
             async = true;
