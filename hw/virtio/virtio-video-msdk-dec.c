@@ -263,6 +263,8 @@ static void virtio_video_decode_submit_one_frame_bh(void *opaque)
             stream->id, work->resource->id);
     work->timestamp = 0;
     work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+    QTAILQ_REMOVE(&stream->pending_work, work, next);
+    g_free(work->opaque);
     virtio_video_cmd_resource_queue_complete(work);
 
     qemu_mutex_unlock(&stream->mutex);
