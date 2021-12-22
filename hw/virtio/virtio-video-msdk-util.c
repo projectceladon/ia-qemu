@@ -279,7 +279,7 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     MsdkSurface *surface;
     mfxU8 *surface_buf;
     uint32_t width, height, size;
-    int i;
+    int i, surface_num;
 
     width = MSDK_ALIGN32(alloc_req->Info.Width);
     height = MSDK_ALIGN32(alloc_req->Info.Height);
@@ -296,7 +296,8 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
         return;
     }
 
-    for (i = 0; i < vpp ? session->vpp_surface_num : session->surface_num; i++) {
+    surface_num = vpp ? session->vpp_surface_num : session->surface_num;
+    for (i = 0; i < surface_num; i++) {
         surface = g_new0(MsdkSurface, 1);
         surface_buf = g_malloc0(size);
 
