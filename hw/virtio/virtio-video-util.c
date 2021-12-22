@@ -444,6 +444,7 @@ int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work)
             "input" : "output", work->resource->id, work->timestamp,
             work->flags, work->size);
     g_free(work->elem);
+    printf("dyang23, free work id:%d\n", work->id);
     g_free(work);
     return 0;
 }

@@ -297,6 +297,7 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     }
 
     surface_num = vpp ? session->vpp_surface_num : session->surface_num;
+    printf("dyang23, virtio_video_msdk_init_surface_pool create:%d surface of surface pool \n", surface_num);
     for (i = 0; i < surface_num; i++) {
         surface = g_new0(MsdkSurface, 1);
         surface_buf = g_malloc0(size);

@@ -116,6 +116,7 @@ typedef struct VirtIOVideoWork {
     uint32_t size;
     void *opaque;
     QTAILQ_ENTRY(VirtIOVideoWork) next;
+    int id;
 } VirtIOVideoWork;
 
 typedef struct VirtIOVideoQueueInfo {

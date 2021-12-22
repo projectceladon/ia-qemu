@@ -69,7 +69,7 @@ static int virtio_video_decode_parse_header(VirtIOVideoWork *work)
     status = MFXVideoDECODE_DecodeHeader(m_session->session,
                                          &stream->bitstream_header, &param);
     if (status != MFX_ERR_NONE) {
-        if (status == MFX_ERR_MORE_DATA) {
+        if (status == MFX_ERR_MORE_DATA || status == MFX_ERR_NULL_PTR) {
             work->flags = 0;
         } else {
             error_report("virtio-video-decode/%d MFXVideoDECODE_DecodeHeader "
@@ -168,6 +168,7 @@ static int virtio_video_decode_submit_one_frame(VirtIOVideoWork *work)
         status = MFXVideoDECODE_DecodeFrameAsync(m_session->session,
                 &m_frame->bitstream, &work_surface->surface, &out_surface,
                 &m_frame->sync);
+        printf("dyang23, MFXVideoDECODE_DecodeFrameAsync return %d\n", status);
         switch (status) {
         case MFX_WRN_DEVICE_BUSY:
             usleep(1000);
@@ -177,6 +178,8 @@ static int virtio_video_decode_submit_one_frame(VirtIOVideoWork *work)
         /* TODO: support these */
         case MFX_ERR_MORE_SURFACE:
         case MFX_ERR_MORE_DATA:
+        /* More DATA&Surface should not be taken as error */
+            break;
         default:
             error_report("virtio-video: stream %d input resource %d "
                          "MFXVideoDECODE_DecodeFrameAsync failed: %d",
@@ -185,9 +188,13 @@ static int virtio_video_decode_submit_one_frame(VirtIOVideoWork *work)
         }
     } while (status == MFX_WRN_DEVICE_BUSY);
 
+    work_surface->used = true;
+    if (status == MFX_ERR_MORE_DATA)
+        return MFX_ERR_MORE_DATA;
+
     QLIST_FOREACH(work_surface, &m_session->surface_pool, next) {
         if (&work_surface->surface == out_surface) {
-            work_surface->used = true;
+            //work_surface->used = true;
             m_frame->surface = work_surface;
             break;
         }
@@ -261,8 +268,10 @@ static void virtio_video_decode_submit_one_frame_bh(void *opaque)
 
     DPRINTF("stream %d input resource %d failed to start decoding\n",
             stream->id, work->resource->id);
-    work->timestamp = 0;
-    work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+    if (ret != MFX_ERR_MORE_DATA) {
+        work->timestamp = 0;
+        work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+    }
     QTAILQ_REMOVE(&stream->pending_work, work, next);
     g_free(work->opaque);
     virtio_video_cmd_resource_queue_complete(work);
@@ -344,6 +353,7 @@ static void *virtio_video_decode_thread(void *arg)
     VirtIOVideoWork *work_out;
     VirtIOVideoCmd *cmd;
     MsdkSession *m_session = stream->opaque;
+    int ret;
 
     while (true) {
         qemu_mutex_lock(&stream->mutex);
@@ -378,14 +388,20 @@ static void *virtio_video_decode_thread(void *arg)
                 break;
             }
 
+            /* When the resolution event should be reported? */
+            #if 0
             virtio_video_report_event(v,
                     VIRTIO_VIDEO_EVENT_DECODER_RESOLUTION_CHANGED, stream->id);
+            #endif
 
             /* initiate decoding for potentially multiple pending requests */
             QTAILQ_FOREACH_SAFE(work, &stream->pending_work, next, tmp_work) {
-                if (virtio_video_decode_submit_one_frame(work) < 0) {
-                    work->timestamp = 0;
-                    work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+                ret = virtio_video_decode_submit_one_frame(work);
+                if (ret < 0) {
+                    if (ret != MFX_ERR_MORE_DATA) {
+                        work->timestamp = 0;
+                        work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+                    }
                     QTAILQ_REMOVE(&stream->pending_work, work, next);
                     g_free(work->opaque);
                     virtio_video_work_done(work);
@@ -927,6 +943,7 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
     return len;
 }
 
+static int work_id=0;
 size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
     virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp,
     VirtQueueElement *elem)
@@ -1011,6 +1028,8 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         work->queue_type = req->queue_type;
         work->timestamp = req->timestamp;
         work->opaque = m_frame;
+        work->id = work_id++;
+        printf("dyang23, create work id:%d\n", work->id);
 
         switch (stream->state) {
         case STREAM_STATE_INIT:
@@ -1125,6 +1144,8 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         work->elem = elem;
         work->resource = resource;
         work->queue_type = req->queue_type;
+        work->id = work_id++;
+        printf("dyang23, create work output id:%d\n", work->id);
 
         /*
          * Output resources are just containers for decoded frames. They go
