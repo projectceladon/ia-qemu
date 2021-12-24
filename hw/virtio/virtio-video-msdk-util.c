@@ -556,3 +556,32 @@ void printf_mfxVideoParam(mfxVideoParam *mfxVideoParam) {
     printf("mfxVideoParam->mfx.FrameInfo.FrameRateExtN = %d\n", mfxVideoParam->mfx.FrameInfo.FrameRateExtN);
     printf("mfxVideoParam->mfx.FrameInfo.FrameRateExtD = %d\n", mfxVideoParam->mfx.FrameInfo.FrameRateExtD);
 }
+
+char * virtio_video_fmt_to_string(virtio_video_format fmt){
+    switch (fmt) {
+        case VIRTIO_VIDEO_FORMAT_ARGB8888:
+            return (char *)"VIRTIO_VIDEO_FORMAT_ARGB8888";
+        case VIRTIO_VIDEO_FORMAT_BGRA8888:
+            return (char *)"VIRTIO_VIDEO_FORMAT_BGRA8888";
+        case VIRTIO_VIDEO_FORMAT_NV12:
+            return (char *)"VIRTIO_VIDEO_FORMAT_NV12";
+        case VIRTIO_VIDEO_FORMAT_YUV420:
+            return (char *)"VIRTIO_VIDEO_FORMAT_YUV420";
+        case VIRTIO_VIDEO_FORMAT_YVU420:
+            return (char *)"VIRTIO_VIDEO_FORMAT_YVU420";
+        case VIRTIO_VIDEO_FORMAT_MPEG2:
+            return (char *)"VIRTIO_VIDEO_FORMAT_MPEG2";
+        case VIRTIO_VIDEO_FORMAT_MPEG4:
+            return (char *)"VIRTIO_VIDEO_FORMAT_MPEG4";
+        case VIRTIO_VIDEO_FORMAT_H264:
+            return (char *)"VIRTIO_VIDEO_FORMAT_H264";
+        case VIRTIO_VIDEO_FORMAT_HEVC:
+            return (char *)"VIRTIO_VIDEO_FORMAT_HEVC";
+        case VIRTIO_VIDEO_FORMAT_VP8:
+            return (char *)"VIRTIO_VIDEO_FORMAT_VP8";
+        case VIRTIO_VIDEO_FORMAT_VP9:
+            return (char *)"VIRTIO_VIDEO_FORMAT_VP9";
+        default:
+            return (char *)"unknown format";
+    }
+}

@@ -55,4 +55,5 @@ void virtio_video_msdk_uninit_handle(VirtIOVideo *vdev);
 
 void printf_mfxVideoParam(mfxVideoParam *mfxVideoParam);
 
+char * virtio_video_fmt_to_string(virtio_video_format fmt);
 #endif /* QEMU_VIRTIO_VIDEO_MSDK_UTIL_H */

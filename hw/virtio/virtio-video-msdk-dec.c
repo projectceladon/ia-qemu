@@ -77,6 +77,8 @@ static int virtio_video_decode_parse_header(VirtIOVideoWork *work)
         }
         return -1;
     }
+    printf("bitstream Header decode success!");
+    printf_mfxVideoParam(&param);
 
     status = MFXVideoDECODE_QueryIOSurf(m_session->session, &param, &alloc_req);
     if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
@@ -706,7 +708,12 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
      *                              for device output.
      */
     stream->out.params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT;
+    #if 0
     stream->out.params.format = VIRTIO_VIDEO_FORMAT_ARGB8888;
+    #else
+    stream->out.params.format = VIRTIO_VIDEO_FORMAT_NV12;
+    #endif
+    printf("stream create, use %s as output format\n", virtio_video_fmt_to_string(stream->out.params.format));
     stream->out.params.min_buffers = 1;
     stream->out.params.max_buffers = 32;
     stream->out.params.frame_rate = fmt->frames.lh_first->frame_rates[0].max;
@@ -1490,7 +1497,9 @@ size_t virtio_video_msdk_dec_set_params(VirtIOVideo *v,
          *
          * TODO: figure out if we should also allow setting output crop
          */
+        printf("set output queue: format:%d, %s\n", req->params.format, virtio_video_fmt_to_string(req->params.format));
         stream->out.params.format = req->params.format;
+        printf("set output queue: num_planes:%d\n", req->params.num_planes);
         stream->out.params.num_planes = req->params.num_planes;
         for (i = 0; i < req->params.num_planes; i++) {
             stream->out.params.plane_formats[i] = req->params.plane_formats[i];
