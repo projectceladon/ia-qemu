@@ -53,4 +53,6 @@ void virtio_video_msdk_unload_plugin(mfxSession session, uint32_t format, bool e
 int virtio_video_msdk_init_handle(VirtIOVideo *vdev);
 void virtio_video_msdk_uninit_handle(VirtIOVideo *vdev);
 
+void printf_mfxVideoParam(mfxVideoParam *mfxVideoParam);
+
 #endif /* QEMU_VIRTIO_VIDEO_MSDK_UTIL_H */

@@ -540,3 +540,19 @@ void virtio_video_msdk_uninit_handle(VirtIOVideo *v)
     g_free(msdk);
     v->opaque = NULL;
 }
+
+void printf_mfxVideoParam(mfxVideoParam *mfxVideoParam) {
+    printf("mfxVideoParam->mfx.CodecId = 0x%x\n", mfxVideoParam->mfx.CodecId);
+    printf("mfxVideoParam->mfx.CodecProfile = %d\n", mfxVideoParam->mfx.CodecProfile);
+    printf("mfxVideoParam->mfx.CodecLevel = %d\n", mfxVideoParam->mfx.CodecLevel);
+    printf("mfxVideoParam->mfx.NumThread = %d\n", mfxVideoParam->mfx.NumThread);
+    printf("mfxVideoParam->mfx.FrameInfo.FourCC = 0x%x\n", mfxVideoParam->mfx.FrameInfo.FourCC);
+    printf("mfxVideoParam->mfx.FrameInfo.Width = %d\n", mfxVideoParam->mfx.FrameInfo.Width);
+    printf("mfxVideoParam->mfx.FrameInfo.Height = %d\n", mfxVideoParam->mfx.FrameInfo.Height);
+    printf("mfxVideoParam->mfx.FrameInfo.CropX = %d\n", mfxVideoParam->mfx.FrameInfo.CropX);
+    printf("mfxVideoParam->mfx.FrameInfo.CropY = %d\n", mfxVideoParam->mfx.FrameInfo.CropY);
+    printf("mfxVideoParam->mfx.FrameInfo.CropW = %d\n", mfxVideoParam->mfx.FrameInfo.CropW);
+    printf("mfxVideoParam->mfx.FrameInfo.CropH = %d\n", mfxVideoParam->mfx.FrameInfo.CropH);
+    printf("mfxVideoParam->mfx.FrameInfo.FrameRateExtN = %d\n", mfxVideoParam->mfx.FrameInfo.FrameRateExtN);
+    printf("mfxVideoParam->mfx.FrameInfo.FrameRateExtD = %d\n", mfxVideoParam->mfx.FrameInfo.FrameRateExtD);
+}
