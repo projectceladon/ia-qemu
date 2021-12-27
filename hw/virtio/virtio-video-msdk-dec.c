@@ -30,6 +30,7 @@
 
 #define THREAD_NAME_LEN 24
 
+static bool first_frame_after_header = false;
 static int virtio_video_decode_parse_header(VirtIOVideoWork *work)
 {
     VirtIOVideoStream *stream = work->parent;
@@ -40,6 +41,7 @@ static int virtio_video_decode_parse_header(VirtIOVideoWork *work)
     mfxFrameAllocRequest alloc_req, vpp_req[2];
     int needed_length;
     unsigned char *new_data;
+    printf("virtio_video_decode_parse_header\n");
 
     memset(&alloc_req, 0, sizeof(alloc_req));
     memset(&vpp_req, 0, sizeof(alloc_req) * 2);
@@ -65,6 +67,7 @@ static int virtio_video_decode_parse_header(VirtIOVideoWork *work)
             stream->bitstream_header.MaxLength = needed_length;
         }
     }
+    stream->bitstream_header.DataFlag |= MFX_BITSTREAM_COMPLETE_FRAME;
 
     status = MFXVideoDECODE_DecodeHeader(m_session->session,
                                          &stream->bitstream_header, &param);
@@ -77,8 +80,9 @@ static int virtio_video_decode_parse_header(VirtIOVideoWork *work)
         }
         return -1;
     }
-    printf("bitstream Header decode success!");
+    printf("bitstream Header decode success!\n");
     printf_mfxVideoParam(&param);
+    first_frame_after_header = true;
 
     status = MFXVideoDECODE_QueryIOSurf(m_session->session, &param, &alloc_req);
     if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
@@ -97,6 +101,9 @@ static int virtio_video_decode_parse_header(VirtIOVideoWork *work)
     if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12)
         goto done;
 
+#if 1
+    goto done;
+    // VPP will be enabled later
     if (virtio_video_msdk_init_vpp_param_dec(&param, &vpp_param, stream) < 0)
         goto error_vpp;
 
@@ -118,7 +125,7 @@ static int virtio_video_decode_parse_header(VirtIOVideoWork *work)
     m_session->vpp_surface_num = vpp_req[1].NumFrameSuggested;
     virtio_video_msdk_init_surface_pool(m_session, &vpp_req[1],
                                         &vpp_param.vpp.Out, true);
-
+#endif
 done:
     m_session->surface_num += alloc_req.NumFrameSuggested;
     virtio_video_msdk_init_surface_pool(m_session, &alloc_req,
@@ -166,11 +173,27 @@ static int virtio_video_decode_submit_one_frame(VirtIOVideoWork *work)
         return -1;
     }
 
+    printf_mfxFrameSurface1(work_surface->surface);
+    m_frame->bitstream.DataFlag |= MFX_BITSTREAM_COMPLETE_FRAME;
+
     do {
-        status = MFXVideoDECODE_DecodeFrameAsync(m_session->session,
-                &m_frame->bitstream, &work_surface->surface, &out_surface,
-                &m_frame->sync);
-        printf("dyang23, MFXVideoDECODE_DecodeFrameAsync return %d\n", status);
+        
+        printf_mfxBitstream(&m_frame->bitstream);
+        if (first_frame_after_header) {
+            printf_mfxBitstream(&stream->bitstream_header);
+            status = MFXVideoDECODE_DecodeFrameAsync(m_session->session,
+                    &stream->bitstream_header, &work_surface->surface, &out_surface,
+                    &m_frame->sync);
+            first_frame_after_header = false;
+        }
+        else {
+            printf_mfxBitstream(&m_frame->bitstream);
+            status = MFXVideoDECODE_DecodeFrameAsync(m_session->session,
+                    &m_frame->bitstream, &work_surface->surface, &out_surface,
+                    &m_frame->sync);
+        }
+
+        printf("dyang23, MFXVideoDECODE_DecodeFrameAsync return %d, out_surface:%p\n", status, out_surface);
         switch (status) {
         case MFX_WRN_DEVICE_BUSY:
             usleep(1000);
@@ -1027,6 +1050,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         m_frame->bitstream.Data = resource->slices[0]->page.hva;
         m_frame->bitstream.DataLength = req->data_sizes[0];
         m_frame->bitstream.MaxLength = req->data_sizes[0];
+        printf("VIRTIO_VIDEO_QUEUE_TYPE_INPUT, data:%p, len:%d, maxLen:%d\n", m_frame->bitstream.Data, m_frame->bitstream.DataLength, m_frame->bitstream.MaxLength);
 
         work = g_new0(VirtIOVideoWork, 1);
         work->parent = stream;

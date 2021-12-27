@@ -195,6 +195,7 @@ int virtio_video_msdk_init_param_dec(mfxVideoParam *param,
     if (virtio_video_msdk_init_param(param, stream->in.params.format) < 0)
         return -1;
 
+#if 0
     switch (stream->in.mem_type) {
     case VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES:
         param->IOPattern |= MFX_IOPATTERN_IN_SYSTEM_MEMORY;
@@ -205,6 +206,7 @@ int virtio_video_msdk_init_param_dec(mfxVideoParam *param,
     default:
         break;
     }
+#endif
     switch (stream->out.mem_type) {
     case VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES:
         param->IOPattern |= MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
@@ -215,6 +217,7 @@ int virtio_video_msdk_init_param_dec(mfxVideoParam *param,
     default:
         break;
     }
+    param->AsyncDepth = 1;
 
     return 0;
 }
@@ -297,6 +300,9 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     }
 
     surface_num = vpp ? session->vpp_surface_num : session->surface_num;
+    if (surface_num < 20)
+        surface_num = 20;
+
     printf("dyang23, virtio_video_msdk_init_surface_pool create:%d surface of surface pool \n", surface_num);
     for (i = 0; i < surface_num; i++) {
         surface = g_new0(MsdkSurface, 1);
@@ -542,10 +548,10 @@ void virtio_video_msdk_uninit_handle(VirtIOVideo *v)
 }
 
 void printf_mfxVideoParam(mfxVideoParam *mfxVideoParam) {
-    printf("mfxVideoParam->mfx.CodecId = 0x%x\n", mfxVideoParam->mfx.CodecId);
-    printf("mfxVideoParam->mfx.CodecProfile = %d\n", mfxVideoParam->mfx.CodecProfile);
-    printf("mfxVideoParam->mfx.CodecLevel = %d\n", mfxVideoParam->mfx.CodecLevel);
-    printf("mfxVideoParam->mfx.NumThread = %d\n", mfxVideoParam->mfx.NumThread);
+
+    printf("mfxVideoParam->AllocId = %d\n", mfxVideoParam->AllocId);
+    printf("mfxVideoParam->AsyncDepth = %d\n", mfxVideoParam->AsyncDepth);
+
     printf("mfxVideoParam->mfx.FrameInfo.FourCC = 0x%x\n", mfxVideoParam->mfx.FrameInfo.FourCC);
     printf("mfxVideoParam->mfx.FrameInfo.Width = %d\n", mfxVideoParam->mfx.FrameInfo.Width);
     printf("mfxVideoParam->mfx.FrameInfo.Height = %d\n", mfxVideoParam->mfx.FrameInfo.Height);
@@ -555,6 +561,81 @@ void printf_mfxVideoParam(mfxVideoParam *mfxVideoParam) {
     printf("mfxVideoParam->mfx.FrameInfo.CropH = %d\n", mfxVideoParam->mfx.FrameInfo.CropH);
     printf("mfxVideoParam->mfx.FrameInfo.FrameRateExtN = %d\n", mfxVideoParam->mfx.FrameInfo.FrameRateExtN);
     printf("mfxVideoParam->mfx.FrameInfo.FrameRateExtD = %d\n", mfxVideoParam->mfx.FrameInfo.FrameRateExtD);
+    printf("mfxVideoParam->mfx.FrameInfo.AspectRatioW = %d\n", mfxVideoParam->mfx.FrameInfo.AspectRatioW);
+    printf("mfxVideoParam->mfx.FrameInfo.AspectRatioH = %d\n", mfxVideoParam->mfx.FrameInfo.AspectRatioH);
+    printf("mfxVideoParam->mfx.FrameInfo.PicStruct = %d\n", mfxVideoParam->mfx.FrameInfo.PicStruct);
+    printf("mfxVideoParam->mfx.FrameInfo.ChromaFormat = %d\n", mfxVideoParam->mfx.FrameInfo.ChromaFormat);
+    printf("mfxVideoParam->mfx.CodecId = 0x%x\n", mfxVideoParam->mfx.CodecId);
+    printf("mfxVideoParam->mfx.CodecProfile = %d\n", mfxVideoParam->mfx.CodecProfile);
+    printf("mfxVideoParam->mfx.CodecLevel = %d\n", mfxVideoParam->mfx.CodecLevel);
+    printf("mfxVideoParam->mfx.NumThread = %d\n", mfxVideoParam->mfx.NumThread);
+    printf("mfxVideoParam->mfx.DecodedOrder = %d\n", mfxVideoParam->mfx.DecodedOrder);
+    printf("mfxVideoParam->mfx.ExtendedPicStruct = %d\n", mfxVideoParam->mfx.ExtendedPicStruct);
+
+    printf("mfxVideoParam->Protected = %d\n", mfxVideoParam->Protected);
+    printf("mfxVideoParam->IOPattern = %d\n", mfxVideoParam->IOPattern);
+    printf("mfxVideoParam->NumExtParam = %d\n", mfxVideoParam->NumExtParam);
+}
+
+void printf_mfxFrameInfo(mfxFrameInfo *mfxInfo){
+    printf("mfxFrameInfo->BitDepthLuma = %d\n", mfxInfo->BitDepthLuma);
+    printf("mfxFrameInfo->BitDepthChroma = %d\n", mfxInfo->BitDepthChroma);
+    printf("mfxFrameInfo->Shift = %d\n", mfxInfo->Shift);
+
+    //printf("mfxFrameInfo->FrameId = %d\n", mfxInfo->FrameId);
+
+    printf("mfxFrameInfo->FourCC = %d\n", mfxInfo->FourCC);
+    printf("mfxFrameInfo->Width = %d\n", mfxInfo->Width);
+    printf("mfxFrameInfo->Height = %d\n", mfxInfo->Height);
+
+    printf("mfxFrameInfo->CropX = %d\n", mfxInfo->CropX);
+    printf("mfxFrameInfo->CropY = %d\n", mfxInfo->CropY);
+    printf("mfxFrameInfo->CropW = %d\n", mfxInfo->CropW);
+    printf("mfxFrameInfo->CropH = %d\n", mfxInfo->CropH);
+
+    printf("mfxFrameInfo->FrameRateExtN = %d\n", mfxInfo->FrameRateExtN);
+    printf("mfxFrameInfo->FrameRateExtD = %d\n", mfxInfo->FrameRateExtD);
+
+    printf("mfxFrameInfo->AspectRatioW = %d\n", mfxInfo->AspectRatioW);
+    printf("mfxFrameInfo->AspectRatioH = %d\n", mfxInfo->AspectRatioH);
+
+    printf("mfxFrameInfo->PicStruct = %d\n", mfxInfo->PicStruct);
+    printf("mfxFrameInfo->ChromaFormat = %d\n", mfxInfo->ChromaFormat);
+}
+
+void printf_mfxFrameData(mfxFrameData *mfxData){
+    printf("mfxFrameData->NumExtParam = %d\n", mfxData->NumExtParam);
+    printf("mfxFrameData->MemType = %d\n", mfxData->MemType);
+    printf("mfxFrameData->PitchHigh = %d\n", mfxData->PitchHigh);
+
+    printf("mfxFrameData->TimeStamp = %ld\n", (long)mfxData->TimeStamp);
+    printf("mfxFrameData->FrameOrder = %d\n", mfxData->FrameOrder);
+    printf("mfxFrameData->Locked = %d\n", mfxData->Locked);
+    printf("mfxFrameData->Pitch = %d\n", mfxData->Pitch);
+    printf("mfxFrameData->Y = %p\n", mfxData->Y);
+    printf("mfxFrameData->UV = %p\n", mfxData->UV);
+    printf("mfxFrameData->V = %p\n", mfxData->V);
+    printf("mfxFrameData->A = %p\n", mfxData->A);
+    printf("mfxFrameData->MemId = %p\n", mfxData->MemId);
+    printf("mfxFrameData->Corrupted = %d\n", mfxData->Corrupted);
+    printf("mfxFrameData->DataFlag = %d\n", mfxData->DataFlag);
+    //printf("mfxFrameData->BitDepthLuma = %d\n", mfxData->BitDepthLuma);
+}
+void printf_mfxFrameSurface1(mfxFrameSurface1 surface){
+    printf_mfxFrameInfo(&surface.Info);
+    printf_mfxFrameData(&surface.Data);
+}
+
+void printf_mfxBitstream(mfxBitstream *bs){
+    printf("bs->DecodeTimeStamp = %ld\n", (long)bs->DecodeTimeStamp);
+    printf("bs->TimeStamp = %ld\n", (long)bs->TimeStamp);
+    printf("bs->Data = %p\n", bs->Data);
+    printf("bs->DataOffset = %d\n", bs->DataOffset);
+    printf("bs->DataLength = %d\n", bs->DataLength);
+    printf("bs->MaxLength = %d\n", bs->MaxLength);
+    printf("bs->PicStruct = %d\n", bs->PicStruct);
+    printf("bs->FrameType = %d\n", bs->FrameType);
+    printf("bs->DataFlag = %d\n", bs->DataFlag);
 }
 
 char * virtio_video_fmt_to_string(virtio_video_format fmt){

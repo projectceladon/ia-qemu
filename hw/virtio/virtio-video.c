@@ -231,6 +231,13 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
         return len;
     }
 
+#if 0
+    /*if this is userptr buffer, the BE driver will release the resourceID after
+      the buffer dequeued, and the resourceID will be re-used for coming buffer
+
+      TODO: remove the resoure id from stream->resource_list after return the buffer
+      to BE
+      */
     QLIST_FOREACH(resource, &stream->resource_list[dir], next) {
         if (resource->id == req->resource_id) {
             resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
@@ -239,6 +246,7 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
             return len;
         }
     }
+#endif
 
     if (!virtio_video_format_is_valid(format, req->num_planes)) {
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
