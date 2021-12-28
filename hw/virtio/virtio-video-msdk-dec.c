@@ -414,7 +414,7 @@ static void *virtio_video_decode_thread(void *arg)
             }
 
             /* When the resolution event should be reported? */
-            #if 0
+            #if 1
             virtio_video_report_event(v,
                     VIRTIO_VIDEO_EVENT_DECODER_RESOLUTION_CHANGED, stream->id);
             #endif

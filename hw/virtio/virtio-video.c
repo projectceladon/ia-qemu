@@ -215,11 +215,13 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
 
     switch (req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
+        printf("virtio_video_process_cmd_resource_create VIRTIO_VIDEO_QUEUE_TYPE_INPUT\n");
         format = stream->in.params.format;
         mem_type = stream->in.mem_type;
         dir = VIRTIO_VIDEO_QUEUE_INPUT;
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
+        printf("virtio_video_process_cmd_resource_create VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT\n");
         format = stream->out.params.format;
         mem_type = stream->out.mem_type;
         dir = VIRTIO_VIDEO_QUEUE_OUTPUT;
