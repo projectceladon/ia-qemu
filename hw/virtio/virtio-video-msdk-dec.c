@@ -155,8 +155,7 @@ done:
     }
     stream->out.params.min_buffers = alloc_req.NumFrameMin;
     stream->out.params.max_buffers = alloc_req.NumFrameSuggested;
-    virtio_video_msdk_stream_reset_param(stream, &param);
-
+    virtio_video_msdk_stream_reset_param(stream, &param, false);
     return MFX_ERR_NONE;
 
 error_vpp:
@@ -224,7 +223,7 @@ static mfxStatus virtio_video_decode_one_frame(VirtIOVideoWork *work,
         case MFX_WRN_VIDEO_PARAM_CHANGED:
             DPRINTF("MFX_WRN_VIDEO_PARAM_CHANGED\n");
             MFXVideoDECODE_GetVideoParam(m_session->session, &param);
-            virtio_video_msdk_stream_reset_param(stream, &param);
+            virtio_video_msdk_stream_reset_param(stream, &param, false);
             break;
         case MFX_ERR_NONE:
             break;

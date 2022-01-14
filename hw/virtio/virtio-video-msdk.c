@@ -37,6 +37,7 @@ size_t virtio_video_msdk_cmd_stream_create(VirtIOVideo *v,
 {
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
+        return virtio_video_msdk_enc_stream_create(v, req, resp);
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_msdk_dec_stream_create(v, req, resp);
@@ -53,6 +54,7 @@ size_t virtio_video_msdk_cmd_stream_destroy(VirtIOVideo *v,
 {
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
+        return virtio_video_msdk_enc_stream_destroy(v, req, resp, elem);
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_msdk_dec_stream_destroy(v, req, resp, elem);
@@ -69,6 +71,7 @@ size_t virtio_video_msdk_cmd_stream_drain(VirtIOVideo *v,
 {
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
+        return virtio_video_msdk_enc_stream_drain(v, req, resp, elem);
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_msdk_dec_stream_drain(v, req, resp, elem);
@@ -85,6 +88,7 @@ size_t virtio_video_msdk_cmd_resource_queue(VirtIOVideo *v,
 {
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
+        return virtio_video_msdk_enc_resource_queue(v, req, resp, elem);
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_msdk_dec_resource_queue(v, req, resp, elem);
@@ -101,6 +105,7 @@ size_t virtio_video_msdk_cmd_resource_destroy_all(VirtIOVideo *v,
 {
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
+        return virtio_video_msdk_enc_resource_destroy_all(v, req, resp, elem);
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_msdk_dec_resource_destroy_all(v, req, resp, elem);
@@ -117,6 +122,7 @@ size_t virtio_video_msdk_cmd_queue_clear(VirtIOVideo *v,
 {
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
+        return virtio_video_msdk_enc_queue_clear(v, req, resp, elem);
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_msdk_dec_queue_clear(v, req, resp, elem);
@@ -132,6 +138,7 @@ size_t virtio_video_msdk_cmd_get_params(VirtIOVideo *v,
 {
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
+        return virtio_video_msdk_enc_get_params(v, req, resp);
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_msdk_dec_get_params(v, req, resp);
@@ -147,6 +154,7 @@ size_t virtio_video_msdk_cmd_set_params(VirtIOVideo *v,
 {
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
+        return virtio_video_msdk_enc_set_params(v, req, resp);
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_msdk_dec_set_params(v, req, resp);
@@ -162,6 +170,7 @@ size_t virtio_video_msdk_cmd_query_control(VirtIOVideo *v,
 {
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
+        return virtio_video_msdk_enc_query_control(v, req, resp);
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_msdk_dec_query_control(v, req, resp);
@@ -177,6 +186,7 @@ size_t virtio_video_msdk_cmd_get_control(VirtIOVideo *v,
 {
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
+        return virtio_video_msdk_enc_get_control(v, req, resp);
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_msdk_dec_get_control(v, req, resp);
@@ -192,6 +202,7 @@ size_t virtio_video_msdk_cmd_set_control(VirtIOVideo *v,
 {
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
+        return virtio_video_msdk_enc_set_control(v, req, resp);
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
         return virtio_video_msdk_dec_set_control(v, req, resp);

@@ -50,7 +50,7 @@ void virtio_video_msdk_uninit_frame(VirtIOVideoFrame *frame);
 int virtio_video_msdk_output_surface(MsdkSession * session, MsdkSurface *surface,
     VirtIOVideoResource *resource);
 void virtio_video_msdk_stream_reset_param(VirtIOVideoStream *stream,
-    mfxVideoParam *param);
+    mfxVideoParam *param, bool encode);
 
 void virtio_video_msdk_load_plugin(mfxSession session, uint32_t format,
     bool encode);
@@ -69,5 +69,11 @@ char * virtio_video_fmt_to_string(virtio_video_format fmt);
 char * virtio_video_status_to_string(mfxStatus fmt);
 void virtio_video_msdk_dump_surface(char * src, int len);
 char * virtio_video_stream_statu_to_string(virtio_video_stream_state statu);
+
+// added by shenlin 2022.1.27
+void virtio_video_msdk_get_preset_param_enc(VirtIOVideoEncodeParamPreset *pPp, uint32_t fourCC, double fps, uint32_t width, uint32_t height);
+int virtio_video_msdk_convert_frame_rate(double frame_rate, uint32_t *pRateExtN, uint32_t *pRateExtD);
+uint16_t virtio_video_msdk_fourCC_to_chroma(uint32_t fourCC);
+// end
 
 #endif /* QEMU_VIRTIO_VIDEO_MSDK_UTIL_H */

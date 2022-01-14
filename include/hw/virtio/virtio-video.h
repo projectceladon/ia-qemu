@@ -23,7 +23,9 @@
 #ifndef QEMU_VIRTIO_VIDEO_H
 #define QEMU_VIRTIO_VIDEO_H
 
+
 #include <time.h>
+#include "mfxvideo.h"
 #include "standard-headers/linux/virtio_video.h"
 #include "hw/virtio/virtio.h"
 #include "sysemu/iothread.h"
@@ -154,6 +156,7 @@ typedef struct VirtIOVideoFrame {
 typedef struct VirtIOVideoQueueInfo {
     virtio_video_mem_type mem_type;
     virtio_video_params params;
+    bool setted;
 } VirtIOVideoQueueInfo;
 
 /* 0 indicates that the control is invalid for current stream */
@@ -187,7 +190,14 @@ struct VirtIOVideoStream {
     QTAILQ_HEAD(, VirtIOVideoFrame) pending_frames;
     QTAILQ_HEAD(, VirtIOVideoWork) input_work;
     QTAILQ_HEAD(, VirtIOVideoWork) output_work;
+    QTAILQ_HEAD(, VirtIOVideoWork) pending_work;
     QLIST_ENTRY(VirtIOVideoStream) next;
+    /* added by Shenlin 2022.1.4 */
+    bool bTdRun;
+    bool bVpp;
+    bool bPreenc;
+    QemuMutex mutex_enc;
+    /* added end */
 };
 
 typedef struct VirtIOVideoControl {
@@ -237,5 +247,68 @@ struct VirtIOVideo {
     QemuMutex mutex;
     AioContext *ctx;
 };
+
+/* added by shenlin 2022.1.25 */
+typedef struct EncodePresetParameters {
+    uint16_t GopRefDist;
+
+    uint16_t TargetUsage;
+
+    uint16_t RateControlMethod;
+    uint16_t ExtBRCUsage;
+    uint16_t AsyncDepth;
+    uint16_t BRefType;
+    uint16_t AdaptiveMaxFrameSize;
+    uint16_t LowDelayBRC;
+
+    uint16_t IntRefType;
+    uint16_t IntRefCycleSize;
+    uint16_t IntRefQPDelta;
+    uint16_t IntRefCycleDist;
+
+    uint16_t WeightedPred;
+    uint16_t WeightedBiPred;
+
+    bool EnableBPyramid;
+    bool EnablePPyramid;
+} EncPresPara;
+
+typedef struct DependentPresetParameters {
+    uint16_t TargetKbps;
+    uint16_t MaxKbps;
+    uint16_t GopPicSize;
+    uint16_t BufferSizeInKB;
+    uint16_t LookAheadDepth;
+    uint16_t MaxFrameSize;
+} DepPresPara;
+
+typedef struct VirtIOVideoEncodeParamPreset {
+    EncPresPara epp;
+    DepPresPara dpp;
+} VirtIOVideoEncodeParamPreset;
+
+typedef enum ExtBRCType {
+    EXTBRC_DEFAULT,
+    EXTBRC_OFF,
+    EXTBRC_ON,
+    EXTBRC_IMPLICIT
+} ExtBRCType;
+
+typedef enum EPresetModes
+{
+    PRESET_DEFAULT,
+    PRESET_DSS,
+    PRESET_CONF,
+    PRESET_GAMING,
+    PRESET_MAX_MODES
+} EPresetModes;
+
+typedef enum EPresetCodecs
+{
+    PRESET_AVC,
+    PRESET_HEVC,
+    PRESET_MAX_CODECS
+} EPresetCodecs;
+/* end */
 
 #endif /* QEMU_VIRTIO_VIDEO_H */

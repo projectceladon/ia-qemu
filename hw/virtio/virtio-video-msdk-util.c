@@ -21,6 +21,7 @@
  * Authors: Colin Xu <colin.xu@intel.com>
  *          Zhuocheng Ding <zhuocheng.ding@intel.com>
  */
+#include <math.h>
 #include "qemu/osdep.h"
 #include "qemu/error-report.h"
 #include "virtio-video-util.h"
@@ -29,6 +30,52 @@
 #include "mfx/mfxplugin.h"
 #include "mfx/mfxvp8.h"
 #include "va/va_drm.h"
+
+// added by shenlin
+EncPresPara presets[PRESET_MAX_MODES][PRESET_MAX_CODECS] =
+{
+    // Default
+    {
+        {4, MFX_TARGETUSAGE_BALANCED, MFX_RATECONTROL_VBR, EXTBRC_DEFAULT, 4, MFX_B_REF_PYRAMID,
+         0, 0, 0, 0, 0, 0, MFX_WEIGHTED_PRED_UNKNOWN, MFX_WEIGHTED_PRED_UNKNOWN, 0, 0},
+        {0, MFX_TARGETUSAGE_BALANCED, MFX_RATECONTROL_VBR, EXTBRC_DEFAULT, 4, 0,
+         0, 0, 0, 0, 0, 0, MFX_WEIGHTED_PRED_UNKNOWN, MFX_WEIGHTED_PRED_UNKNOWN, 0, 0 }
+    },
+    // DSS
+    {
+        {1, MFX_TARGETUSAGE_BALANCED, MFX_RATECONTROL_QVBR, EXTBRC_DEFAULT, 1, 0,
+         0, 0, 0, 0, 0, 0, MFX_WEIGHTED_PRED_UNKNOWN, MFX_WEIGHTED_PRED_UNKNOWN, 0, 0 },
+        {1, MFX_TARGETUSAGE_BALANCED, MFX_RATECONTROL_QVBR, EXTBRC_DEFAULT, 1, 0,
+         0, 0, 0, 0, 0, 0, MFX_WEIGHTED_PRED_UNKNOWN, MFX_WEIGHTED_PRED_UNKNOWN, 1, 1 },
+    },
+    // Conference
+    {
+        {1, MFX_TARGETUSAGE_BALANCED, MFX_RATECONTROL_VCM, EXTBRC_DEFAULT, 1, 0,
+        0, 0, 0, 0, 0, 0, MFX_WEIGHTED_PRED_UNKNOWN, MFX_WEIGHTED_PRED_UNKNOWN, 0, 0 },
+        {1, MFX_TARGETUSAGE_BALANCED, MFX_RATECONTROL_VBR, EXTBRC_ON, 1, 0,
+        0, 0, 0, 0, 0, 0, MFX_WEIGHTED_PRED_UNKNOWN, MFX_WEIGHTED_PRED_UNKNOWN, 0, 0 },
+    },
+    // Gaming
+    {
+        {1, MFX_TARGETUSAGE_BALANCED, MFX_RATECONTROL_QVBR, EXTBRC_DEFAULT, 1, 0,
+        MFX_CODINGOPTION_ON, MFX_CODINGOPTION_ON, MFX_REFRESH_HORIZONTAL, 8, 0, 4, MFX_WEIGHTED_PRED_UNKNOWN, MFX_WEIGHTED_PRED_UNKNOWN, 0, 0 },
+        {1, MFX_TARGETUSAGE_BALANCED, MFX_RATECONTROL_VBR, EXTBRC_ON, 1, 0,
+        MFX_CODINGOPTION_ON, MFX_CODINGOPTION_ON, MFX_REFRESH_HORIZONTAL, 8, 0, 4, MFX_WEIGHTED_PRED_UNKNOWN, MFX_WEIGHTED_PRED_UNKNOWN, 0, 0 },
+    }
+};
+typedef struct PartiallyLinearFNC {
+    double *m_pX;
+    double *m_pY;
+    uint32_t  m_nPoints;
+    uint32_t  m_nAllocated;
+} PartiallyLinearFNC;
+
+void GetBasicPreset(EncPresPara *pEpp, EPresetModes mode, uint32_t fourCC);
+void GetDependentPreset(DepPresPara *pDpp, EPresetModes mode, uint32_t fourCC, double fps, uint32_t width, uint32_t height, uint16_t targetUsage);
+uint16_t CalculateDefaultBitrate(uint32_t fourCC, uint32_t targetUsage, uint32_t width, uint32_t height, double framerate);
+void CaculateBItrate_AddPairs(PartiallyLinearFNC *pFnc, double x, double y);
+double CaculateBitrate_At(PartiallyLinearFNC *pFnc, double x);
+// end
 
 #define VIRTIO_VIDEO_DRM_DEVICE "/dev/dri/by-path/pci-0000:00:02.0-render"
 
@@ -521,63 +568,61 @@ error:
 }
 
 void virtio_video_msdk_stream_reset_param(VirtIOVideoStream *stream,
-                                          mfxVideoParam *param)
+    mfxVideoParam *param, bool encode)
 {
     /* TODO: maybe we should keep crop values set by guest? */
-    stream->out.params.frame_width = param->mfx.FrameInfo.Width;
-    stream->out.params.frame_height = param->mfx.FrameInfo.Height;
-    stream->out.params.frame_rate =
-        param->mfx.FrameInfo.FrameRateExtN / param->mfx.FrameInfo.FrameRateExtD;
-    stream->out.params.crop.left = param->mfx.FrameInfo.CropX;
-    stream->out.params.crop.top = param->mfx.FrameInfo.CropY;
-    stream->out.params.crop.width = param->mfx.FrameInfo.CropW;
-    stream->out.params.crop.height = param->mfx.FrameInfo.CropH;
+    virtio_video_params *pVvp = encode ? &stream->in.params : &stream->out.params;
 
-    switch (stream->out.params.format) {
+    pVvp->frame_width = param->mfx.FrameInfo.Width;
+    pVvp->frame_height = param->mfx.FrameInfo.Height;
+    pVvp->frame_rate = param->mfx.FrameInfo.FrameRateExtN /
+                                    param->mfx.FrameInfo.FrameRateExtD;
+    pVvp->crop.left = param->mfx.FrameInfo.CropX;
+    pVvp->crop.top = param->mfx.FrameInfo.CropY;
+    pVvp->crop.width = param->mfx.FrameInfo.CropW;
+    pVvp->crop.height = param->mfx.FrameInfo.CropH;
+
+    switch (pVvp->format) {
     case VIRTIO_VIDEO_FORMAT_ARGB8888:
     case VIRTIO_VIDEO_FORMAT_BGRA8888:
-        stream->out.params.num_planes = 1;
-        stream->out.params.plane_formats[0].plane_size =
-            stream->out.params.frame_width * stream->out.params.frame_height *
-            4;
-        stream->out.params.plane_formats[0].stride =
-            stream->out.params.frame_width * 4;
+        pVvp->num_planes = 1;
+        pVvp->plane_formats[0].plane_size =
+            pVvp->frame_width * pVvp->frame_height * 4;
+        pVvp->plane_formats[0].stride =
+            pVvp->frame_width * 4;
         break;
     case VIRTIO_VIDEO_FORMAT_NV12:
-        stream->out.params.num_planes = 2;
-        stream->out.params.plane_formats[0].plane_size =
-            stream->out.params.frame_width * stream->out.params.frame_height;
-        stream->out.params.plane_formats[0].stride =
-            stream->out.params.frame_width;
-        stream->out.params.plane_formats[1].plane_size =
-            stream->out.params.frame_width * stream->out.params.frame_height /
-            2;
-        stream->out.params.plane_formats[1].stride =
-            stream->out.params.frame_width;
-        DPRINTF("virtio_video_msdk_stream_reset_param, nv12:plane_size:%d, "
-                "stride:%d, plane_size:%d, stride:%d\n",
-                stream->out.params.plane_formats[0].plane_size,
-                stream->out.params.plane_formats[0].stride,
-                stream->out.params.plane_formats[1].plane_size,
-                stream->out.params.plane_formats[1].stride);
+        pVvp->num_planes = 2;
+        pVvp->plane_formats[0].plane_size =
+            pVvp->frame_width * pVvp->frame_height;
+        pVvp->plane_formats[0].stride =
+            pVvp->frame_width;
+        pVvp->plane_formats[1].plane_size =
+            pVvp->frame_width * pVvp->frame_height / 2;
+        pVvp->plane_formats[1].stride =
+            pVvp->frame_width;
+		DPRINTF("virtio_video_msdk_stream_reset_param, nv12:plane_size:%d, "
+				"stride:%d, plane_size:%d, stride:%d\n",
+				pVvp->plane_formats[0].plane_size,
+				pVvp->plane_formats[0].stride,
+				pVvp->plane_formats[1].plane_size,
+				pVvp->plane_formats[1].stride);
         break;
     case VIRTIO_VIDEO_FORMAT_YUV420:
     case VIRTIO_VIDEO_FORMAT_YVU420:
-        stream->out.params.num_planes = 3;
-        stream->out.params.plane_formats[0].plane_size =
-            stream->out.params.frame_width * stream->out.params.frame_height;
-        stream->out.params.plane_formats[0].stride =
-            stream->out.params.frame_width;
-        stream->out.params.plane_formats[1].plane_size =
-            stream->out.params.frame_width * stream->out.params.frame_height /
-            4;
-        stream->out.params.plane_formats[1].stride =
-            stream->out.params.frame_width / 2;
-        stream->out.params.plane_formats[2].plane_size =
-            stream->out.params.frame_width * stream->out.params.frame_height /
-            4;
-        stream->out.params.plane_formats[2].stride =
-            stream->out.params.frame_width / 2;
+        pVvp->num_planes = 3;
+        pVvp->plane_formats[0].plane_size =
+            pVvp->frame_width * pVvp->frame_height;
+        pVvp->plane_formats[0].stride =
+            pVvp->frame_width;
+        pVvp->plane_formats[1].plane_size =
+            pVvp->frame_width * pVvp->frame_height / 4;
+        pVvp->plane_formats[1].stride =
+            pVvp->frame_width / 2;
+        pVvp->plane_formats[2].plane_size =
+            pVvp->frame_width * pVvp->frame_height / 4;
+        pVvp->plane_formats[2].stride =
+            pVvp->frame_width / 2;
         break;
     default:
         break;
@@ -932,3 +977,272 @@ char *virtio_video_stream_statu_to_string(virtio_video_stream_state statu)
         return (char *)"unknown status";
     }
 }
+
+// added by shenlin 2022.1.27
+void virtio_video_msdk_get_preset_param_enc(VirtIOVideoEncodeParamPreset *pVp, uint32_t fourCC, 
+            double fps, uint32_t width, uint32_t height)
+{
+    if (pVp == NULL) return ;
+    GetBasicPreset(&(pVp->epp), PRESET_DEFAULT, fourCC);
+    GetDependentPreset(&(pVp->dpp), PRESET_DEFAULT, fourCC, fps, width, height, pVp->epp.TargetUsage);
+}
+
+void GetBasicPreset(EncPresPara *pEpp, EPresetModes mode, uint32_t fourCC)
+{
+    if (pEpp == NULL) return ;
+    switch (fourCC) {
+    case MFX_CODEC_AVC :
+        *pEpp = presets[mode][PRESET_AVC];
+        break;
+    case MFX_CODEC_HEVC :
+        *pEpp = presets[mode][PRESET_HEVC];
+        break;
+    default :
+        if (mode != PRESET_DEFAULT) {
+            DPRINTF("WARNING: Presets are available for h.264 or h.265 codecs only. "
+            "Request for particular preset is ignored.\n");
+        }
+
+        pEpp->TargetUsage = MFX_TARGETUSAGE_BALANCED;
+        pEpp->RateControlMethod = MFX_RATECONTROL_CBR;
+
+        pEpp->AsyncDepth = 4;
+    }
+}
+
+void GetDependentPreset(DepPresPara *pDpp, EPresetModes mode, uint32_t fourCC, 
+                    double fps, uint32_t width, uint32_t height, uint16_t targetUsage)
+{
+    if (pDpp == NULL) return ;
+    pDpp->TargetKbps = CalculateDefaultBitrate(fourCC, targetUsage, width, height, fps);
+    // pDpp->TargetKbps = 0;
+
+    if (fourCC == MFX_CODEC_AVC || fourCC == MFX_CODEC_HEVC) {
+        pDpp->MaxKbps = 0; // (mode == PRESET_GAMING ? (uint16_t)(1.2 * pDpp->TargetKbps) : 0);
+        pDpp->GopPicSize = 0; // (mode == PRESET_GAMING || mode == PRESET_DEFAULT ? 0 : (uint16_t)(2 * fps));
+        pDpp->BufferSizeInKB = 0; // (mode == PRESET_DEFAULT ? 0 : pDpp->TargetKbps);
+        pDpp->LookAheadDepth = 0;
+        pDpp->MaxFrameSize = 0; // (mode == PRESET_GAMING ? (uint32_t)(pDpp->TargetKbps * 0.166) : 0);
+    }
+}
+
+mfxU16 CalculateDefaultBitrate(uint32_t fourCC, uint32_t targetUsage, uint32_t width, uint32_t height, double framerate)
+{
+    PartiallyLinearFNC fnc;
+    memset(&fnc, 0, sizeof(PartiallyLinearFNC));
+    double bitrate = 0.0f;
+    double at = 0.0f;
+
+    switch (fourCC) {
+    case MFX_CODEC_HEVC : {
+        CaculateBItrate_AddPairs(&fnc, 0, 0);
+        CaculateBItrate_AddPairs(&fnc, 25344, 225/1.3);
+        CaculateBItrate_AddPairs(&fnc, 101376, 1000/1.3);
+        CaculateBItrate_AddPairs(&fnc, 414720, 4000/1.3);
+        CaculateBItrate_AddPairs(&fnc, 2058240, 5000/1.3);
+        break;
+    }
+    case MFX_CODEC_AVC : {
+        CaculateBItrate_AddPairs(&fnc, 0, 0);
+        CaculateBItrate_AddPairs(&fnc, 25344, 225);
+        CaculateBItrate_AddPairs(&fnc, 101376, 1000);
+        CaculateBItrate_AddPairs(&fnc, 414720, 4000);
+        CaculateBItrate_AddPairs(&fnc, 2058240, 5000);
+        break;
+    }
+    case MFX_CODEC_MPEG2:
+    {
+        CaculateBItrate_AddPairs(&fnc, 0, 0);
+        CaculateBItrate_AddPairs(&fnc, 414720, 12000);
+        break;
+    }
+    default:
+    {
+        CaculateBItrate_AddPairs(&fnc, 0, 0);
+        CaculateBItrate_AddPairs(&fnc, 414720, 12000);
+        break;
+    }
+    }
+
+    at = width * height * framerate / 30.0;
+
+    if (!at)
+        return 0;
+
+    switch (targetUsage)
+    {
+    case MFX_TARGETUSAGE_BEST_QUALITY :
+        {
+            bitrate = CaculateBitrate_At(&fnc, at);
+            break;
+        }
+    case MFX_TARGETUSAGE_BEST_SPEED :
+        {
+            bitrate = CaculateBitrate_At(&fnc, at) * 0.5;
+            break;
+        }
+    case MFX_TARGETUSAGE_BALANCED :
+    default:
+        {
+            bitrate = CaculateBitrate_At(&fnc, at) * 0.75;
+            break;
+        }
+    }
+
+    return (uint16_t)bitrate;
+}
+
+void CaculateBItrate_AddPairs(PartiallyLinearFNC *pFnc, double x, double y)
+{
+    if (pFnc == NULL) return ;
+
+    //duplicates searching
+    for (uint32_t i = 0; i < pFnc->m_nPoints; i++)
+    {
+        if (pFnc->m_pX[i] == x)
+            return;
+    }
+    if (pFnc->m_nPoints == pFnc->m_nAllocated)
+    {
+        pFnc->m_nAllocated += 20;
+        double * pnew = NULL;
+        pnew = g_malloc0(sizeof(double) * pFnc->m_nAllocated);
+        //memcpy_s(pnew, sizeof(mfxF64)*m_nAllocated, m_pX, sizeof(mfxF64) * m_nPoints);
+        memcpy(pnew, pFnc->m_pX, sizeof(double) * pFnc->m_nPoints);
+        g_free(pFnc->m_pX);
+        pFnc->m_pX = pnew;
+
+        pnew = g_malloc0(sizeof(double) * pFnc->m_nAllocated);
+        //memcpy_s(pnew, sizeof(mfxF64)*m_nAllocated, m_pY, sizeof(mfxF64) * m_nPoints);
+        memcpy(pnew, pFnc->m_pY, sizeof(double) * pFnc->m_nPoints);
+        g_free(pFnc->m_pY);
+        pFnc->m_pY = pnew;
+    }
+    pFnc->m_pX[pFnc->m_nPoints] = x;
+    pFnc->m_pY[pFnc->m_nPoints] = y;
+
+    pFnc->m_nPoints++;
+}
+
+double CaculateBitrate_At(PartiallyLinearFNC *pFnc, double x)
+{
+    if (pFnc == NULL) return 0;
+
+    if (pFnc->m_nPoints < 2)
+    {
+        return 0;
+    }
+    bool bwasmin = false;
+    bool bwasmax = false;
+
+    uint32_t maxx = 0;
+    uint32_t minx = 0;
+    uint32_t i = 0;
+
+    for (i = 0; i < pFnc->m_nPoints; i++)
+    {
+        if (pFnc->m_pX[i] <= x && (!bwasmin || pFnc->m_pX[i] > pFnc->m_pX[maxx]))
+        {
+            maxx = i;
+            bwasmin = true;
+        }
+        if (pFnc->m_pX[i] > x && (!bwasmax || pFnc->m_pX[i] < pFnc->m_pX[minx]))
+        {
+            minx = i;
+            bwasmax = true;
+        }
+    }
+
+    //point on the left
+    if (!bwasmin)
+    {
+        for (i = 0; i < pFnc->m_nPoints; i++)
+        {
+            if (pFnc->m_pX[i] > pFnc->m_pX[minx] && (!bwasmin || pFnc->m_pX[i] < pFnc->m_pX[minx]))
+            {
+                maxx = i;
+                bwasmin = true;
+            }
+        }
+    }
+    //point on the right
+    if (!bwasmax)
+    {
+        for (i = 0; i < pFnc->m_nPoints; i++)
+        {
+            if (pFnc->m_pX[i] < pFnc->m_pX[maxx] && (!bwasmax || pFnc->m_pX[i] > pFnc->m_pX[minx]))
+            {
+                minx = i;
+                bwasmax = true;
+            }
+        }
+    }
+
+    //linear interpolation
+    return (x - pFnc->m_pX[minx]) * (pFnc->m_pY[maxx] - pFnc->m_pY[minx]) / (pFnc->m_pX[maxx] - pFnc->m_pX[minx]) + pFnc->m_pY[minx];
+}
+
+
+int virtio_video_msdk_convert_frame_rate(double frame_rate, uint32_t *pRateExtN, uint32_t *pRateExtD)
+{
+    if (pRateExtN == NULL || pRateExtD == NULL) return -1;
+    uint32_t fr = 0;
+
+    if (frame_rate == 0) frame_rate = 30.0;
+
+    fr = (uint32_t)(frame_rate + .5);
+
+    if (abs(fr - frame_rate) < 0.0001) {
+        *pRateExtN = fr;
+        *pRateExtD = 1;
+        return 0;
+    }
+
+    fr = (uint32_t)(frame_rate * 1.001 + .5);
+
+    if (fabs(fr * 1000 - frame_rate * 1001) < 10) {
+        *pRateExtN = fr * 1000;
+        *pRateExtD = 1;
+        return 0;
+    }
+
+    *pRateExtN = (uint32_t)(frame_rate * 10000 + .5);
+    *pRateExtD = 10000;
+
+    return 0;
+}
+
+uint16_t virtio_video_msdk_fourCC_to_chroma(uint32_t fourCC)
+{
+    switch(fourCC)
+    {
+    case MFX_FOURCC_NV12:
+    case MFX_FOURCC_P010:
+#if (MFX_VERSION >= 1031)
+    case MFX_FOURCC_P016:
+#endif
+        return MFX_CHROMAFORMAT_YUV420;
+    case MFX_FOURCC_NV16:
+    case MFX_FOURCC_P210:
+#if (MFX_VERSION >= 1027)
+    case MFX_FOURCC_Y210:
+#endif
+#if (MFX_VERSION >= 1031)
+    case MFX_FOURCC_Y216:
+#endif
+    case MFX_FOURCC_YUY2:
+    case MFX_FOURCC_UYVY:
+        return MFX_CHROMAFORMAT_YUV422;
+#if (MFX_VERSION >= 1027)
+    case MFX_FOURCC_Y410:
+    case MFX_FOURCC_A2RGB10:
+#endif
+    case MFX_FOURCC_AYUV:
+    case MFX_FOURCC_RGB4:
+        return MFX_CHROMAFORMAT_YUV444;
+    }
+
+    return MFX_CHROMAFORMAT_YUV420;
+}
+
+// end

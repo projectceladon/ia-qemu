@@ -37,6 +37,9 @@
 #define VIRTIO_VIDEO_MSDK_DIMENSION_MIN         16
 #define VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE  16
 #define VIRTIO_VIDEO_MSDK_DIM_STEP_OTHERS       32
+#define VIRTIO_VIDEO_MSDK_FRAME_RATE_MAX        60
+#define VIRTIO_VIDEO_MSDK_FRAME_RATE_MIN        24
+#define VIRTIO_VIDEO_MSDK_FRAME_RATE_STEP       1
 
 #define VIRTIO_VIDEO_MSDK_TIME_TO_WAIT          500
 
@@ -55,6 +58,7 @@ typedef struct MsdkSurface {
 typedef struct MsdkFrame {
     MsdkSurface *surface;
     MsdkSurface *vpp_surface;
+    void *pBitStream; // added by Shenlin 2022.1.14
     mfxSyncPoint sync;
     mfxSyncPoint vpp_sync;
 } MsdkFrame;
