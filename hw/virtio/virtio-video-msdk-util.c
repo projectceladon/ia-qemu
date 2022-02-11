@@ -195,7 +195,7 @@ int virtio_video_msdk_init_param_dec(mfxVideoParam *param,
     if (virtio_video_msdk_init_param(param, stream->in.params.format) < 0)
         return -1;
 
-#if 0
+#if 1
     switch (stream->in.mem_type) {
     case VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES:
         param->IOPattern |= MFX_IOPATTERN_IN_SYSTEM_MEMORY;
@@ -217,7 +217,7 @@ int virtio_video_msdk_init_param_dec(mfxVideoParam *param,
     default:
         break;
     }
-    param->AsyncDepth = 1;
+    //param->AsyncDepth = 1;
 
     return 0;
 }
@@ -239,8 +239,10 @@ int virtio_video_msdk_init_vpp_param_dec(mfxVideoParam *param,
     vpp_param->vpp.In.CropW = param->mfx.FrameInfo.CropW;
     vpp_param->vpp.In.CropH = param->mfx.FrameInfo.CropH;
     vpp_param->vpp.In.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
-    vpp_param->vpp.In.FrameRateExtN = param->mfx.FrameInfo.FrameRateExtN;
-    vpp_param->vpp.In.FrameRateExtD = param->mfx.FrameInfo.FrameRateExtD;
+    vpp_param->vpp.In.FrameRateExtN = param->mfx.FrameInfo.FrameRateExtN ?
+                                      param->mfx.FrameInfo.FrameRateExtN : 30;
+    vpp_param->vpp.In.FrameRateExtD = param->mfx.FrameInfo.FrameRateExtD ?
+                                      param->mfx.FrameInfo.FrameRateExtD : 1;
     vpp_param->vpp.In.Width = MSDK_ALIGN16(vpp_param->vpp.In.CropW);
     vpp_param->vpp.In.Height = MSDK_ALIGN16(vpp_param->vpp.In.CropH);
 
@@ -300,10 +302,10 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     }
 
     surface_num = vpp ? session->vpp_surface_num : session->surface_num;
-    if (surface_num < 20)
-        surface_num = 20;
+    //if (surface_num < 20)
+     //   surface_num = 20;
 
-    printf("dyang23, virtio_video_msdk_init_surface_pool create:%d surface of surface pool \n", surface_num);
+    //printf("dyang23, virtio_video_msdk_init_surface_pool create:%d surface of surface pool \n", surface_num);
     for (i = 0; i < surface_num; i++) {
         surface = g_new0(MsdkSurface, 1);
         surface_buf = g_malloc0(size);
@@ -382,6 +384,19 @@ void virtio_video_msdk_uninit_surface_pools(MsdkSession *session)
     }
 }
 
+void virtio_video_msdk_uninit_frame(VirtIOVideoFrame *frame)
+{
+    MsdkFrame *m_frame = frame->opaque;
+
+    if (m_frame != NULL) {
+        m_frame->surface->used = false;
+        if (m_frame->vpp_surface)
+            m_frame->vpp_surface->used = false;
+        g_free(m_frame);
+    }
+    g_free(frame);
+}
+
 int virtio_video_msdk_output_surface(MsdkSurface *surface,
     VirtIOVideoResource *resource)
 {
@@ -410,16 +425,16 @@ int virtio_video_msdk_output_surface(MsdkSurface *surface,
             goto error;
 
         ret += virtio_video_memcpy(resource, 0, frame->Data.Y, width * height);
-        ret += virtio_video_memcpy(resource, 0, frame->Data.U, width * height / 4);
-        ret += virtio_video_memcpy(resource, 0, frame->Data.V, width * height / 4);
+        ret += virtio_video_memcpy(resource, 1, frame->Data.U, width * height / 4);
+        ret += virtio_video_memcpy(resource, 2, frame->Data.V, width * height / 4);
         break;
     case MFX_FOURCC_YV12:
         if (resource->num_planes != 3)
             goto error;
 
         ret += virtio_video_memcpy(resource, 0, frame->Data.Y, width * height);
-        ret += virtio_video_memcpy(resource, 0, frame->Data.V, width * height / 4);
-        ret += virtio_video_memcpy(resource, 0, frame->Data.U, width * height / 4);
+        ret += virtio_video_memcpy(resource, 1, frame->Data.V, width * height / 4);
+        ret += virtio_video_memcpy(resource, 2, frame->Data.U, width * height / 4);
         break;
     default:
         break;
@@ -431,6 +446,67 @@ int virtio_video_msdk_output_surface(MsdkSurface *surface,
 error:
     surface->used = false;
     return -1;
+}
+
+void virtio_video_msdk_stream_reset_param(VirtIOVideoStream *stream,
+    mfxVideoParam *param)
+{
+    /* TODO: maybe we should keep crop values set by guest? */
+    stream->out.params.frame_width = param->mfx.FrameInfo.Width;
+    stream->out.params.frame_height = param->mfx.FrameInfo.Height;
+    stream->out.params.frame_rate = param->mfx.FrameInfo.FrameRateExtN /
+                                    param->mfx.FrameInfo.FrameRateExtD;
+    stream->out.params.crop.left = param->mfx.FrameInfo.CropX;
+    stream->out.params.crop.top = param->mfx.FrameInfo.CropY;
+    stream->out.params.crop.width = param->mfx.FrameInfo.CropW;
+    stream->out.params.crop.height = param->mfx.FrameInfo.CropH;
+
+    switch (stream->out.params.format) {
+    case VIRTIO_VIDEO_FORMAT_ARGB8888:
+    case VIRTIO_VIDEO_FORMAT_BGRA8888:
+        stream->out.params.num_planes = 1;
+        stream->out.params.plane_formats[0].plane_size =
+            stream->out.params.frame_width * stream->out.params.frame_height * 4;
+        stream->out.params.plane_formats[0].stride =
+            stream->out.params.frame_width * 4;
+        break;
+    case VIRTIO_VIDEO_FORMAT_NV12:
+        stream->out.params.num_planes = 2;
+        stream->out.params.plane_formats[0].plane_size =
+            stream->out.params.frame_width * stream->out.params.frame_height;
+        stream->out.params.plane_formats[0].stride =
+            stream->out.params.frame_width;
+        stream->out.params.plane_formats[1].plane_size =
+            stream->out.params.frame_width * stream->out.params.frame_height / 2;
+        stream->out.params.plane_formats[1].stride =
+            stream->out.params.frame_width;
+			printf("virtio_video_msdk_stream_reset_param, nv12:plane_size:%d, stride:%d, plane_size:%d, stride:%d", 
+				stream->out.params.plane_formats[0].plane_size, stream->out.params.plane_formats[0].stride,
+				stream->out.params.plane_formats[1].plane_size, stream->out.params.plane_formats[1].stride);
+        break;
+    case VIRTIO_VIDEO_FORMAT_YUV420:
+    case VIRTIO_VIDEO_FORMAT_YVU420:
+        stream->out.params.num_planes = 3;
+        stream->out.params.plane_formats[0].plane_size =
+            stream->out.params.frame_width * stream->out.params.frame_height;
+        stream->out.params.plane_formats[0].stride =
+            stream->out.params.frame_width;
+        stream->out.params.plane_formats[1].plane_size =
+            stream->out.params.frame_width * stream->out.params.frame_height / 4;
+        stream->out.params.plane_formats[1].stride =
+            stream->out.params.frame_width / 2;
+        stream->out.params.plane_formats[2].plane_size =
+            stream->out.params.frame_width * stream->out.params.frame_height / 4;
+        stream->out.params.plane_formats[2].stride =
+            stream->out.params.frame_width / 2;
+        break;
+    default:
+        break;
+    }
+
+    stream->control.profile =
+        virtio_video_msdk_to_profile(param->mfx.CodecProfile);
+    stream->control.level = virtio_video_msdk_to_level(param->mfx.CodecLevel);
 }
 
 static const mfxPluginUID* virtio_video_msdk_find_plugin(uint32_t format,

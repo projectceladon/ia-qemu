@@ -28,7 +28,8 @@
 size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     virtio_video_stream_create *req, virtio_video_cmd_hdr *resp);
 size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo* v,
-    virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp);
+    virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp,
+    VirtQueueElement *elem);
 size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
     virtio_video_stream_drain *req, virtio_video_cmd_hdr *resp,
     VirtQueueElement *elem);

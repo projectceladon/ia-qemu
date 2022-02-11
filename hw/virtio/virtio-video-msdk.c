@@ -42,13 +42,14 @@ size_t virtio_video_msdk_cmd_stream_create(VirtIOVideo *v,
 }
 
 size_t virtio_video_msdk_cmd_stream_destroy(VirtIOVideo *v,
-    virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp)
+    virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp,
+    VirtQueueElement *elem)
 {
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
-        return virtio_video_msdk_dec_stream_destroy(v, req, resp);
+        return virtio_video_msdk_dec_stream_destroy(v, req, resp, elem);
     default:
         break;
     }

@@ -123,13 +123,14 @@ static size_t virtio_video_process_cmd_stream_create(VirtIODevice *vdev,
 }
 
 static size_t virtio_video_process_cmd_stream_destroy(VirtIODevice *vdev,
-    virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp)
+    virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp,
+    VirtQueueElement *elem)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
 
     switch (v->backend) {
     case VIRTIO_VIDEO_BACKEND_MEDIA_SDK:
-        return virtio_video_msdk_cmd_stream_destroy(v, req, resp);
+        return virtio_video_msdk_cmd_stream_destroy(v, req, resp, elem);
     default:
         return 0;
     }
@@ -185,6 +186,26 @@ error:
     return -1;
 }
 
+static void virtio_video_destroy_resource(VirtIOVideoResource *resource,
+    uint32_t mem_type, bool in)
+{
+    VirtIOVideoResourceSlice *slice;
+    int i, j;
+
+    QLIST_REMOVE(resource, next);
+    for (i = 0; i < resource->num_planes; i++) {
+        for (j = 0; j < resource->num_entries[i]; j++) {
+            slice = &resource->slices[i][j];
+            if (mem_type == VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES) {
+                cpu_physical_memory_unmap(slice->page.hva, slice->page.len,
+                                          !in, slice->page.len);
+            } /* TODO: support object memory type */
+        }
+        g_free(resource->slices[i]);
+    }
+    g_free(resource);
+}
+
 static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     virtio_video_resource_create *req, virtio_video_cmd_hdr *resp,
     VirtQueueElement *elem)
@@ -197,7 +218,7 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     size_t len, num_entries = 0;
     int i, dir;
 
-    resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+    resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
 
@@ -233,22 +254,28 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
         return len;
     }
 
-#if 0
-    /*if this is userptr buffer, the BE driver will release the resourceID after
-      the buffer dequeued, and the resourceID will be re-used for coming buffer
-
-      TODO: remove the resoure id from stream->resource_list after return the buffer
-      to BE
-      */
+    qemu_mutex_lock(&stream->mutex);
     QLIST_FOREACH(resource, &stream->resource_list[dir], next) {
         if (resource->id == req->resource_id) {
+            //remove the older resource, since the resource already released from front-end
+            error_report("CMD_RESOURCE_CREATE: stream %d resource %d, already created, destroy the old resource from list \n", stream->id, resource->id);
+            virtio_video_destroy_resource(resource, mem_type, false);
+            #if 0
             resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
             error_report("CMD_RESOURCE_CREATE: stream %d resource %d "
                          "already created", stream->id, resource->id);
-            return len;
+            goto out;
+            #endif
         }
     }
-#endif
+
+    QLIST_FOREACH(resource, &stream->resource_list[dir], next) {
+        if (resource->id == req->resource_id) {
+            resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
+            error_report("CMD_RESOURCE_CREATE: stream %d resource %d already created, ignore\n", stream->id, resource->id);
+            goto out;
+        }
+    }
 
     if (!virtio_video_format_is_valid(format, req->num_planes)) {
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
@@ -257,7 +284,7 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
                      stream->id, req->num_planes,
                      dir == VIRTIO_VIDEO_QUEUE_INPUT ? "input" : "output",
                      virtio_video_format_name(format));
-        return len;
+        goto out;
     }
 
     /* Frontend will not set planes_layout sometimes, try to fix it. */
@@ -297,6 +324,7 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
             virtio_error(vdev, "virtio-video resource create data incorrect");
             g_free(entries);
             g_free(resource);
+            qemu_mutex_unlock(&stream->mutex);
             return 0;
         }
 
@@ -306,7 +334,8 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
                          "map guest memory", stream->id);
             g_free(entries);
             g_free(resource);
-            return len;
+            resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
+            goto out;
         }
         g_free(entries);
         break;
@@ -317,17 +346,19 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
         error_report("CMD_RESOURCE_CREATE: stream %d unsupported "
                      "memory type (object)", stream->id);
-        return len;
+        goto out;
     }
     default:
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
-        return len;
+        goto out;
     }
 
     QLIST_INSERT_HEAD(&stream->resource_list[dir], resource, next);
     DPRINTF("CMD_RESOURCE_CREATE: stream %d created %s resource %d\n",
             stream->id, dir == VIRTIO_VIDEO_QUEUE_INPUT ? "input" : "output",
             resource->id);
+out:
+    qemu_mutex_unlock(&stream->mutex);
     return len;
 }
 
@@ -510,7 +541,11 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         virtio_video_cmd_hdr resp = {0};
 
         CMD_GET_REQ(&req, sizeof(req));
-        len = virtio_video_process_cmd_stream_destroy(vdev, &req, &resp);
+        len = virtio_video_process_cmd_stream_destroy(vdev, &req, &resp, elem);
+        if (len == 0) {
+            async = true;
+            break;
+        }
         CMD_SET_RESP(&resp, len, false);
         break;
     }
@@ -902,11 +937,11 @@ static uint64_t virtio_video_get_features(VirtIODevice *vdev, uint64_t features,
 {
     virtio_add_feature(&features, VIRTIO_VIDEO_F_RESOURCE_GUEST_PAGES);
 
-    /* frontend only use one, either guest page or virtio object, guest page is prioritized */
-    //virtio_add_feature(&features, VIRTIO_VIDEO_F_RESOURCE_VIRTIO_OBJECT);
+    /* TODO: support object memory type */
+    /* NOTE: frontend will try guest page first if both are presented */
+    /* virtio_add_feature(&features, VIRTIO_VIDEO_F_RESOURCE_VIRTIO_OBJECT); */
 
-    /* If support non-contiguous memory such as scatter-gather list */
-    //virtio_add_feature(&features, VIRTIO_VIDEO_F_RESOURCE_NON_CONTIG);
+    virtio_add_feature(&features, VIRTIO_VIDEO_F_RESOURCE_NON_CONTIG);
     return features;
 }
 

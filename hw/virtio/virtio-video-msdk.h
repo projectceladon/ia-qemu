@@ -51,7 +51,6 @@ typedef struct MsdkSurface {
  * @vpp_surface: points to the working frame surface in @vpp_surface_pool
  */
 typedef struct MsdkFrame {
-    mfxBitstream bitstream;
     MsdkSurface *surface;
     MsdkSurface *vpp_surface;
     mfxSyncPoint sync;
@@ -59,13 +58,18 @@ typedef struct MsdkFrame {
 } MsdkFrame;
 
 /**
+ * @bitstream: the input bitstream for decoder
  * @surface_num: determines the initial size of @surface_pool
  * @vpp_surface_num: determines the initial size of @vpp_surface_pool
  */
 typedef struct MsdkSession {
-    QemuThread thread;
-    QemuEvent notifier;
+    QemuThread input_thread;
+    QemuThread output_thread;
+    QemuEvent input_notifier;
+    QemuEvent output_notifier;
     mfxSession session;
+    mfxBitstream bitstream;
+    bool input_accepted;
     int surface_num;
     int vpp_surface_num;
     QLIST_HEAD(, MsdkSurface) surface_pool;
@@ -80,7 +84,8 @@ typedef struct MsdkHandle {
 size_t virtio_video_msdk_cmd_stream_create(VirtIOVideo *v,
     virtio_video_stream_create *req, virtio_video_cmd_hdr *resp);
 size_t virtio_video_msdk_cmd_stream_destroy(VirtIOVideo *v,
-    virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp);
+    virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp,
+    VirtQueueElement *elem);
 size_t virtio_video_msdk_cmd_stream_drain(VirtIOVideo *v,
     virtio_video_stream_drain *req, virtio_video_cmd_hdr *resp,
     VirtQueueElement *elem);

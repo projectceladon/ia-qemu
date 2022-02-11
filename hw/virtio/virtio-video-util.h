@@ -42,11 +42,10 @@ int virtio_video_memcpy(VirtIOVideoResource *res, uint32_t idx, void *src,
                         uint32_t size);
 
 int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event);
-int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work);
 
 void virtio_video_work_done(VirtIOVideoWork *work);
-void virtio_video_cmd_done(VirtIOVideoCmd *cmd);
-void virtio_video_cmd_cancel(VirtIOVideoCmd *cmd);
+void virtio_video_inflight_cmd_done(VirtIOVideoStream *stream);
+void virtio_video_inflight_cmd_cancel(VirtIOVideoStream *stream);
 void virtio_video_report_event(VirtIOVideo *v, uint32_t event,
     uint32_t stream_id);
 

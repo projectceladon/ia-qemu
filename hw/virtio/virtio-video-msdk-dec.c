@@ -28,84 +28,82 @@
 #include "virtio-video-msdk-util.h"
 #include "mfx/mfxvideo.h"
 
-#define THREAD_NAME_LEN 24
+#define THREAD_NAME_LEN 48
 
-static bool first_frame_after_header = false;
-static int virtio_video_decode_parse_header(VirtIOVideoWork *work)
+static void virtio_video_msdk_bitstream_append(mfxBitstream *this,
+    mfxBitstream *other) {
+    if (other->DataLength == 0)
+        return;
+
+    memmove(this->Data, this->Data + this->DataOffset, this->DataLength);
+    this->DataOffset = 0;
+    if (this->MaxLength < this->DataLength + other->DataLength) {
+        this->MaxLength = this->DataLength + other->DataLength;
+        this->Data = g_realloc(this->Data, this->MaxLength);
+    }
+    memcpy(this->Data + this->DataLength, other->Data + other->DataOffset,
+           other->DataLength);
+    this->DataLength += other->DataLength;
+}
+
+static mfxStatus virtio_video_decode_parse_header(VirtIOVideoWork *work)
 {
     VirtIOVideoStream *stream = work->parent;
     MsdkSession *m_session = stream->opaque;
-    MsdkFrame *m_frame = work->opaque;
     mfxStatus status;
     mfxVideoParam param = {0}, vpp_param = {0};
     mfxFrameAllocRequest alloc_req, vpp_req[2];
-    int needed_length;
-    unsigned char *new_data;
-    printf("virtio_video_decode_parse_header\n");
+    mfxBitstream *input = work->opaque;
+    mfxBitstream *bitstream = &m_session->bitstream;
 
     memset(&alloc_req, 0, sizeof(alloc_req));
     memset(&vpp_req, 0, sizeof(alloc_req) * 2);
-    work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
 
-    virtio_video_msdk_load_plugin(m_session->session, stream->in.params.format, false);
+    if (work->queue_type != VIRTIO_VIDEO_QUEUE_TYPE_INPUT)
+        return MFX_ERR_UNDEFINED_BEHAVIOR;
+
+    virtio_video_msdk_load_plugin(m_session->session, stream->in.params.format,
+                                  false);
     if (virtio_video_msdk_init_param_dec(&param, stream) < 0)
-        return -1;
+        return MFX_ERR_UNSUPPORTED;
 
-    if (stream->bitstream_header.Data == NULL) {
-        stream->bitstream_header.Data = g_malloc0(m_frame->bitstream.MaxLength);
-        memcpy(stream->bitstream_header.Data, m_frame->bitstream.Data, m_frame->bitstream.MaxLength);
-        stream->bitstream_header.DataOffset = m_frame->bitstream.DataOffset;
-        stream->bitstream_header.DataLength = m_frame->bitstream.DataLength;
-        stream->bitstream_header.MaxLength = m_frame->bitstream.MaxLength;
-    } else {
-        needed_length = stream->bitstream_header.MaxLength + m_frame->bitstream.MaxLength;
-        new_data = realloc(stream->bitstream_header.Data, needed_length);
-        if (new_data) {
-            stream->bitstream_header.Data = new_data;
-            memcpy(stream->bitstream_header.Data + stream->bitstream_header.MaxLength, m_frame->bitstream.Data, m_frame->bitstream.MaxLength);
-            stream->bitstream_header.DataLength += m_frame->bitstream.DataLength;
-            stream->bitstream_header.MaxLength = needed_length;
-        }
-    }
-    stream->bitstream_header.DataFlag |= MFX_BITSTREAM_COMPLETE_FRAME;
+    virtio_video_msdk_bitstream_append(bitstream, input);
+    status = MFXVideoDECODE_DecodeHeader(m_session->session, bitstream, &param);
 
-    status = MFXVideoDECODE_DecodeHeader(m_session->session,
-                                         &stream->bitstream_header, &param);
-    if (status != MFX_ERR_NONE) {
-        if (status == MFX_ERR_MORE_DATA || status == MFX_ERR_NULL_PTR) {
-            work->flags = 0;
-        } else {
-            error_report("virtio-video-decode/%d MFXVideoDECODE_DecodeHeader "
-                         "failed: %d", stream->id, status);
-        }
-        return -1;
+    switch (status) {
+    case MFX_ERR_NONE:
+        break;
+    case MFX_ERR_MORE_DATA:
+        DPRINTF("virtio-video-decode/%d MFXVideoDECODE_DecodeHeader failed, "
+                "waiting for more input buffers\n", stream->id);
+        return status;
+    default:
+        error_report("virtio-video-decode/%d MFXVideoDECODE_DecodeHeader "
+                     "failed: %d", stream->id, status);
+        return status;
     }
-    printf("bitstream Header decode success!\n");
-    printf_mfxVideoParam(&param);
-    first_frame_after_header = true;
 
     status = MFXVideoDECODE_QueryIOSurf(m_session->session, &param, &alloc_req);
     if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
         error_report("virtio-video-decode/%d MFXVideoDECODE_QueryIOSurf "
                       "failed: %d", stream->id, status);
-        return -1;
+        return status;
     }
 
     status = MFXVideoDECODE_Init(m_session->session, &param);
     if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
         error_report("virtio-video-decode/%d MFXVideoDECODE_Init "
                       "failed: %d", stream->id, status);
-        return -1;
+        return status;
     }
 
     if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12)
         goto done;
 
-#if 1
-    goto done;
-    // VPP will be enabled later
-    if (virtio_video_msdk_init_vpp_param_dec(&param, &vpp_param, stream) < 0)
-        goto error_vpp;
+    if (virtio_video_msdk_init_vpp_param_dec(&param, &vpp_param, stream) < 0) {
+        MFXVideoDECODE_Close(m_session->session);
+        return MFX_ERR_UNSUPPORTED;
+    }
 
     status = MFXVideoVPP_QueryIOSurf(m_session->session, &vpp_param, vpp_req);
     if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
@@ -125,42 +123,32 @@ static int virtio_video_decode_parse_header(VirtIOVideoWork *work)
     m_session->vpp_surface_num = vpp_req[1].NumFrameSuggested;
     virtio_video_msdk_init_surface_pool(m_session, &vpp_req[1],
                                         &vpp_param.vpp.Out, true);
-#endif
+
 done:
     m_session->surface_num += alloc_req.NumFrameSuggested;
     virtio_video_msdk_init_surface_pool(m_session, &alloc_req,
                                         &param.mfx.FrameInfo, false);
 
-    /* TODO: maybe we should keep crop values set by guest? */
     stream->out.params.min_buffers = alloc_req.NumFrameMin;
     stream->out.params.max_buffers = alloc_req.NumFrameSuggested;
-    stream->out.params.frame_width = param.mfx.FrameInfo.Width;
-    stream->out.params.frame_height = param.mfx.FrameInfo.Height;
-    stream->out.params.frame_rate = param.mfx.FrameInfo.FrameRateExtN /
-                                    param.mfx.FrameInfo.FrameRateExtD;
-    stream->out.params.crop.left = param.mfx.FrameInfo.CropX;
-    stream->out.params.crop.top = param.mfx.FrameInfo.CropY;
-    stream->out.params.crop.width = param.mfx.FrameInfo.CropW;
-    stream->out.params.crop.height = param.mfx.FrameInfo.CropH;
-
-    stream->control.profile = virtio_video_msdk_to_profile(param.mfx.CodecProfile);
-    stream->control.level = virtio_video_msdk_to_level(param.mfx.CodecLevel);
-    work->flags = 0;
-    return 0;
+    virtio_video_msdk_stream_reset_param(stream, &param);
+    return MFX_ERR_NONE;
 
 error_vpp:
     MFXVideoDECODE_Close(m_session->session);
-    return -1;
+    return status;
 }
 
-static int virtio_video_decode_submit_one_frame(VirtIOVideoWork *work)
+static mfxStatus virtio_video_decode_one_frame(VirtIOVideoWork *work,
+    MsdkFrame *m_frame)
 {
     VirtIOVideoStream *stream = work->parent;
     MsdkSession *m_session = stream->opaque;
-    MsdkFrame *m_frame = work->opaque;
     MsdkSurface *work_surface, *vpp_work_surface;
-    mfxFrameSurface1 *out_surface = NULL;
     mfxStatus status;
+    mfxVideoParam param;
+    mfxBitstream *bitstream = &m_session->bitstream;
+    mfxFrameSurface1 *out_surface = NULL;
 
     QLIST_FOREACH(work_surface, &m_session->surface_pool, next) {
         if (!work_surface->used && !work_surface->surface.Data.Locked) {
@@ -170,56 +158,53 @@ static int virtio_video_decode_submit_one_frame(VirtIOVideoWork *work)
     if (work_surface == NULL) {
         error_report("virtio-video: stream %d no available surface "
                      "in surface pool", stream->id);
-        return -1;
+        return MFX_ERR_NOT_ENOUGH_BUFFER;
     }
 
-    printf_mfxFrameSurface1(work_surface->surface);
-    m_frame->bitstream.DataFlag |= MFX_BITSTREAM_COMPLETE_FRAME;
+    if (stream->out.params.format != VIRTIO_VIDEO_FORMAT_NV12) {
+        QLIST_FOREACH(vpp_work_surface, &m_session->vpp_surface_pool, next) {
+            if (!vpp_work_surface->used &&
+                !vpp_work_surface->surface.Data.Locked) {
+                break;
+            }
+        }
+        if (vpp_work_surface == NULL) {
+            error_report("virtio-video: stream %d no available surface "
+                         "in vpp surface pool", stream->id);
+            return MFX_ERR_NOT_ENOUGH_BUFFER;
+        }
+    }
 
     do {
-        
-        printf_mfxBitstream(&m_frame->bitstream);
-        if (first_frame_after_header) {
-            printf_mfxBitstream(&stream->bitstream_header);
-            status = MFXVideoDECODE_DecodeFrameAsync(m_session->session,
-                    &stream->bitstream_header, &work_surface->surface, &out_surface,
-                    &m_frame->sync);
-            first_frame_after_header = false;
-        }
-        else {
-            printf_mfxBitstream(&m_frame->bitstream);
-            status = MFXVideoDECODE_DecodeFrameAsync(m_session->session,
-                    &m_frame->bitstream, &work_surface->surface, &out_surface,
-                    &m_frame->sync);
-        }
-
-        printf("dyang23, MFXVideoDECODE_DecodeFrameAsync return %d, out_surface:%p\n", status, out_surface);
+        status = MFXVideoDECODE_DecodeFrameAsync(m_session->session, bitstream,
+                &work_surface->surface, &out_surface, &m_frame->sync);
+        printf("dyang23 %s:%d MFXVideoDECODE_DecodeFrameAsync:%d\n", __FUNCTION__, __LINE__, status);
         switch (status) {
         case MFX_WRN_DEVICE_BUSY:
             usleep(1000);
             break;
+        case MFX_WRN_VIDEO_PARAM_CHANGED:
+            MFXVideoDECODE_GetVideoParam(m_session->session, &param);
+            virtio_video_msdk_stream_reset_param(stream, &param);
+            /* fall through */
         case MFX_ERR_NONE:
             break;
-        /* TODO: support these */
-        case MFX_ERR_MORE_SURFACE:
         case MFX_ERR_MORE_DATA:
-        /* More DATA&Surface should not be taken as error */
-            break;
+        case MFX_ERR_MORE_SURFACE:
+        case MFX_ERR_INCOMPATIBLE_VIDEO_PARAM:
+            /* these are not treated as error */
+            return status;
         default:
             error_report("virtio-video: stream %d input resource %d "
                          "MFXVideoDECODE_DecodeFrameAsync failed: %d",
                          stream->id, work->resource->id, status);
-            return -1;
+            return status;
         }
     } while (status == MFX_WRN_DEVICE_BUSY);
 
-    work_surface->used = true;
-    if (status == MFX_ERR_MORE_DATA)
-        return MFX_ERR_MORE_DATA;
-
     QLIST_FOREACH(work_surface, &m_session->surface_pool, next) {
         if (&work_surface->surface == out_surface) {
-            //work_surface->used = true;
+            work_surface->used = true;
             m_frame->surface = work_surface;
             break;
         }
@@ -227,29 +212,15 @@ static int virtio_video_decode_submit_one_frame(VirtIOVideoWork *work)
     if (work_surface == NULL) {
         error_report("virtio-video: BUG: stream %d decode output surface "
                       "not in surface pool", stream->id);
-        return -1;
+        return MFX_ERR_UNDEFINED_BEHAVIOR;
     }
 
     if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12)
-        goto done;
-
-    QLIST_FOREACH(vpp_work_surface, &m_session->vpp_surface_pool, next) {
-        if (!vpp_work_surface->used && !vpp_work_surface->surface.Data.Locked) {
-            work_surface->used = false;
-            vpp_work_surface->used = true;
-            m_frame->vpp_surface = vpp_work_surface;
-            break;
-        }
-    }
-    if (vpp_work_surface == NULL) {
-        error_report("virtio-video: stream %d no available surface "
-                     "in vpp surface pool", stream->id);
-        return -1;
-    }
+        return MFX_ERR_NONE;
 
     do {
         status = MFXVideoVPP_RunFrameVPPAsync(m_session->session,
-                &m_frame->surface->surface, &m_frame->vpp_surface->surface,
+                &work_surface->surface, &vpp_work_surface->surface,
                 NULL, &m_frame->vpp_sync);
         switch (status) {
         case MFX_WRN_DEVICE_BUSY:
@@ -257,63 +228,168 @@ static int virtio_video_decode_submit_one_frame(VirtIOVideoWork *work)
             break;
         case MFX_ERR_NONE:
             break;
-        /* TODO: support these */
-        case MFX_ERR_MORE_SURFACE:
         case MFX_ERR_MORE_DATA:
+        case MFX_ERR_MORE_SURFACE:
+            /* this should not happen when doing color format conversion */
+            error_report("virtio-video: BUG: stream %d color format "
+                         "conversion failed with unexpected error",
+                         stream->id);
+            work_surface->used = false;
+            return MFX_ERR_UNDEFINED_BEHAVIOR;
         default:
             error_report("virtio-video: stream %d input resource %d "
                          "MFXVideoVPP_RunFrameVPPAsync failed: %d",
                          stream->id, work->resource->id, status);
-            return -1;
+            work_surface->used = false;
+            return status;
         }
     } while (status == MFX_WRN_DEVICE_BUSY);
 
-done:
-    QTAILQ_REMOVE(&stream->pending_work, work, next);
-    QTAILQ_INSERT_TAIL(&stream->input_work, work, next);
-    qemu_event_set(&m_session->notifier);
-    return 0;
+    work_surface->used = false;
+    vpp_work_surface->used = true;
+    m_frame->vpp_surface = vpp_work_surface;
+    return MFX_ERR_NONE;
 }
 
-static void virtio_video_decode_submit_one_frame_bh(void *opaque)
+static mfxStatus virtio_video_decode_submit_one_work(VirtIOVideoWork *work,
+    bool eos)
 {
-    VirtIOVideoWork *work = opaque;
     VirtIOVideoStream *stream = work->parent;
+    VirtIOVideoFrame *frame;
+    MsdkSession *m_session = stream->opaque;
+    MsdkFrame *m_frame;
+    mfxStatus status;
+    mfxBitstream *input = work->opaque;
+    mfxBitstream *bitstream = &m_session->bitstream;
+    bool inserted = false;
+    printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
+
+    if (work->queue_type != VIRTIO_VIDEO_QUEUE_TYPE_INPUT)
+        return MFX_ERR_UNDEFINED_BEHAVIOR;
+
+    /**
+     * - CMD_RESOURCE_QUEUE requests may not share one common timestamp -
+     *
+     * Theoretically, we can accept that multiple requests each representing
+     * part of a frame share one common timestamp, like this:
+     *
+     *  w1(t1) w2(t2) w3(t2) w4(t2) w5(t3): w3, w4, w5 are all valid
+     *
+     * And only reject uncontinuous requests with common timestamp:
+     *
+     *  w1(t1) w2(t2) w3(t2) w4(t3) w5(t2): w5 is invalid
+     *
+     * However, since we can get MFX_ERR_MORE_DATA even when the input
+     * bitstream contains a complete frame, we cannot determine whether an
+     * incoming buffer with the same timestamp as previous buffers is part of
+     * previous frame or contains a new frame.
+     *
+     * Suppose we have 3 frames in 3 buffers, all with the same timestamp:
+     *
+     *  w1(t1) w2(t2) w3(t2) w4(t2) w5(t3): w2, w3, w4 each contain a frame
+     *
+     * The ideal frame queue arrangement is:
+     *
+     *  f1(t1) f2(t2) f3(t2) f4(t2) f5(t3)
+     *
+     * which at least get the timestamps correct. But it actually would be:
+     *
+     *  f1(t1) f2(t2) f3(t3) f4(t3) f5(t3)
+     *
+     * Because when we receive w2, w3 and w4, only one frame (f2) is created
+     * for them. When we get frames from MediaSDK, we don't know from which
+     * input bitstream it comes from, and cannot split f2 into multiple frames
+     * all with timestamp=t2. When we find that there are more frames beyond
+     * f3, all we can do is just creating new frames with timestamp=t3.
+     *
+     * Now, we explicitly prohibit the share of timestamp, so that we can make
+     * sure the frontend follows the spec and everything has defined semantics.
+     */
+    QTAILQ_FOREACH(frame, &stream->pending_frames, next) {
+        if (frame->timestamp == work->timestamp) {
+            break;
+        }
+    }
+    if (frame != NULL) {
+        DPRINTF("CMD_RESOURCE_QUEUE: stream %d input resource %d with "
+                "timestamp=%ldns, but a frame with timestamp=%ldns is "
+                "already being decoded\n", stream->id, work->resource->id,
+                work->timestamp, work->timestamp);
+        return MFX_ERR_UNDEFINED_BEHAVIOR;
+    }
+
+    if (!m_session->input_accepted) {
+        virtio_video_msdk_bitstream_append(bitstream, input);
+    }
+
+    /* the frontend uses an empty buffer to drain the stream */
+    bitstream->DataFlag = (input->DataLength == 0 || eos) ?
+                          MFX_BITSTREAM_COMPLETE_FRAME | MFX_BITSTREAM_EOS : 0;
+
+    while (true) {
+        m_frame = g_new0(MsdkFrame, 1);
+        printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
+        status = virtio_video_decode_one_frame(work, m_frame);
+        if (status != MFX_ERR_NONE) {
+            printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
+            g_free(m_frame);
+            /* we just need to try again with a new surface when we meet
+             * MFX_ERR_MORE_SURFACE */
+            if (status == MFX_ERR_MORE_SURFACE) {
+                printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
+                continue;
+            } else {
+                printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
+                break;
+            }
+        }
+        printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
+        QTAILQ_FOREACH(frame, &stream->pending_frames, next) {
+            if (frame->opaque == NULL) {
+                break;
+            }
+        }
+        if (frame == NULL) {
+            printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
+            if (inserted) {
+                warn_report("virtio-video: stream %d generated too many "
+                            "frames, more than the number of input buffers",
+                            stream->id);
+            }
+            printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
+            frame = g_new0(VirtIOVideoFrame, 1);
+            frame->timestamp = work->timestamp;
+            QTAILQ_INSERT_TAIL(&stream->pending_frames, frame, next);
+            inserted = true;
+        }
+        frame->opaque = m_frame;
+    }
+
+    /* MFX_ERR_MORE_DATA means that we exit by hitting the end of bitstream */
+    printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
+    if (!inserted && status == MFX_ERR_MORE_DATA) {
+        frame = g_new0(VirtIOVideoFrame, 1);
+        frame->timestamp = work->timestamp;
+        printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
+        QTAILQ_INSERT_TAIL(&stream->pending_frames, frame, next);
+    }
+
+    bitstream->DataFlag = 0;
+    qemu_event_set(&m_session->output_notifier);
+    return status;
+}
+
+static void virtio_video_decode_retrieve_one_frame(VirtIOVideoFrame *frame,
+    VirtIOVideoWork *work)
+{
+    VirtIOVideoStream *stream = work->parent;
+    MsdkSession *m_session = stream->opaque;
+    MsdkFrame *m_frame = frame->opaque;
+    mfxStatus status;
     int ret;
-
-    qemu_mutex_lock(&stream->mutex);
-
-    DPRINTF("stream %d input resource %d start to decode\n",
-            stream->id, work->resource->id);
-    ret = virtio_video_decode_submit_one_frame(work);
-    if (ret == 0) {
-        qemu_mutex_unlock(&stream->mutex);
-        return;
-    }
-
-    DPRINTF("stream %d input resource %d failed to start decoding\n",
-            stream->id, work->resource->id);
-    if (ret != MFX_ERR_MORE_DATA) {
-        work->timestamp = 0;
-        work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
-    }
-    QTAILQ_REMOVE(&stream->pending_work, work, next);
-    g_free(work->opaque);
-    virtio_video_cmd_resource_queue_complete(work);
+    printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
 
     qemu_mutex_unlock(&stream->mutex);
-}
-
-static int virtio_video_decode_retrieve_one_frame(VirtIOVideoWork *work_in,
-    VirtIOVideoWork *work_out)
-{
-    VirtIOVideoStream *stream = work_in->parent;
-    MsdkSession *m_session = stream->opaque;
-    MsdkFrame *m_frame = work_in->opaque;
-    mfxStatus status;
-    uint32_t corrupted;
-    int ret;
-
     do {
         if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12) {
             status = MFXVideoCORE_SyncOperation(m_session->session,
@@ -330,193 +406,253 @@ static int virtio_video_decode_retrieve_one_frame(VirtIOVideoWork *work_in,
     } while (status == MFX_WRN_IN_EXECUTION);
 
     if (status != MFX_ERR_NONE) {
-        error_report("virtio-video-decode/%d MFXVideoCORE_SyncOperation "
-                      "failed: %d", stream->id, status);
-        corrupted = 0;
+        ret = -1;
+        error_report("virtio-video-dec-output/%d MFXVideoCORE_SyncOperation "
+                     "failed: %d", stream->id, status);
     } else {
-        corrupted = stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12 ?
-              m_frame->surface->surface.Data.Corrupted :
-              m_frame->vpp_surface->surface.Data.Corrupted;
+        if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12)
+            ret = m_frame->surface->surface.Data.Corrupted;
+        else
+            ret = m_frame->vpp_surface->surface.Data.Corrupted;
+        if (ret != 0) {
+            DPRINTF("virtio-video-dec-output/%d frame (timestamp=%luns) "
+                     "corrupted\n", stream->id, frame->timestamp);
+        }
     }
 
-    if (status != MFX_ERR_NONE || corrupted != 0) {
-        goto cancel;
-    }
-
+    /* It's better to output something, even if it's corrupted. */
+    printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
+    if (ret != 0)
+        work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
     if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12) {
-        ret = virtio_video_msdk_output_surface(m_frame->surface, work_out->resource);
+        printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
+        ret = virtio_video_msdk_output_surface(m_frame->surface,
+                                               work->resource);
     } else {
-        ret = virtio_video_msdk_output_surface(m_frame->vpp_surface, work_out->resource);
+        printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
+        ret = virtio_video_msdk_output_surface(m_frame->vpp_surface,
+                                               work->resource);
     }
-    if (ret < 0)
-        return -1;
 
-    work_out->timestamp = work_in->timestamp;
-    work_in->timestamp = 0;
-    g_free(work_in->opaque);
-    virtio_video_work_done(work_in);
-    virtio_video_work_done(work_out);
-    return 0;
+    /* Failed to output the surface, continue with partial output or even
+     * garbage data. This is still better than dropping the output buffer
+     * silently, which may cause deadlock in frontend. */
+    if (ret < 0)
+        work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+
+    qemu_mutex_lock(&stream->mutex);
+    work->timestamp = frame->timestamp;
+    virtio_video_msdk_uninit_frame(frame);
+    virtio_video_work_done(work);
+    qemu_event_set(&m_session->input_notifier);
+    return;
 
 cancel:
-    /* Push output work back to output work queue */
-    work_in->timestamp = 0;
-    work_in->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
-    g_free(work_in->opaque);
-    virtio_video_work_done(work_in);
+    /* the output work can be reused, but the frame will then be destroyed */
     qemu_mutex_lock(&stream->mutex);
-    QTAILQ_INSERT_HEAD(&stream->output_work, work_out, next);
-    qemu_mutex_unlock(&stream->mutex);
-    return 0;
+    virtio_video_msdk_uninit_frame(frame);
+    QTAILQ_INSERT_HEAD(&stream->output_work, work, next);
+    qemu_event_set(&m_session->input_notifier);
+}
+
+static void *virtio_video_decode_input_thread(void *arg)
+{
+    VirtIOVideoStream *stream = arg;
+    VirtIOVideoWork *work;
+    MsdkSession *m_session = stream->opaque;
+    mfxStatus status;
+    bool eos;
+
+    DPRINTF("virtio-video-dec-input/%d started\n", stream->id);
+
+    while (true) {
+        qemu_mutex_lock(&stream->mutex);
+        switch (stream->state) {
+        case STREAM_STATE_INIT:
+        case STREAM_STATE_CLEAR:
+            qemu_mutex_unlock(&stream->mutex);
+            qemu_event_wait(&m_session->input_notifier);
+            qemu_event_reset(&m_session->input_notifier);
+            continue;
+        case STREAM_STATE_RUNNING:
+        case STREAM_STATE_DRAIN:
+            if (QTAILQ_EMPTY(&stream->input_work)) {
+                qemu_mutex_unlock(&stream->mutex);
+                qemu_event_wait(&m_session->input_notifier);
+                qemu_event_reset(&m_session->input_notifier);
+                continue;
+            }
+
+            /* Although not specified in spec, we believe it's necessary to
+             * drain the stream on STREAM_DRAIN. */
+            work = QTAILQ_FIRST(&stream->input_work);
+            eos = stream->state == STREAM_STATE_DRAIN &&
+                  work == QTAILQ_LAST(&stream->input_work);
+            status = virtio_video_decode_submit_one_work(work, eos);
+            m_session->input_accepted = true;
+
+            /* waiting for a free slot in surface pool */
+            if (status == MFX_ERR_NOT_ENOUGH_BUFFER) {
+                qemu_mutex_unlock(&stream->mutex);
+                qemu_event_wait(&m_session->input_notifier);
+                qemu_event_reset(&m_session->input_notifier);
+                continue;
+            }
+
+            m_session->input_accepted = false;
+            work->timestamp = 0;
+            if (status != MFX_ERR_MORE_DATA) {
+                work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+            }
+            QTAILQ_REMOVE(&stream->input_work, work, next);
+            g_free(work->opaque);
+            virtio_video_work_done(work);
+            break;
+        case STREAM_STATE_TERMINATE:
+            qemu_mutex_unlock(&stream->mutex);
+            goto done;
+        default:
+            break;
+        }
+        qemu_mutex_unlock(&stream->mutex);
+    }
+
+done:
+    DPRINTF("virtio-video-dec-input/%d exited normally\n", stream->id);
+    qemu_event_set(&m_session->input_notifier);
+    return NULL;
 }
 
 static void *virtio_video_decode_thread(void *arg)
 {
     VirtIOVideoStream *stream = arg;
     VirtIOVideo *v = stream->parent;
+    VirtIOVideoCmd *cmd = &stream->inflight_cmd;
     VirtIOVideoWork *work, *tmp_work;
-    VirtIOVideoWork *work_out;
-    VirtIOVideoCmd *cmd;
+    VirtIOVideoFrame *frame, *tmp_frame;
     MsdkSession *m_session = stream->opaque;
-    int ret;
+    mfxStatus status;
+    uint32_t stream_id = stream->id;
+
+    DPRINTF("virtio-video-dec-output/%d started\n", stream_id);
+    object_ref(OBJECT(v));
 
     while (true) {
         qemu_mutex_lock(&stream->mutex);
         switch (stream->state) {
         case STREAM_STATE_INIT:
-            /* Waiting for the initial request which contains the header */
-            if (QTAILQ_EMPTY(&stream->pending_work)) {
+            /* waiting for the initial request which contains the header */
+            if (QTAILQ_EMPTY(&stream->input_work)) {
                 qemu_mutex_unlock(&stream->mutex);
-                qemu_event_wait(&m_session->notifier);
-                qemu_event_reset(&m_session->notifier);
+                qemu_event_wait(&m_session->output_notifier);
+                qemu_event_reset(&m_session->output_notifier);
                 continue;
             }
 
-            work = QTAILQ_FIRST(&stream->pending_work);
-            if (virtio_video_decode_parse_header(work) < 0) {
-                work->timestamp = 0;
-                QTAILQ_REMOVE(&stream->pending_work, work, next);
+            work = QTAILQ_FIRST(&stream->input_work);
+            status = virtio_video_decode_parse_header(work);
+            if (status != MFX_ERR_NONE) {
+                if (status != MFX_ERR_MORE_DATA)
+                    work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
+                QTAILQ_REMOVE(&stream->input_work, work, next);
                 g_free(work->opaque);
                 virtio_video_work_done(work);
 
                 /*
-                 * If the stream doesn't even begin to decode, then stream
-                 * drain is meaningless.
+                 * When there's no further buffers, the stream drain cmd should
+                 * be cancelled because the decode process hasn't been started
+                 * and can never be started with a pending stream drain cmd
+                 * preventing any incoming buffer.
                  */
-                if (!QTAILQ_EMPTY(&stream->pending_work))
+                if (!QTAILQ_EMPTY(&stream->input_work))
                     break;
-                cmd = QTAILQ_FIRST(&stream->pending_cmds);
-                if (cmd && cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
-                    QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-                    virtio_video_cmd_cancel(cmd);
+                if (cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
+                    virtio_video_inflight_cmd_cancel(stream);
+                } else {
+                    assert(cmd->cmd_type == 0);
                 }
                 break;
             }
 
-            /* When the resolution event should be reported? */
-            #if 1
+            /*
+             * We must generate a resolution changed event, so that the
+             * frontend can know the size of output buffer and prepare them
+             * accordingly. If the event is missing, the frontend will never
+             * queue output buffers.
+             */
             virtio_video_report_event(v,
-                    VIRTIO_VIDEO_EVENT_DECODER_RESOLUTION_CHANGED, stream->id);
-            #endif
+                    VIRTIO_VIDEO_EVENT_DECODER_RESOLUTION_CHANGED, stream_id);
 
-            /* initiate decoding for potentially multiple pending requests */
-            QTAILQ_FOREACH_SAFE(work, &stream->pending_work, next, tmp_work) {
-                ret = virtio_video_decode_submit_one_frame(work);
-                if (ret < 0) {
-                    if (ret != MFX_ERR_MORE_DATA) {
-                        work->timestamp = 0;
-                        work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
-                    }
-                    QTAILQ_REMOVE(&stream->pending_work, work, next);
-                    g_free(work->opaque);
-                    virtio_video_work_done(work);
-                }
-            }
+            /* the bitstream of current buffer should not be appended twice */
+            m_session->input_accepted = true;
 
-            cmd = QTAILQ_FIRST(&stream->pending_cmds);
-            if (cmd && cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
+            if (cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
                 stream->state = STREAM_STATE_DRAIN;
                 break;
+            } else {
+                assert(cmd->cmd_type == 0);
             }
 
             /* It is not allowed to change stream params from now on. */
             stream->state = STREAM_STATE_RUNNING;
             break;
         case STREAM_STATE_RUNNING:
-            if (QTAILQ_EMPTY(&stream->input_work) || QTAILQ_EMPTY(&stream->output_work)) {
-                qemu_mutex_unlock(&stream->mutex);
-                qemu_event_wait(&m_session->notifier);
-                qemu_event_reset(&m_session->notifier);
-                continue;
-            }
-
-            work = QTAILQ_FIRST(&stream->input_work);
-            work_out = QTAILQ_FIRST(&stream->output_work);
-            QTAILQ_REMOVE(&stream->input_work, work, next);
-            QTAILQ_REMOVE(&stream->output_work, work_out, next);
-            qemu_mutex_unlock(&stream->mutex);
-
-            if (virtio_video_decode_retrieve_one_frame(work, work_out) < 0) {
-                /* we can do nothing if guest buffer is too small */
-                goto error;
-            }
-            continue;
         case STREAM_STATE_DRAIN:
-            if (QTAILQ_EMPTY(&stream->output_work)) {
+        printf("dyang23 %s:%d, output_work:%d, pending_frames:%d \n", __FUNCTION__, __LINE__, !QTAILQ_EMPTY(&stream->output_work), !QTAILQ_EMPTY(&stream->pending_frames));
+            if (QTAILQ_EMPTY(&stream->output_work) ||
+                QTAILQ_EMPTY(&stream->pending_frames) ||
+                QTAILQ_FIRST(&stream->pending_frames)->opaque == NULL) {
                 qemu_mutex_unlock(&stream->mutex);
-                qemu_event_wait(&m_session->notifier);
-                qemu_event_reset(&m_session->notifier);
+                qemu_event_wait(&m_session->output_notifier);
+                qemu_event_reset(&m_session->output_notifier);
+                printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
                 continue;
             }
-            work_out = QTAILQ_FIRST(&stream->output_work);
-            QTAILQ_REMOVE(&stream->output_work, work_out, next);
+            printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
 
-            /*
-             * NOTE: According to frontend code, EOS buffer should be a standalone
-             * empty buffer. This requirement will change when frontend driver
-             * is updated.
-             */
-            if (QTAILQ_EMPTY(&stream->input_work)) {
-                work_out->timestamp = 0;
-                work_out->flags = VIRTIO_VIDEO_BUFFER_FLAG_EOS;
-                virtio_video_work_done(work);
+            frame = QTAILQ_FIRST(&stream->pending_frames);
+            work = QTAILQ_FIRST(&stream->output_work);
+            QTAILQ_REMOVE(&stream->pending_frames, frame, next);
+            QTAILQ_REMOVE(&stream->output_work, work, next);
 
-                cmd = QTAILQ_FIRST(&stream->pending_cmds);
-                if (cmd == NULL ||
-                        cmd->cmd_type != VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
-                    error_report("virtio-video: BUG: expected in-flight "
-                                 "CMD_STREAM_DRAIN but not found");
-                } else {
-                    QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-                    virtio_video_cmd_done(cmd);
-                }
+            virtio_video_decode_retrieve_one_frame(frame, work);
 
-                /*
-                 * If guest starts decoding another bitstream, we can detect
-                 * that through MFXVideoDECODE_DecodeFrameAsync return value
-                 * and do reinitialization there.
-                 */
-                stream->state = STREAM_STATE_RUNNING;
+            if (stream->state != STREAM_STATE_DRAIN) {
+                break;
+            }
+            assert(cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN);
+            if (!QTAILQ_EMPTY(&stream->input_work) ||
+                !QTAILQ_EMPTY(&stream->pending_frames)) {
                 break;
             }
 
-            work = QTAILQ_FIRST(&stream->input_work);
-            QTAILQ_REMOVE(&stream->input_work, work, next);
-            qemu_mutex_unlock(&stream->mutex);
+            /* STREAM_DRAIN is done, output the EOS buffer, which is a
+             * standalone empty buffer according to frontend code. */
+            if (QTAILQ_EMPTY(&stream->output_work)) {
+                qemu_mutex_unlock(&stream->mutex);
+                qemu_event_wait(&m_session->output_notifier);
+                qemu_event_reset(&m_session->output_notifier);
+                qemu_mutex_lock(&stream->mutex);
+                if (stream->state != STREAM_STATE_DRAIN) {
+                    break;
+                }
+            }
 
-            if (virtio_video_decode_retrieve_one_frame(work, work_out) < 0) {
-                /* we can do nothing if guest buffer is too small */
-                goto error;
-            }
-            continue;
+            work = QTAILQ_FIRST(&stream->output_work);
+            work->timestamp = 0;
+            work->flags = VIRTIO_VIDEO_BUFFER_FLAG_EOS;
+            QTAILQ_REMOVE(&stream->output_work, work, next);
+            virtio_video_work_done(work);
+            virtio_video_inflight_cmd_done(stream);
+
+            /*
+             * If the guest starts decoding another bitstream, we can detect
+             * that through MFXVideoDECODE_DecodeFrameAsync return value and do
+             * reinitialization there.
+             */
+            stream->state = STREAM_STATE_RUNNING;
+            break;
         case STREAM_STATE_CLEAR:
-            QTAILQ_FOREACH_SAFE(work, &stream->pending_work, next, tmp_work) {
-                work->timestamp = 0;
-                work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
-                QTAILQ_REMOVE(&stream->pending_work, work, next);
-                g_free(work->opaque);
-                virtio_video_work_done(work);
-            }
             QTAILQ_FOREACH_SAFE(work, &stream->input_work, next, tmp_work) {
                 work->timestamp = 0;
                 work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
@@ -524,39 +660,28 @@ static void *virtio_video_decode_thread(void *arg)
                 g_free(work->opaque);
                 virtio_video_work_done(work);
             }
+            QTAILQ_FOREACH_SAFE(frame, &stream->pending_frames, next, tmp_frame) {
+                QTAILQ_REMOVE(&stream->pending_frames, frame, next);
+                virtio_video_msdk_uninit_frame(frame);
+            }
+            m_session->bitstream.DataOffset = 0;
+            m_session->bitstream.DataLength = 0;
+            m_session->input_accepted = false;
 
-            cmd = QTAILQ_FIRST(&stream->pending_cmds);
-            if (cmd) {
-                switch (cmd->cmd_type) {
-                case VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL:
-                    virtio_video_destroy_resource_list(stream, true);
-                    /* fall through */
-                case VIRTIO_VIDEO_CMD_QUEUE_CLEAR:
-                    QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-                    virtio_video_cmd_done(cmd);
-                    break;
-                default:
-                    error_report("virtio-video: BUG: expected in-flight "
-                                 "CMD_RESOURCE_DESTROY_ALL/CMD_QUEUE_CLEAR "
-                                 "but no found");
-                    break;
-                }
+            if (cmd->cmd_type == VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL) {
+                virtio_video_destroy_resource_list(stream, true);
             } else {
-                error_report("virtio-video: BUG: expected in-flight "
-                             "CMD_RESOURCE_DESTROY_ALL/CMD_QUEUE_CLEAR "
-                             "but no found");
+                assert(cmd->cmd_type == VIRTIO_VIDEO_CMD_QUEUE_CLEAR);
             }
 
-            if (QTAILQ_EMPTY(&stream->pending_cmds))
-                stream->state = STREAM_STATE_RUNNING;
+            virtio_video_inflight_cmd_done(stream);
+            stream->state = STREAM_STATE_RUNNING;
+            qemu_event_set(&m_session->input_notifier);
             break;
         case STREAM_STATE_TERMINATE:
-            QTAILQ_FOREACH_SAFE(work, &stream->pending_work, next, tmp_work) {
-                work->timestamp = 0;
-                work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
-                QTAILQ_REMOVE(&stream->pending_work, work, next);
-                g_free(work->opaque);
-                virtio_video_work_done(work);
+            QTAILQ_FOREACH_SAFE(frame, &stream->pending_frames, next, tmp_frame) {
+                QTAILQ_REMOVE(&stream->pending_frames, frame, next);
+                virtio_video_msdk_uninit_frame(frame);
             }
             QTAILQ_FOREACH_SAFE(work, &stream->input_work, next, tmp_work) {
                 work->timestamp = 0;
@@ -581,27 +706,32 @@ static void *virtio_video_decode_thread(void *arg)
     }
 
 done:
+    assert(cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DESTROY);
+    if (cmd->elem) {
+        virtio_video_inflight_cmd_done(stream);
+    }
+
     if (stream->out.params.format != VIRTIO_VIDEO_FORMAT_NV12) {
         MFXVideoVPP_Close(m_session->session);
     }
     MFXVideoDECODE_Close(m_session->session);
-    virtio_video_msdk_unload_plugin(m_session->session, stream->in.params.format, false);
+    virtio_video_msdk_unload_plugin(m_session->session,
+                                    stream->in.params.format, false);
     MFXClose(m_session->session);
 
-    qemu_event_destroy(&m_session->notifier);
+    /* waiting for the input thread to exit */
+    qemu_event_wait(&m_session->input_notifier);
+    qemu_event_destroy(&m_session->input_notifier);
+    qemu_event_destroy(&m_session->output_notifier);
     virtio_video_msdk_uninit_surface_pools(m_session);
-    return NULL;
+    g_free(m_session->bitstream.Data);
+    g_free(m_session);
 
-error:
-    virtqueue_detach_element(v->cmd_vq, work->elem, 0);
-    virtqueue_detach_element(v->cmd_vq, work_out->elem, 0);
-    g_free(work->opaque);
-    g_free(work->elem);
-    g_free(work_out->elem);
-    g_free(work);
-    g_free(work_out);
-    virtio_video_report_event(v, VIRTIO_VIDEO_EVENT_ERROR, stream->id);
-    goto done;
+    qemu_mutex_destroy(&stream->mutex);
+    g_free(stream);
+    object_unref(OBJECT(v));
+    DPRINTF("virtio-video-dec-output/%d exited normally\n", stream_id);
+    return NULL;
 }
 
 size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
@@ -731,12 +861,8 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
      *                              for device output.
      */
     stream->out.params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT;
-    #if 0
-    stream->out.params.format = VIRTIO_VIDEO_FORMAT_ARGB8888;
-    #else
+    //stream->out.params.format = VIRTIO_VIDEO_FORMAT_ARGB8888;
     stream->out.params.format = VIRTIO_VIDEO_FORMAT_NV12;
-    #endif
-    printf("stream create, use %s as output format\n", virtio_video_fmt_to_string(stream->out.params.format));
     stream->out.params.min_buffers = 1;
     stream->out.params.max_buffers = 32;
     stream->out.params.frame_rate = fmt->frames.lh_first->frame_rates[0].max;
@@ -749,6 +875,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     stream->out.params.num_planes = 1;
     stream->out.params.plane_formats[0].plane_size =
         stream->out.params.frame_width * stream->out.params.frame_height * 4;
+    printf("dyang23 %s:%d, plane_size:%d, wxh=%dx%d\n", __FUNCTION__, __LINE__, stream->out.params.plane_formats[0].plane_size, stream->out.params.frame_width, stream->out.params.frame_height);
     stream->out.params.plane_formats[0].stride =
         stream->out.params.frame_width * 4;
 
@@ -779,21 +906,31 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     for (i = 0; i < VIRTIO_VIDEO_QUEUE_NUM; i++) {
         QLIST_INIT(&stream->resource_list[i]);
     }
-    QTAILQ_INIT(&stream->pending_cmds);
-    QTAILQ_INIT(&stream->pending_work);
+    QTAILQ_INIT(&stream->pending_frames);
     QTAILQ_INIT(&stream->input_work);
     QTAILQ_INIT(&stream->output_work);
     qemu_mutex_init(&stream->mutex);
 
-    qemu_event_init(&m_session->notifier, false);
+    qemu_event_init(&m_session->input_notifier, false);
+    qemu_event_init(&m_session->output_notifier, false);
+    m_session->bitstream.Data = g_malloc0(1024);
+    m_session->bitstream.MaxLength = 1024;
     QLIST_INIT(&m_session->surface_pool);
     QLIST_INIT(&m_session->vpp_surface_pool);
 
-    snprintf(thread_name, sizeof(thread_name), "virtio-video-decode/%d",
+    /* The output thread is not only for output, it is the main thread which
+     * initializes and destroys the decode session, while the input thread is
+     * just for input. */
+    snprintf(thread_name, sizeof(thread_name), "virtio-video-dec-input/%d",
              stream->id);
-    qemu_thread_create(&m_session->thread, thread_name,
+    qemu_thread_create(&m_session->input_thread, thread_name,
+                       virtio_video_decode_input_thread, stream,
+                       QEMU_THREAD_DETACHED);
+    snprintf(thread_name, sizeof(thread_name), "virtio-video-dec-output/%d",
+             stream->id);
+    qemu_thread_create(&m_session->output_thread, thread_name,
                        virtio_video_decode_thread, stream,
-                       QEMU_THREAD_JOINABLE);
+                       QEMU_THREAD_DETACHED);
 
     QLIST_INSERT_HEAD(&v->stream_list, stream, next);
     resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
@@ -803,71 +940,57 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     return len;
 }
 
-static int virtio_video_msdk_dec_stream_terminate(VirtIOVideoStream *stream)
+static int virtio_video_msdk_dec_stream_terminate(VirtIOVideoStream *stream,
+    VirtQueueElement *elem)
 {
-    VirtIOVideoCmd *cmd, *tmp_cmd;
+    VirtIOVideoCmd *cmd = &stream->inflight_cmd;
     MsdkSession *m_session = stream->opaque;
 
     qemu_mutex_lock(&stream->mutex);
     switch (stream->state) {
     case STREAM_STATE_INIT:
-        cmd = QTAILQ_FIRST(&stream->pending_cmds);
-        if (cmd && cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
-            QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-            virtio_video_cmd_cancel(cmd);
+        if (cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
+            virtio_video_inflight_cmd_cancel(stream);
+        } else {
+            assert(cmd->cmd_type == 0);
         }
         break;
     case STREAM_STATE_RUNNING:
+        assert(cmd->cmd_type == 0);
         break;
     case STREAM_STATE_DRAIN:
-        cmd = QTAILQ_FIRST(&stream->pending_cmds);
-        if (cmd == NULL || cmd->cmd_type != VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
-            error_report("virtio-video: BUG: expected in-flight "
-                         "CMD_STREAM_DRAIN but not found");
-        } else {
-            QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-            virtio_video_cmd_cancel(cmd);
-        }
+        assert(cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN);
+        virtio_video_inflight_cmd_cancel(stream);
         break;
     case STREAM_STATE_CLEAR:
-        QTAILQ_FOREACH_SAFE(cmd, &stream->pending_cmds, next, tmp_cmd) {
-            if (cmd->cmd_type != VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL &&
-                cmd->cmd_type != VIRTIO_VIDEO_CMD_QUEUE_CLEAR) {
-                break;
-            }
-            QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-            virtio_video_cmd_cancel(cmd);
-        }
+        assert((cmd->cmd_type == VIRTIO_VIDEO_CMD_QUEUE_CLEAR) ||
+               (cmd->cmd_type == VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL));
+        virtio_video_inflight_cmd_cancel(stream);
         break;
     case STREAM_STATE_TERMINATE:
+        assert(cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DESTROY);
         DPRINTF("stream %d already terminated\n", stream->id);
         qemu_mutex_unlock(&stream->mutex);
-        return -1;
+        return sizeof(virtio_video_cmd_hdr);
     default:
         break;
     }
 
-    /* There should be no pending commands according our protocol. */
-    if (!QTAILQ_EMPTY(&stream->pending_cmds)) {
-        error_report("virtio-video: BUG: found in-flight commands "
-                     "while expected none");
-        QTAILQ_FOREACH_SAFE(cmd, &stream->pending_cmds, next, tmp_cmd) {
-            QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-            virtio_video_cmd_cancel(cmd);
-        }
-    }
-
+    cmd->elem = elem;
+    cmd->cmd_type = VIRTIO_VIDEO_CMD_STREAM_DESTROY;
     stream->state = STREAM_STATE_TERMINATE;
-    qemu_event_set(&m_session->notifier);
+    QLIST_REMOVE(stream, next);
+    qemu_event_set(&m_session->input_notifier);
+    qemu_event_set(&m_session->output_notifier);
     qemu_mutex_unlock(&stream->mutex);
     return 0;
 }
 
 size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
-    virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp)
+    virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp,
+    VirtQueueElement *elem)
 {
     VirtIOVideoStream *stream;
-    MsdkSession *m_session;
     size_t len;
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
@@ -876,7 +999,6 @@ size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
 
     QLIST_FOREACH(stream, &v->stream_list, next) {
         if (stream->id == req->hdr.stream_id) {
-            m_session = stream->opaque;
             break;
         }
     }
@@ -885,34 +1007,20 @@ size_t virtio_video_msdk_dec_stream_destroy(VirtIOVideo *v,
         return len;
     }
 
-    if (virtio_video_msdk_dec_stream_terminate(stream) < 0)
-        return len;
-
-    qemu_thread_join(&m_session->thread);
-    QLIST_REMOVE(stream, next);
-    qemu_mutex_destroy(&stream->mutex);
-    g_free(m_session);
-    if (stream->bitstream_header.Data) {
-        g_free(stream->bitstream_header.Data);
-        stream->bitstream_header.Data = NULL;
-    }
-    g_free(stream);
-
-    resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
-    return len;
+    return virtio_video_msdk_dec_stream_terminate(stream, elem);
 }
 
 /**
  * Protocol:
  *
  * @STREAM_STATE_INIT:  There can be one and only one CMD_STREAM_DRAIN pending
- *                      in @pending_cmds, waiting for the initialization of
+ *                      in @inflight_cmd, waiting for the initialization of
  *                      decode thread. The stream will then enter
  *                      STREAM_STATE_DRAIN after initialization is done.
  * 
  * @STREAM_STATE_DRAIN: There is one and only one in-flight CMD_STREAM_DRAIN in
- *                      @pending_cmds. CMD_STREAM_DRAIN must fail in this
- *                      state.
+ *                      @inflight_cmd. CMD_STREAM_DRAIN cannot be in-flight in
+ *                      other states.
  */
 size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
     virtio_video_stream_drain *req, virtio_video_cmd_hdr *resp,
@@ -928,6 +1036,7 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
 
     QLIST_FOREACH(stream, &v->stream_list, next) {
         if (stream->id == req->hdr.stream_id) {
+            cmd = &stream->inflight_cmd;
             break;
         }
     }
@@ -941,18 +1050,15 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
     qemu_mutex_lock(&stream->mutex);
     switch (stream->state) {
     case STREAM_STATE_INIT:
-        cmd = QTAILQ_FIRST(&stream->pending_cmds);
-        if (cmd && cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN)
+        if (cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN)
             break;
-        if (QTAILQ_EMPTY(&stream->pending_work))
+        if (QTAILQ_EMPTY(&stream->input_work))
             break;
         /* fall through */
     case STREAM_STATE_RUNNING:
-        cmd = g_new(VirtIOVideoCmd, 1);
-        cmd->parent = stream;
+        assert(cmd->cmd_type == 0);
         cmd->elem = elem;
         cmd->cmd_type = VIRTIO_VIDEO_CMD_STREAM_DRAIN;
-        QTAILQ_INSERT_TAIL(&stream->pending_cmds, cmd, next);
         if (stream->state == STREAM_STATE_RUNNING)
             stream->state = STREAM_STATE_DRAIN;
         DPRINTF("CMD_STREAM_CREATE (async): stream %d start to drain\n",
@@ -960,9 +1066,14 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
         qemu_mutex_unlock(&stream->mutex);
         return 0;
     case STREAM_STATE_DRAIN:
+        assert(cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN);
+        break;
     case STREAM_STATE_CLEAR:
+        assert((cmd->cmd_type == VIRTIO_VIDEO_CMD_QUEUE_CLEAR) ||
+               (cmd->cmd_type == VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL));
+        break;
     case STREAM_STATE_TERMINATE:
-        /* Return VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION */
+        assert(cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DESTROY);
         break;
     default:
         break;
@@ -973,17 +1084,16 @@ size_t virtio_video_msdk_dec_stream_drain(VirtIOVideo *v,
     return len;
 }
 
-static int work_id=0;
 size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
     virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp,
     VirtQueueElement *elem)
 {
     MsdkSession *m_session;
-    MsdkFrame *m_frame;
     VirtIOVideoStream *stream;
     VirtIOVideoCmd *cmd;
     VirtIOVideoResource *resource;
     VirtIOVideoWork *work;
+    mfxBitstream *bitstream;
     size_t len;
     int i;
 
@@ -994,6 +1104,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
     QLIST_FOREACH(stream, &v->stream_list, next) {
         if (stream->id == req->hdr.stream_id) {
             m_session = stream->opaque;
+            cmd = &stream->inflight_cmd;
             break;
         }
     }
@@ -1004,6 +1115,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         return len;
     }
 
+    qemu_mutex_lock(&stream->mutex);
     switch (req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
         QLIST_FOREACH(resource,
@@ -1029,15 +1141,8 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
             break;
         }
 
-        qemu_mutex_lock(&stream->mutex);
-        QTAILQ_FOREACH(work, &stream->pending_work, next) {
-            if (resource->id == work->resource->id) {
-                goto error;
-            }
-        }
         QTAILQ_FOREACH(work, &stream->input_work, next) {
             if (resource->id == work->resource->id) {
-            error:
                 error_report("CMD_RESOURCE_QUEUE: stream %d input resource %d "
                              "already queued, cannot be queued again",
                              stream->id, resource->id);
@@ -1046,11 +1151,10 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
             }
         }
 
-        m_frame = g_new0(MsdkFrame, 1);
-        m_frame->bitstream.Data = resource->slices[0]->page.hva;
-        m_frame->bitstream.DataLength = req->data_sizes[0];
-        m_frame->bitstream.MaxLength = req->data_sizes[0];
-        printf("VIRTIO_VIDEO_QUEUE_TYPE_INPUT, data:%p, len:%d, maxLen:%d\n", m_frame->bitstream.Data, m_frame->bitstream.DataLength, m_frame->bitstream.MaxLength);
+        bitstream = g_new0(mfxBitstream, 1);
+        bitstream->Data = resource->slices[0]->page.hva;
+        bitstream->DataLength = req->data_sizes[0];
+        bitstream->MaxLength = req->data_sizes[0];
 
         work = g_new0(VirtIOVideoWork, 1);
         work->parent = stream;
@@ -1058,54 +1162,49 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         work->resource = resource;
         work->queue_type = req->queue_type;
         work->timestamp = req->timestamp;
-        work->opaque = m_frame;
-        work->id = work_id++;
-        printf("dyang23, create work id:%d\n", work->id);
+        work->opaque = bitstream;
 
         switch (stream->state) {
         case STREAM_STATE_INIT:
-            /* There can be one CMD_STREAM_DRAIN pending while in STREAM_STATE_INIT. */
-            cmd = QTAILQ_FIRST(&stream->pending_cmds);
-            if (cmd && cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
-                g_free(work->opaque);
-                g_free(work);
-                qemu_mutex_unlock(&stream->mutex);
-                DPRINTF("CMD_RESOURCE_QUEUE: stream %d currently unable to "
-                        "queue input resources\n", stream->id);
-                return len;
+            if (cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
+                goto out;
+            } else {
+                assert(cmd->cmd_type == 0);
             }
 
-            /* Do not decode the frame in case the initialization is not done yet. */
-            qemu_event_set(&m_session->notifier);
+            /* let the output thread decode the header and do initialization */
+            QTAILQ_INSERT_TAIL(&stream->input_work, work, next);
+            qemu_event_set(&m_session->output_notifier);
             break;
         case STREAM_STATE_RUNNING:
-            aio_bh_schedule_oneshot(v->ctx,
-                    virtio_video_decode_submit_one_frame_bh, work);
+            assert(cmd->cmd_type == 0);
+            QTAILQ_INSERT_TAIL(&stream->input_work, work, next);
+            qemu_event_set(&m_session->input_notifier);
             break;
         case STREAM_STATE_DRAIN:
+            assert(cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN);
+            goto out;
         case STREAM_STATE_CLEAR:
+            assert((cmd->cmd_type == VIRTIO_VIDEO_CMD_QUEUE_CLEAR) ||
+                   (cmd->cmd_type == VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL));
+            goto out;
         case STREAM_STATE_TERMINATE:
+            assert(cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DESTROY);
+        out:
             /* Return VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION */
             g_free(work->opaque);
             g_free(work);
-            qemu_mutex_unlock(&stream->mutex);
             DPRINTF("CMD_RESOURCE_QUEUE: stream %d currently unable to "
                     "queue input resources\n", stream->id);
+            qemu_mutex_unlock(&stream->mutex);
             return len;
         default:
             break;
         }
 
-        /*
-         * Input resources first go to the pending work queue. After the
-         * DecodeFrameAsync function is called for them, they are moved to the
-         * input work queue.
-         */
-        QTAILQ_INSERT_TAIL(&stream->pending_work, work, next);
-        qemu_mutex_unlock(&stream->mutex);
-
-        DPRINTF("CMD_RESOURCE_QUEUE: stream %d queued input resource %d\n",
-                stream->id, resource->id);
+        DPRINTF("CMD_RESOURCE_QUEUE: stream %d queued input resource %d "
+                "timestamp %luns\n", stream->id, resource->id,
+                work->timestamp);
         len = 0;
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
@@ -1144,16 +1243,17 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
             }
         }
 
+#if 0
         /* Only input resources have timestamp assigned. */
         if (req->timestamp != 0) {
             error_report("CMD_RESOURCE_QUEUE: stream %d try to assign "
-                         "timestamp 0x%llx to output resource, which is "
+                         "timestamp %lluns to output resource, which is "
                          "not allowed", stream->id, req->timestamp);
             resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
             break;
         }
+#endif        
 
-        qemu_mutex_lock(&stream->mutex);
         QTAILQ_FOREACH(work, &stream->output_work, next) {
             if (resource->id == work->resource->id) {
                 error_report("CMD_RESOURCE_QUEUE: stream %d output resource %d "
@@ -1164,10 +1264,10 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
             }
         }
         if (stream->state == STREAM_STATE_TERMINATE) {
-            qemu_mutex_unlock(&stream->mutex);
+            assert(cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DESTROY);
             DPRINTF("CMD_RESOURCE_QUEUE: stream %d currently unable to "
                     "queue output resources\n", stream->id);
-            return len;
+            break;
         }
 
         work = g_new0(VirtIOVideoWork, 1);
@@ -1175,17 +1275,13 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         work->elem = elem;
         work->resource = resource;
         work->queue_type = req->queue_type;
-        work->id = work_id++;
-        printf("dyang23, create work output id:%d\n", work->id);
 
         /*
-         * Output resources are just containers for decoded frames. They go
-         * directly to output work queue since no MediaSDK task is required to
-         * be submitted.
+         * Output resources are just containers for decoded frames. They must
+         * be paired with frames in @pending_frames.
          */
         QTAILQ_INSERT_TAIL(&stream->output_work, work, next);
-        qemu_event_set(&m_session->notifier);
-        qemu_mutex_unlock(&stream->mutex);
+        qemu_event_set(&m_session->output_notifier);
 
         DPRINTF("CMD_RESOURCE_QUEUE: stream %d queued output resource %d\n",
                 stream->id, resource->id);
@@ -1193,50 +1289,53 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         break;
     default:
         resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
-        error_report("CMD_RESOURCE_QUEUE: invalid queue type 0x%x",
+        error_report("CMD_RESOURCE_QUEUE: invalid queue type 0x%x\n",
                      req->queue_type);
         break;
     }
 
+    qemu_mutex_unlock(&stream->mutex);
     return len;
 }
 
 /**
  * Protocol:
  *
- * @STREAM_STATE_CLEAR: In this state, there can be one and only one
- *                      CMD_QUEUE_CLEAR pending in @pending_cmds. There can be
- *                      one or more CMD_RESOURCE_DESTROY_ALL pending in
- *                      @pending_cmds since the operation is idempotent and
- *                      issuing the command while the last one is being
- *                      processed is not prohibited by the spec.
+ * @STREAM_STATE_CLEAR: In this state, there can be one in-flight
+ *                      CMD_QUEUE_CLEAR or CMD_RESOURCE_DESTROY_ALL.
+ *                      CMD_RESOURCE_DESTROY_ALL has higher priority and can
+ *                      cancel the currently in-flight CMD_QUEUE_CLEAR.
  */
 static size_t virtio_video_msdk_dec_resource_clear(VirtIOVideoStream *stream,
     uint32_t queue_type, virtio_video_cmd_hdr *resp, VirtQueueElement *elem,
     bool destroy)
 {
-    VirtIOVideoCmd *cmd;
+    VirtIOVideoCmd *cmd = &stream->inflight_cmd;
     VirtIOVideoWork *work, *tmp_work;
     MsdkSession *m_session = stream->opaque;
 
     resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
+    qemu_mutex_lock(&stream->mutex);
     switch (queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
-        qemu_mutex_lock(&stream->mutex);
-        cmd = QTAILQ_FIRST(&stream->pending_cmds);
-
         switch (stream->state) {
         case STREAM_STATE_INIT:
-            /* Cancel the pending CMD_STREAM_DRAIN */
-            if (cmd && cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
-                QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-                virtio_video_cmd_cancel(cmd);
+            /*
+             * CMD_STREAM_DRAIN can be pending, waiting for the completion of
+             * initialization phase. Then, it can do decoding of all pending
+             * works in @input_work. We simply drop those works for
+             * CMD_QUEUE_CLEAR and CMD_RESOURCE_DESTROY_ALL.
+             */
+            if (cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
+                virtio_video_inflight_cmd_cancel(stream);
+            } else {
+                assert(cmd->cmd_type == 0);
             }
 
-            QTAILQ_FOREACH_SAFE(work, &stream->pending_work, next, tmp_work) {
+            QTAILQ_FOREACH_SAFE(work, &stream->input_work, next, tmp_work) {
                 work->timestamp = 0;
                 work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
-                QTAILQ_REMOVE(&stream->pending_work, work, next);
+                QTAILQ_REMOVE(&stream->input_work, work, next);
                 g_free(work->opaque);
                 virtio_video_work_done(work);
             }
@@ -1250,69 +1349,55 @@ static size_t virtio_video_msdk_dec_resource_clear(VirtIOVideoStream *stream,
             }
             break;
         case STREAM_STATE_RUNNING:
+            assert(cmd->cmd_type == 0);
             stream->state = STREAM_STATE_CLEAR;
-enqueue:
-            cmd = g_new(VirtIOVideoCmd, 1);
-            cmd->parent = stream;
+        succeed:
             cmd->elem = elem;
             cmd->cmd_type = destroy ? VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL :
                                       VIRTIO_VIDEO_CMD_QUEUE_CLEAR;
-            QTAILQ_INSERT_TAIL(&stream->pending_cmds, cmd, next);
-            qemu_event_set(&m_session->notifier);
+            qemu_event_set(&m_session->output_notifier);
 
             if (destroy) {
-                DPRINTF("CMD_RESOURCE_DESTROY_ALL (async): stream %d start to "
-                        "destroy input resources\n", stream->id);
+                DPRINTF("CMD_RESOURCE_DESTROY_ALL (async): stream %d start "
+                        "to destroy input resources\n", stream->id);
             } else {
-                DPRINTF("CMD_QUEUE_CLEAR (async): stream %d start to "
-                        "clear input queue\n", stream->id);
+                DPRINTF("CMD_QUEUE_CLEAR (async): stream %d start "
+                        "to clear input queue\n", stream->id);
             }
             qemu_mutex_unlock(&stream->mutex);
             return 0;
         case STREAM_STATE_DRAIN:
-            if (cmd == NULL || cmd->cmd_type != VIRTIO_VIDEO_CMD_STREAM_DRAIN) {
-                error_report("virtio-video: BUG: expected in-flight "
-                             "CMD_STREAM_DRAIN but not found");
-            } else {
-                QTAILQ_REMOVE(&stream->pending_cmds, cmd, next);
-                virtio_video_cmd_cancel(cmd);
-            }
+            assert(cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN);
+            virtio_video_inflight_cmd_cancel(stream);
             stream->state = STREAM_STATE_CLEAR;
-            goto enqueue;
+            goto succeed;
         case STREAM_STATE_CLEAR:
-            /* CMD_RESOURCE_DESTROY_ALL is idempotent */
-            if (destroy)
-                goto enqueue;
-
-            /* CMD_QUEUE_CLEAR should fail if there is already one in-flight */
-            QTAILQ_FOREACH(cmd, &stream->pending_cmds, next) {
-                if (cmd->cmd_type == VIRTIO_VIDEO_CMD_QUEUE_CLEAR) {
-                    break;
-                }
+            assert((cmd->cmd_type == VIRTIO_VIDEO_CMD_QUEUE_CLEAR) ||
+                   (cmd->cmd_type == VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL));
+            if (destroy && cmd->cmd_type == VIRTIO_VIDEO_CMD_QUEUE_CLEAR) {
+                virtio_video_inflight_cmd_cancel(stream);
+                goto succeed;
             }
-            if (cmd == NULL)
-                goto enqueue;
-
-            /* fall through */
+            goto fail;
         case STREAM_STATE_TERMINATE:
+            assert(cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DESTROY);
+            goto fail;
+        default:
+        fail:
             DPRINTF("%s: stream %d currently unable to serve the request",
                     destroy ? "CMD_RESOURCE_DESTROY_ALL" : "CMD_QUEUE_CLEAR",
                     stream->id);
-            /* fall through */
-        default:
             resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
             break;
         }
-        qemu_mutex_unlock(&stream->mutex);
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
-        qemu_mutex_lock(&stream->mutex);
         if (stream->state == STREAM_STATE_TERMINATE) {
+            assert(cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DESTROY);
             resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
             DPRINTF("%s: stream %d currently unable to serve the request",
                     destroy ? "CMD_RESOURCE_DESTROY_ALL" : "CMD_QUEUE_CLEAR",
                     stream->id);
-            qemu_mutex_unlock(&stream->mutex);
             break;
         }
 
@@ -1329,7 +1414,6 @@ enqueue:
             DPRINTF("CMD_QUEUE_CLEAR: stream %d output queue cleared\n",
                     stream->id);
         }
-        qemu_mutex_unlock(&stream->mutex);
         break;
     default:
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
@@ -1339,6 +1423,7 @@ enqueue:
         break;
     }
 
+    qemu_mutex_unlock(&stream->mutex);
     return sizeof(*resp);
 }
 
@@ -1949,22 +2034,9 @@ out:
 void virtio_video_uninit_msdk_dec(VirtIOVideo *v)
 {
     VirtIOVideoStream *stream, *tmp_stream;
-    MsdkSession *m_session;
 
     QLIST_FOREACH_SAFE(stream, &v->stream_list, next, tmp_stream) {
-        m_session = stream->opaque;
-
-        virtio_video_msdk_dec_stream_terminate(stream);
-        qemu_thread_join(&m_session->thread);
-
-        QLIST_REMOVE(stream, next);
-        qemu_mutex_destroy(&stream->mutex);
-        g_free(m_session);
-        if (stream->bitstream_header.Data) {
-            g_free(stream->bitstream_header.Data);
-            stream->bitstream_header.Data = NULL;
-        }
-        g_free(stream);
+        virtio_video_msdk_dec_stream_terminate(stream, NULL);
     }
 
     virtio_video_msdk_uninit_handle(v);

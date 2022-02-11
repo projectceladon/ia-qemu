@@ -39,17 +39,23 @@ uint32_t virtio_video_msdk_to_profile(uint32_t msdk);
 uint32_t virtio_video_msdk_to_level(uint32_t msdk);
 
 int virtio_video_msdk_init_param(mfxVideoParam *param, uint32_t format);
-int virtio_video_msdk_init_param_dec(mfxVideoParam *param, VirtIOVideoStream *stream);
-int virtio_video_msdk_init_vpp_param_dec(mfxVideoParam *param, mfxVideoParam *vpp_param,
+int virtio_video_msdk_init_param_dec(mfxVideoParam *param,
     VirtIOVideoStream *stream);
+int virtio_video_msdk_init_vpp_param_dec(mfxVideoParam *param,
+    mfxVideoParam *vpp_param, VirtIOVideoStream *stream);
 void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     mfxFrameAllocRequest *alloc_req, mfxFrameInfo *info, bool vpp);
 void virtio_video_msdk_uninit_surface_pools(MsdkSession *session);
+void virtio_video_msdk_uninit_frame(VirtIOVideoFrame *frame);
 int virtio_video_msdk_output_surface(MsdkSurface *surface,
     VirtIOVideoResource *resource);
+void virtio_video_msdk_stream_reset_param(VirtIOVideoStream *stream,
+    mfxVideoParam *param);
 
-void virtio_video_msdk_load_plugin(mfxSession session, uint32_t format, bool encode);
-void virtio_video_msdk_unload_plugin(mfxSession session, uint32_t format, bool encode);
+void virtio_video_msdk_load_plugin(mfxSession session, uint32_t format,
+    bool encode);
+void virtio_video_msdk_unload_plugin(mfxSession session, uint32_t format,
+    bool encode);
 int virtio_video_msdk_init_handle(VirtIOVideo *vdev);
 void virtio_video_msdk_uninit_handle(VirtIOVideo *vdev);
 

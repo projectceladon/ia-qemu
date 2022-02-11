@@ -23,9 +23,6 @@
 #ifndef QEMU_VIRTIO_VIDEO_H
 #define QEMU_VIRTIO_VIDEO_H
 
-#include "mfx/mfxsession.h"
-#include "mfx/mfxstructures.h"
-
 #include "standard-headers/linux/virtio_video.h"
 #include "hw/virtio/virtio.h"
 #include "sysemu/iothread.h"
@@ -116,8 +113,21 @@ typedef struct VirtIOVideoWork {
     uint32_t size;
     void *opaque;
     QTAILQ_ENTRY(VirtIOVideoWork) next;
-    int id;
 } VirtIOVideoWork;
+
+/**
+ * Represents a frame being decoded or encoded
+ *
+ * An input VirtIOVideoWork just represents a buffer for input data. For
+ * decoder, it is possible that the data is not enough for decoding of one
+ * frame. So we need a seperate frame queue for the frames actually being
+ * decoded.
+ */
+typedef struct VirtIOVideoFrame {
+    uint64_t timestamp;
+    void *opaque;
+    QTAILQ_ENTRY(VirtIOVideoFrame) next;
+} VirtIOVideoFrame;
 
 typedef struct VirtIOVideoQueueInfo {
     virtio_video_mem_type mem_type;
@@ -133,10 +143,8 @@ typedef struct VirtIOVideoControlInfo {
 
 /* stream-wide commands such as CMD_STREAM_DRAIN and CMD_QUEUE_CLEAR */
 typedef struct VirtIOVideoCmd {
-    VirtIOVideoStream *parent;
     VirtQueueElement *elem;
     uint32_t cmd_type;
-    QTAILQ_ENTRY(VirtIOVideoCmd) next;
 } VirtIOVideoCmd;
 
 typedef struct VirtIOVideo VirtIOVideo;
@@ -151,10 +159,9 @@ struct VirtIOVideoStream {
     virtio_video_stream_state state;
     QemuMutex mutex;
     void *opaque;
-    mfxBitstream bitstream_header;
     QLIST_HEAD(, VirtIOVideoResource) resource_list[VIRTIO_VIDEO_QUEUE_NUM];
-    QTAILQ_HEAD(, VirtIOVideoCmd) pending_cmds;
-    QTAILQ_HEAD(, VirtIOVideoWork) pending_work;
+    VirtIOVideoCmd inflight_cmd;
+    QTAILQ_HEAD(, VirtIOVideoFrame) pending_frames;
     QTAILQ_HEAD(, VirtIOVideoWork) input_work;
     QTAILQ_HEAD(, VirtIOVideoWork) output_work;
     QLIST_ENTRY(VirtIOVideoStream) next;

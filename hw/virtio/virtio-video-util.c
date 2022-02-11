@@ -26,6 +26,19 @@
 #include "qemu/error-report.h"
 #include "virtio-video-util.h"
 
+struct virtio_video_cmd_bh_arg {
+    VirtIOVideo *v;
+    VirtIOVideoCmd cmd;
+    uint32_t stream_id;
+};
+
+struct virtio_video_work_bh_arg {
+    VirtIOVideo *v;
+    VirtIOVideoWork *work;
+    uint32_t stream_id;
+    uint32_t resource_id;
+};
+
 struct virtio_video_event_bh_arg {
     VirtIODevice *vdev;
     uint32_t event_type;
@@ -200,6 +213,7 @@ bool virtio_video_param_fixup(virtio_video_params *params)
         params->num_planes = 1;
         params->plane_formats[0].plane_size =
             params->frame_width * params->frame_height * 4;
+        printf("dyang23 %s:%d, plane_size:%d, wxh=%dx%d\n", __FUNCTION__, __LINE__, params->plane_formats[0].plane_size, params->frame_width, params->frame_height);
         params->plane_formats[0].stride = params->frame_width * 4;
         return true;
     case VIRTIO_VIDEO_FORMAT_NV12:
@@ -208,9 +222,11 @@ bool virtio_video_param_fixup(virtio_video_params *params)
         params->num_planes = 2;
         params->plane_formats[0].plane_size =
             params->frame_width * params->frame_height;
+        printf("dyang23 %s:%d, plane_size:%d, wxh=%dx%d\n", __FUNCTION__, __LINE__, params->plane_formats[0].plane_size, params->frame_width, params->frame_height);
         params->plane_formats[0].stride = params->frame_width;
         params->plane_formats[1].plane_size =
             params->frame_width * params->frame_height / 2;
+        printf("dyang23 %s:%d, plane_size:%d, wxh=%dx%d\n", __FUNCTION__, __LINE__, params->plane_formats[1].plane_size, params->frame_width, params->frame_height);
         params->plane_formats[1].stride = params->frame_width;
         return true;
     case VIRTIO_VIDEO_FORMAT_YUV420:
@@ -220,12 +236,15 @@ bool virtio_video_param_fixup(virtio_video_params *params)
         params->num_planes = 3;
         params->plane_formats[0].plane_size =
             params->frame_width * params->frame_height;
+        printf("dyang23 %s:%d, plane_size:%d, wxh=%dx%d\n", __FUNCTION__, __LINE__, params->plane_formats[0].plane_size, params->frame_width, params->frame_height);
         params->plane_formats[0].stride = params->frame_width;
         params->plane_formats[1].plane_size =
             params->frame_width * params->frame_height / 4;
+        printf("dyang23 %s:%d, plane_size:%d, wxh=%dx%d\n", __FUNCTION__, __LINE__, params->plane_formats[1].plane_size, params->frame_width, params->frame_height);
         params->plane_formats[1].stride = params->frame_width / 2;
         params->plane_formats[2].plane_size =
             params->frame_width * params->frame_height / 4;
+        printf("dyang23 %s:%d, plane_size:%d, wxh=%dx%d\n", __FUNCTION__, __LINE__, params->plane_formats[2].plane_size, params->frame_width, params->frame_height);
         params->plane_formats[2].stride = params->frame_width / 2;
         return true;
     case VIRTIO_VIDEO_FORMAT_MPEG2:
@@ -266,12 +285,31 @@ void virtio_video_init_format(VirtIOVideoFormat *fmt, uint32_t format)
     fmt->level.values = NULL;
 }
 
+static void virtio_video_destroy_resource(VirtIOVideoResource *resource,
+    uint32_t mem_type, bool in)
+{
+    VirtIOVideoResourceSlice *slice;
+    int i, j;
+
+    QLIST_REMOVE(resource, next);
+    for (i = 0; i < resource->num_planes; i++) {
+        for (j = 0; j < resource->num_entries[i]; j++) {
+            slice = &resource->slices[i][j];
+            if (mem_type == VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES) {
+                cpu_physical_memory_unmap(slice->page.hva, slice->page.len,
+                                          !in, slice->page.len);
+            } /* TODO: support object memory type */
+        }
+        g_free(resource->slices[i]);
+    }
+    g_free(resource);
+}
+
 void virtio_video_destroy_resource_list(VirtIOVideoStream *stream, bool in)
 {
     VirtIOVideoResource *res, *tmp_res;
-    VirtIOVideoResourceSlice *slice;
     virtio_video_mem_type mem_type;
-    int i, j, dir;
+    int dir;
 
     if (in) {
         mem_type = stream->in.mem_type;
@@ -282,18 +320,7 @@ void virtio_video_destroy_resource_list(VirtIOVideoStream *stream, bool in)
     }
 
     QLIST_FOREACH_SAFE(res, &stream->resource_list[dir], next, tmp_res) {
-        QLIST_REMOVE(res, next);
-        for (i = 0; i < res->num_planes; i++) {
-            for (j = 0; j < res->num_entries[i]; j++) {
-                slice = &res->slices[i][j];
-                if (mem_type == VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES) {
-                    cpu_physical_memory_unmap(slice->page.hva, slice->page.len,
-                                              !in, slice->page.len);
-                } /* TODO: support object memory type */
-            }
-            g_free(res->slices[i]);
-        }
-        g_free(res);
+        virtio_video_destroy_resource(res, mem_type, in);
     }
 }
 
@@ -325,7 +352,7 @@ static int virtio_video_memcpy_singlebuffer(VirtIOVideoResource *res,
     if (size > 0) {
         error_report("CMD_RESOURCE_QUEUE: output buffer insufficient "
                      "to contain the frame");
-        return -1;
+        //return -1;
     }
 
     return 0;
@@ -351,7 +378,7 @@ static int virtio_video_memcpy_perplane(VirtIOVideoResource *res,
     if (size > 0) {
         error_report("CMD_RESOURCE_QUEUE: output buffer insufficient "
                      "to contain the frame");
-        return -1;
+        //return -1;
     }
 
     return 0;
@@ -411,17 +438,19 @@ int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event)
 }
 
 /*
- * @work must be removed from @pending_work, @input_work or @output_work first
+ * Before the response of CMD_RESOURCE_QUEUE can be sent, these conditions must
+ * be met:
+ *  @work:           should be removed from @input_work or @output_work
+ *  @work->resource: should be removed from @resource_list and destroyed
  */
-int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work)
+static int virtio_video_cmd_resource_queue_complete(VirtIOVideo *v,
+    VirtIOVideoWork *work, uint32_t stream_id, uint32_t resource_id)
 {
-    VirtIOVideoStream *stream = work->parent;
-    VirtIOVideo *v = stream->parent;
     VirtIODevice *vdev = VIRTIO_DEVICE(v);
     virtio_video_resource_queue_resp resp = {0};
 
     resp.hdr.type = VIRTIO_VIDEO_RESP_OK_NODATA;
-    resp.hdr.stream_id = stream->id;
+    resp.hdr.stream_id = stream_id;
     resp.timestamp = work->timestamp;
     resp.flags = work->flags;
     resp.size = work->size;
@@ -438,102 +467,140 @@ int virtio_video_cmd_resource_queue_complete(VirtIOVideoWork *work)
     virtqueue_push(v->cmd_vq, work->elem, sizeof(resp));
     virtio_notify(vdev, v->cmd_vq);
 
-    DPRINTF("CMD_RESOURCE_QUEUE: stream %d dequeued %s resource %d "
-            "timestamp 0x%lx flags 0x%x size %d\n",  stream->id,
-            work->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT ?
-            "input" : "output", work->resource->id, work->timestamp,
-            work->flags, work->size);
+    DPRINTF("CMD_RESOURCE_DEQUEUE: stream %d dequeued %s resource %d, "
+            "flags=0x%x size=%d\n", stream_id, work->queue_type ==
+            VIRTIO_VIDEO_QUEUE_TYPE_INPUT ? "input" : "output",
+            resource_id, work->flags, work->size);
     g_free(work->elem);
-    printf("dyang23, free work id:%d\n", work->id);
     g_free(work);
     return 0;
 }
 
 static void virtio_video_output_one_work_bh(void *opaque)
 {
-    VirtIOVideoWork *work = opaque;
-    virtio_video_cmd_resource_queue_complete(work);
+    struct virtio_video_work_bh_arg *s = opaque;
+
+    virtio_video_cmd_resource_queue_complete(s->v, s->work, s->stream_id,
+                                             s->resource_id);
+    object_unref(OBJECT(s->v));
+    g_free(opaque);
 }
 
+/* must be called with stream->mutex held */
 void virtio_video_work_done(VirtIOVideoWork *work)
 {
+    struct virtio_video_work_bh_arg *s;
     VirtIOVideoStream *stream = work->parent;
     VirtIOVideo *v = stream->parent;
+    virtio_video_mem_type mem_type;
 
-    aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, work);
+    s = g_new0(struct virtio_video_work_bh_arg, 1);
+    s->v = v;
+    s->work = work;
+    s->stream_id = stream->id;
+    s->resource_id = work->resource->id;
+
+    if (work->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
+        mem_type = stream->in.mem_type;
+        virtio_video_destroy_resource(work->resource, mem_type, true);
+    } else {
+        mem_type = stream->out.mem_type;
+        //virtio_video_destroy_resource(work->resource, mem_type, false);
+    }
+
+    object_ref(OBJECT(v));
+    aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, s);
 }
 
-static void virtio_video_cmd_others_complete(VirtIOVideoCmd *cmd, bool success)
+static void virtio_video_cmd_others_complete(struct virtio_video_cmd_bh_arg *s,
+    bool success)
 {
-    VirtIOVideoStream *stream = cmd->parent;
-    VirtIOVideo *v = stream->parent;
-    VirtIODevice *vdev = VIRTIO_DEVICE(v);
+    VirtIODevice *vdev = VIRTIO_DEVICE(s->v);
     virtio_video_cmd_hdr resp = {0};
 
     resp.type = success ? VIRTIO_VIDEO_RESP_OK_NODATA :
                           VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
-    resp.stream_id = stream->id;
+    resp.stream_id = s->stream_id;
 
-    if (unlikely(iov_from_buf(cmd->elem->in_sg, cmd->elem->in_num, 0,
+    if (unlikely(iov_from_buf(s->cmd.elem->in_sg, s->cmd.elem->in_num, 0,
                               &resp, sizeof(resp)) != sizeof(resp))) {
         virtio_error(vdev, "virtio-video command response incorrect");
-        virtqueue_detach_element(v->cmd_vq, cmd->elem, 0);
-        goto done;
+        virtqueue_detach_element(s->v->cmd_vq, s->cmd.elem, 0);
+        g_free(s->cmd.elem);
+        return;
     }
 
-    virtqueue_push(v->cmd_vq, cmd->elem, sizeof(resp));
-    virtio_notify(vdev, v->cmd_vq);
+    virtqueue_push(s->v->cmd_vq, s->cmd.elem, sizeof(resp));
+    virtio_notify(vdev, s->v->cmd_vq);
 
-    switch (cmd->cmd_type) {
+    switch (s->cmd.cmd_type) {
     case VIRTIO_VIDEO_CMD_STREAM_DRAIN:
         DPRINTF("CMD_STREAM_DRAIN (async) for stream %d %s\n",
-                stream->id, success ? "done" : "cancelled");
+                s->stream_id, success ? "done" : "cancelled");
         break;
     case VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL:
         DPRINTF("CMD_RESOURCE_DESTROY_ALL (async) for stream %d %s\n",
-                stream->id, success ? "done" : "cancelled");
+                s->stream_id, success ? "done" : "cancelled");
         break;
     case VIRTIO_VIDEO_CMD_QUEUE_CLEAR:
         DPRINTF("CMD_QUEUE_CLEAR (async) for stream %d %s\n",
-                stream->id, success ? "done" : "cancelled");
+                s->stream_id, success ? "done" : "cancelled");
+        break;
+    case VIRTIO_VIDEO_CMD_STREAM_DESTROY:
+        DPRINTF("CMD_STREAM_DESTROY (async) for stream %d %s\n",
+                s->stream_id, success ? "done" : "cancelled");
         break;
     default:
         break;
     }
-
-done:
-    g_free(cmd->elem);
-    g_free(cmd);
+    g_free(s->cmd.elem);
+    object_unref(OBJECT(s->v));
 }
 
 static void virtio_video_cmd_done_bh(void *opaque)
 {
-    VirtIOVideoCmd *cmd = opaque;
+    struct virtio_video_cmd_bh_arg *s = opaque;
 
-    virtio_video_cmd_others_complete(cmd, true);
+    virtio_video_cmd_others_complete(s, true);
+    g_free(opaque);
 }
 
 static void virtio_video_cmd_cancel_bh(void *opaque)
 {
-    VirtIOVideoCmd *cmd = opaque;
+    struct virtio_video_cmd_bh_arg *s = opaque;
 
-    virtio_video_cmd_others_complete(cmd, false);
+    virtio_video_cmd_others_complete(s, false);
+    g_free(opaque);
 }
 
-void virtio_video_cmd_done(VirtIOVideoCmd *cmd)
+void virtio_video_inflight_cmd_done(VirtIOVideoStream *stream)
 {
-    VirtIOVideoStream *stream = cmd->parent;
+    struct virtio_video_cmd_bh_arg *s;
     VirtIOVideo *v = stream->parent;
 
-    aio_bh_schedule_oneshot(v->ctx, virtio_video_cmd_done_bh, cmd);
+    s = g_new0(struct virtio_video_cmd_bh_arg, 1);
+    s->v = v;
+    s->cmd = stream->inflight_cmd;
+    s->stream_id = stream->id;
+    stream->inflight_cmd.cmd_type = 0;
+
+    object_ref(OBJECT(v));
+    aio_bh_schedule_oneshot(v->ctx, virtio_video_cmd_done_bh, s);
 }
 
-void virtio_video_cmd_cancel(VirtIOVideoCmd *cmd)
+void virtio_video_inflight_cmd_cancel(VirtIOVideoStream *stream)
 {
-    VirtIOVideoStream *stream = cmd->parent;
+    struct virtio_video_cmd_bh_arg *s;
     VirtIOVideo *v = stream->parent;
 
-    aio_bh_schedule_oneshot(v->ctx, virtio_video_cmd_cancel_bh, cmd);
+    s = g_new0(struct virtio_video_cmd_bh_arg, 1);
+    s->v = v;
+    s->cmd = stream->inflight_cmd;
+    s->stream_id = stream->id;
+    stream->inflight_cmd.cmd_type = 0;
+
+    object_ref(OBJECT(v));
+    aio_bh_schedule_oneshot(v->ctx, virtio_video_cmd_cancel_bh, s);
 }
 
 static void virtio_video_event_bh(void *opaque)
@@ -561,6 +628,7 @@ static void virtio_video_event_bh(void *opaque)
 
 done:
     qemu_mutex_unlock(&v->mutex);
+    object_unref(OBJECT(v));
     g_free(opaque);
 }
 
@@ -574,5 +642,6 @@ void virtio_video_report_event(VirtIOVideo *v, uint32_t event,
     s->event_type = event;
     s->stream_id = stream_id;
 
+    object_ref(OBJECT(v));
     aio_bh_schedule_oneshot(v->ctx, virtio_video_event_bh, s);
 }
