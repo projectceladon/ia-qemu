@@ -346,6 +346,7 @@ static int virtio_video_memcpy_singlebuffer(VirtIOVideoResource *res,
             memcpy(slice->page.hva + diff, src, len);
             begin += len;
             size -= len;
+            src += len;
         }
     }
 
@@ -372,6 +373,7 @@ static int virtio_video_memcpy_perplane(VirtIOVideoResource *res,
         } else {
             memcpy(slice->page.hva, src, slice->page.len);
             size -= slice->page.len;
+            src += slice->page.len;
         }
     }
 
@@ -382,6 +384,46 @@ static int virtio_video_memcpy_perplane(VirtIOVideoResource *res,
     }
 
     return 0;
+}
+
+static int virtio_video_memdump_perplane(VirtIOVideoResource *res,
+    uint32_t idx, void *dst, uint32_t size)
+{
+    VirtIOVideoResourceSlice *slice;
+    int i;
+
+    for (i = 0; i < res->num_entries[idx]; i++) {
+        slice = &res->slices[idx][i];
+        if (size <= slice->page.len) {
+            memcpy(dst, slice->page.hva, size);
+            return 0;
+        } else {
+            memcpy(dst, slice->page.hva, slice->page.len);
+            size -= slice->page.len;
+            dst += slice->page.len;
+        }
+    }
+
+    if (size > 0) {
+        error_report("CMD_RESOURCE_QUEUE: output buffer insufficient "
+                     "to contain the frame");
+        //return -1;
+    }
+
+    return 0;
+}
+
+int virtio_video_memdump(VirtIOVideoResource *res, uint32_t idx, void *dst,
+    uint32_t size)
+{
+    switch (res->planes_layout) {
+    case VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER:
+        ;//return virtio_video_memcpy_singlebuffer(res, idx, dst, size);
+    case VIRTIO_VIDEO_PLANES_LAYOUT_PER_PLANE:
+        return virtio_video_memdump_perplane(res, idx, dst, size);
+    default:
+        return -1;
+    }
 }
 
 int virtio_video_memcpy(VirtIOVideoResource *res, uint32_t idx, void *src,

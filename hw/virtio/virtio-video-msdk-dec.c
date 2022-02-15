@@ -97,6 +97,8 @@ static mfxStatus virtio_video_decode_parse_header(VirtIOVideoWork *work)
         return status;
     }
 
+    printf_mfxVideoParam(&param);
+
     if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12)
         goto done;
 
@@ -178,7 +180,7 @@ static mfxStatus virtio_video_decode_one_frame(VirtIOVideoWork *work,
     do {
         status = MFXVideoDECODE_DecodeFrameAsync(m_session->session, bitstream,
                 &work_surface->surface, &out_surface, &m_frame->sync);
-        printf("dyang23 %s:%d MFXVideoDECODE_DecodeFrameAsync:%d\n", __FUNCTION__, __LINE__, status);
+        //printf("dyang23 %s:%d MFXVideoDECODE_DecodeFrameAsync:%d\n", __FUNCTION__, __LINE__, status);
         switch (status) {
         case MFX_WRN_DEVICE_BUSY:
             usleep(1000);
@@ -262,7 +264,6 @@ static mfxStatus virtio_video_decode_submit_one_work(VirtIOVideoWork *work,
     mfxBitstream *input = work->opaque;
     mfxBitstream *bitstream = &m_session->bitstream;
     bool inserted = false;
-    printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
 
     if (work->queue_type != VIRTIO_VIDEO_QUEUE_TYPE_INPUT)
         return MFX_ERR_UNDEFINED_BEHAVIOR;
@@ -328,35 +329,28 @@ static mfxStatus virtio_video_decode_submit_one_work(VirtIOVideoWork *work,
 
     while (true) {
         m_frame = g_new0(MsdkFrame, 1);
-        printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
         status = virtio_video_decode_one_frame(work, m_frame);
         if (status != MFX_ERR_NONE) {
-            printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
             g_free(m_frame);
             /* we just need to try again with a new surface when we meet
              * MFX_ERR_MORE_SURFACE */
             if (status == MFX_ERR_MORE_SURFACE) {
-                printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
                 continue;
             } else {
-                printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
                 break;
             }
         }
-        printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
         QTAILQ_FOREACH(frame, &stream->pending_frames, next) {
             if (frame->opaque == NULL) {
                 break;
             }
         }
         if (frame == NULL) {
-            printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
             if (inserted) {
                 warn_report("virtio-video: stream %d generated too many "
                             "frames, more than the number of input buffers",
                             stream->id);
             }
-            printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
             frame = g_new0(VirtIOVideoFrame, 1);
             frame->timestamp = work->timestamp;
             QTAILQ_INSERT_TAIL(&stream->pending_frames, frame, next);
@@ -366,11 +360,9 @@ static mfxStatus virtio_video_decode_submit_one_work(VirtIOVideoWork *work,
     }
 
     /* MFX_ERR_MORE_DATA means that we exit by hitting the end of bitstream */
-    printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
     if (!inserted && status == MFX_ERR_MORE_DATA) {
         frame = g_new0(VirtIOVideoFrame, 1);
         frame->timestamp = work->timestamp;
-        printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
         QTAILQ_INSERT_TAIL(&stream->pending_frames, frame, next);
     }
 
@@ -387,7 +379,6 @@ static void virtio_video_decode_retrieve_one_frame(VirtIOVideoFrame *frame,
     MsdkFrame *m_frame = frame->opaque;
     mfxStatus status;
     int ret;
-    printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
 
     qemu_mutex_unlock(&stream->mutex);
     do {
@@ -421,15 +412,12 @@ static void virtio_video_decode_retrieve_one_frame(VirtIOVideoFrame *frame,
     }
 
     /* It's better to output something, even if it's corrupted. */
-    printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
     if (ret != 0)
         work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
     if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12) {
-        printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
         ret = virtio_video_msdk_output_surface(m_frame->surface,
                                                work->resource);
     } else {
-        printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
         ret = virtio_video_msdk_output_surface(m_frame->vpp_surface,
                                                work->resource);
     }
@@ -598,17 +586,15 @@ static void *virtio_video_decode_thread(void *arg)
             break;
         case STREAM_STATE_RUNNING:
         case STREAM_STATE_DRAIN:
-        printf("dyang23 %s:%d, output_work:%d, pending_frames:%d \n", __FUNCTION__, __LINE__, !QTAILQ_EMPTY(&stream->output_work), !QTAILQ_EMPTY(&stream->pending_frames));
+       // printf("dyang23 %s:%d, output_work:%d, pending_frames:%d \n", __FUNCTION__, __LINE__, !QTAILQ_EMPTY(&stream->output_work), !QTAILQ_EMPTY(&stream->pending_frames));
             if (QTAILQ_EMPTY(&stream->output_work) ||
                 QTAILQ_EMPTY(&stream->pending_frames) ||
                 QTAILQ_FIRST(&stream->pending_frames)->opaque == NULL) {
                 qemu_mutex_unlock(&stream->mutex);
                 qemu_event_wait(&m_session->output_notifier);
                 qemu_event_reset(&m_session->output_notifier);
-                printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
                 continue;
             }
-            printf("dyang23 %s:%d\n", __FUNCTION__, __LINE__);
 
             frame = QTAILQ_FIRST(&stream->pending_frames);
             work = QTAILQ_FIRST(&stream->output_work);

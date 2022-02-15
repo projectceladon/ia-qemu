@@ -305,7 +305,6 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     //if (surface_num < 20)
      //   surface_num = 20;
 
-    //printf("dyang23, virtio_video_msdk_init_surface_pool create:%d surface of surface pool \n", surface_num);
     for (i = 0; i < surface_num; i++) {
         surface = g_new0(MsdkSurface, 1);
         surface_buf = g_malloc0(size);
@@ -397,12 +396,44 @@ void virtio_video_msdk_uninit_frame(VirtIOVideoFrame *frame)
     g_free(frame);
 }
 
+#define DUMP_SURFACE
+#define DUMP_SURFACE_COUNT 100
+void virtio_video_msdk_dump_surface(char * src, int len) {
+    static FILE *file;
+    static int surface_idx=0;
+#ifdef DUMP_SURFACE    
+    if(surface_idx++ < DUMP_SURFACE_COUNT) {
+        if (!file) {
+            file = fopen("/tmp/dec.yuv", "w");
+            if(!file) {
+                printf("openfile failed.\n");
+                return;
+            }
+        }
+        if(file)
+            fwrite(src, len, 1, file);
+    } else {
+        if(file) {
+            fclose(file);
+            file = NULL;
+        }
+    }
+#endif        
+        
+}
+
+#define DUMP_SURFACE
 int virtio_video_msdk_output_surface(MsdkSurface *surface,
     VirtIOVideoResource *resource)
 {
     mfxFrameSurface1 *frame = &surface->surface;
     uint32_t width, height;
     int ret = 0;
+    #ifdef DUMP_SURFACE
+    char *Y;
+    char *U;
+    static int i=0;
+    #endif
 
     width = frame->Info.Width;
     height = frame->Info.Height;
@@ -416,9 +447,22 @@ int virtio_video_msdk_output_surface(MsdkSurface *surface,
     case MFX_FOURCC_NV12:
         if (resource->num_planes != 2)
             goto error;
-
+        //virtio_video_msdk_dump_surface((char*)(frame->Data.Y), width * height);
+        //virtio_video_msdk_dump_surface((char *)(frame->Data.U), width * height/2);
         ret += virtio_video_memcpy(resource, 0, frame->Data.Y, width * height);
         ret += virtio_video_memcpy(resource, 1, frame->Data.U, width * height / 2);
+        #ifdef DUMP_SURFACE
+        if (i++<100) {
+            Y = malloc(width*height);
+            U = malloc(width*height/2);
+            virtio_video_memdump(resource, 0, Y, width * height);
+            virtio_video_memdump(resource, 1, U, width * height / 2);
+            virtio_video_msdk_dump_surface(Y, width * height);
+            virtio_video_msdk_dump_surface(U, width * height/2);
+            free(Y);
+            free(U);
+        }
+        #endif
         break;
     case MFX_FOURCC_IYUV:
         if (resource->num_planes != 3)
@@ -480,7 +524,7 @@ void virtio_video_msdk_stream_reset_param(VirtIOVideoStream *stream,
             stream->out.params.frame_width * stream->out.params.frame_height / 2;
         stream->out.params.plane_formats[1].stride =
             stream->out.params.frame_width;
-			printf("virtio_video_msdk_stream_reset_param, nv12:plane_size:%d, stride:%d, plane_size:%d, stride:%d", 
+			printf("virtio_video_msdk_stream_reset_param, nv12:plane_size:%d, stride:%d, plane_size:%d, stride:%d\n", 
 				stream->out.params.plane_formats[0].plane_size, stream->out.params.plane_formats[0].stride,
 				stream->out.params.plane_formats[1].plane_size, stream->out.params.plane_formats[1].stride);
         break;

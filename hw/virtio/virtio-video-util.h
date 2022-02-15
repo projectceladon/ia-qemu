@@ -48,5 +48,5 @@ void virtio_video_inflight_cmd_done(VirtIOVideoStream *stream);
 void virtio_video_inflight_cmd_cancel(VirtIOVideoStream *stream);
 void virtio_video_report_event(VirtIOVideo *v, uint32_t event,
     uint32_t stream_id);
-
+int virtio_video_memdump(VirtIOVideoResource *res, uint32_t idx, void *dst, uint32_t size);
 #endif /* QEMU_VIRTIO_VIDEO_UTIL_H */
