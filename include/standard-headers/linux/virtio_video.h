@@ -222,8 +222,8 @@ typedef struct virtio_video_query_capability {
 } virtio_video_query_capability;
 
 typedef enum virtio_video_planes_layout_flag {
-	VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER = 1 << 0,
-	VIRTIO_VIDEO_PLANES_LAYOUT_PER_PLANE = 1 << 1,
+	VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER = 0,
+	VIRTIO_VIDEO_PLANES_LAYOUT_PER_PLANE = 1,
 } virtio_video_planes_layout_flag;
 
 typedef struct virtio_video_format_range {

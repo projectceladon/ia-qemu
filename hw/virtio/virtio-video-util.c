@@ -379,7 +379,7 @@ static int virtio_video_memcpy_perplane(VirtIOVideoResource *res,
 
     if (size > 0) {
         error_report("CMD_RESOURCE_QUEUE: output buffer insufficient "
-                     "to contain the frame");
+                     "to contain the frame, idx:%d, left size:%d", idx, size);
         //return -1;
     }
 

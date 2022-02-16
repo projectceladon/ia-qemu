@@ -160,9 +160,12 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
     for (i = 0, n = 0; i < resource->num_planes; i++) {
         resource->slices[i] = g_new0(VirtIOVideoResourceSlice,
                                      resource->num_entries[i]);
+        printf("%s, plane:%d, entry:%d\n", __func__, i, resource->num_entries[i]);
         for (j = 0; j < resource->num_entries[i]; j++, n++) {
             len = entries[n].length;
             slice = &resource->slices[i][j];
+
+            printf("%s, slice[%d][%d] = %d\n", __func__, i,j, entries[n].length);
 
             slice->page.hva = cpu_physical_memory_map(entries[n].addr,
                                                       &len, output);
@@ -305,11 +308,12 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     resource->num_planes = req->num_planes;
     memcpy(&resource->plane_offsets, &req->plane_offsets,
            sizeof(resource->plane_offsets));
-    memcpy(&resource->num_entries, &req->num_entries,
-           sizeof(resource->num_entries));
+   // memcpy(&resource->num_entries, &req->num_entries,
+     //      sizeof(resource->num_entries));
 
     for (i = 0; i < req->num_planes; i++) {
         num_entries += req->num_entries[i];
+        resource->num_entries[i] = req->num_entries[i];
     }
     switch (mem_type) {
     case VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES:
