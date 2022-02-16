@@ -25,7 +25,7 @@
 #include "qemu/main-loop.h"
 #include "qemu/error-report.h"
 #include "qapi/error.h"
-#include "exec/address-spaces.h"
+#include "sysemu/dma.h"
 #include "hw/virtio/virtio-video.h"
 #include "virtio-video-util.h"
 #include "virtio-video-msdk.h"
@@ -154,6 +154,8 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
     virtio_video_mem_entry *entries, bool output)
 {
     VirtIOVideoResourceSlice *slice;
+    DMADirection dir = output ? DMA_DIRECTION_FROM_DEVICE :
+                                DMA_DIRECTION_TO_DEVICE;
     hwaddr len;
     int i, j, n;
 
@@ -167,11 +169,12 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
 
             printf("%s, slice[%d][%d] = %d\n", __func__, i,j, entries[n].length);
 
-            slice->page.hva = cpu_physical_memory_map(entries[n].addr,
-                                                      &len, output);
+            slice->page.base = dma_memory_map(resource->dma_as,
+                                              entries[n].addr, &len, dir);
             slice->page.len = len;
             if (len < entries[n].length) {
-                cpu_physical_memory_unmap(slice->page.hva, len, false, 0);
+                dma_memory_unmap(resource->dma_as, slice->page.base,
+                                 slice->page.len, dir, 0);
                 goto error;
             }
         }
@@ -181,32 +184,13 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
 error:
     for (n = 0; n < j; n++) {
         slice = &resource->slices[i][n];
-        cpu_physical_memory_unmap(slice->page.hva, slice->page.len, false, 0);
+        dma_memory_unmap(resource->dma_as, slice->page.base, slice->page.len,
+                         dir, 0);
     }
     for (n = 0; n <= i; n++) {
         g_free(resource->slices[n]);
     }
     return -1;
-}
-
-static void virtio_video_destroy_resource(VirtIOVideoResource *resource,
-    uint32_t mem_type, bool in)
-{
-    VirtIOVideoResourceSlice *slice;
-    int i, j;
-
-    QLIST_REMOVE(resource, next);
-    for (i = 0; i < resource->num_planes; i++) {
-        for (j = 0; j < resource->num_entries[i]; j++) {
-            slice = &resource->slices[i][j];
-            if (mem_type == VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES) {
-                cpu_physical_memory_unmap(slice->page.hva, slice->page.len,
-                                          !in, slice->page.len);
-            } /* TODO: support object memory type */
-        }
-        g_free(resource->slices[i]);
-    }
-    g_free(resource);
 }
 
 static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
@@ -216,6 +200,7 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     VirtIOVideoStream *stream;
     VirtIOVideoResource *resource;
+    VirtIOVideoWork *work;
     virtio_video_format format;
     virtio_video_mem_type mem_type;
     size_t len, num_entries = 0;
@@ -237,47 +222,54 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
         return len;
     }
 
+    qemu_mutex_lock(&stream->mutex);
     switch (req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
         printf("virtio_video_process_cmd_resource_create VIRTIO_VIDEO_QUEUE_TYPE_INPUT\n");
         format = stream->in.params.format;
         mem_type = stream->in.mem_type;
         dir = VIRTIO_VIDEO_QUEUE_INPUT;
+        QTAILQ_FOREACH(work, &stream->input_work, next) {
+            if (work->resource->id == req->resource_id) {
+                break;
+            }
+        }
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
         printf("virtio_video_process_cmd_resource_create VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT\n");
         format = stream->out.params.format;
         mem_type = stream->out.mem_type;
         dir = VIRTIO_VIDEO_QUEUE_OUTPUT;
+        QTAILQ_FOREACH(work, &stream->output_work, next) {
+            if (work->resource->id == req->resource_id) {
+                break;
+            }
+        }
         break;
     default:
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
         error_report("CMD_RESOURCE_CREATE: invalid queue type 0x%x",
                      req->queue_type);
-        return len;
+        goto out;
     }
 
-    qemu_mutex_lock(&stream->mutex);
-    QLIST_FOREACH(resource, &stream->resource_list[dir], next) {
-        if (resource->id == req->resource_id) {
-            //remove the older resource, since the resource already released from front-end
-            error_report("CMD_RESOURCE_CREATE: stream %d resource %d, already created, destroy the old resource from list \n", stream->id, resource->id);
-            virtio_video_destroy_resource(resource, mem_type, false);
-            #if 0
-            resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
-            error_report("CMD_RESOURCE_CREATE: stream %d resource %d "
-                         "already created", stream->id, resource->id);
-            goto out;
-            #endif
-        }
+    if (work != NULL) {
+        resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
+        error_report("CMD_RESOURCE_CREATE: stream %d resource %d "
+                     "already created", stream->id, req->resource_id);
+        goto out;
     }
 
+    /* the frontend reuses resource ids without first destroying them, so allow
+     * it to replace a resource which is not in use */
     QLIST_FOREACH(resource, &stream->resource_list[dir], next) {
         if (resource->id == req->resource_id) {
-            resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_RESOURCE_ID;
-            error_report("CMD_RESOURCE_CREATE: stream %d resource %d already created, ignore\n", stream->id, resource->id);
-            goto out;
+            break;
         }
+    }
+    if (resource != NULL) {
+        virtio_video_destroy_resource(resource, mem_type,
+                                      dir == VIRTIO_VIDEO_QUEUE_INPUT);
     }
 
     if (!virtio_video_format_is_valid(format, req->num_planes)) {
@@ -303,6 +295,7 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     }
 
     resource = g_new0(VirtIOVideoResource, 1);
+    resource->dma_as = vdev->dma_as;
     resource->id = req->resource_id;
     resource->planes_layout = req->planes_layout;
     resource->num_planes = req->num_planes;

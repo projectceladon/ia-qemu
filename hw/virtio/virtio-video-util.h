@@ -37,6 +37,8 @@ bool virtio_video_format_is_valid(uint32_t format, uint32_t num_planes);
 bool virtio_video_param_fixup(virtio_video_params *params);
 
 void virtio_video_init_format(VirtIOVideoFormat *fmt, uint32_t format);
+void virtio_video_destroy_resource(VirtIOVideoResource *resource,
+                                   uint32_t mem_type, bool in);
 void virtio_video_destroy_resource_list(VirtIOVideoStream *stream, bool in);
 int virtio_video_memcpy(VirtIOVideoResource *res, uint32_t idx, void *src,
                         uint32_t size);

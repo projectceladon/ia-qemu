@@ -195,7 +195,6 @@ int virtio_video_msdk_init_param_dec(mfxVideoParam *param,
     if (virtio_video_msdk_init_param(param, stream->in.params.format) < 0)
         return -1;
 
-#if 1
     switch (stream->in.mem_type) {
     case VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES:
         param->IOPattern |= MFX_IOPATTERN_IN_SYSTEM_MEMORY;
@@ -206,7 +205,6 @@ int virtio_video_msdk_init_param_dec(mfxVideoParam *param,
     default:
         break;
     }
-#endif
     switch (stream->out.mem_type) {
     case VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES:
         param->IOPattern |= MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
@@ -217,7 +215,6 @@ int virtio_video_msdk_init_param_dec(mfxVideoParam *param,
     default:
         break;
     }
-    //param->AsyncDepth = 1;
 
     return 0;
 }

@@ -68,13 +68,13 @@ typedef enum virtio_video_stream_state {
     STREAM_STATE_INIT = 0,
     STREAM_STATE_RUNNING,
     STREAM_STATE_DRAIN,
-    STREAM_STATE_CLEAR,
+    STREAM_STATE_INPUT_PAUSED,
     STREAM_STATE_TERMINATE,
 } virtio_video_stream_state;
 
 typedef union VirtIOVideoResourceSlice {
     struct {
-        void *hva;
+        void *base;
         hwaddr len;
     } page;
     struct {
@@ -84,6 +84,7 @@ typedef union VirtIOVideoResourceSlice {
 } VirtIOVideoResourceSlice;
 
 typedef struct VirtIOVideoResource {
+    AddressSpace *dma_as;
     uint32_t id;
     uint32_t planes_layout;
     uint32_t num_planes;
