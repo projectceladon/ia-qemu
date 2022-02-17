@@ -148,7 +148,7 @@ static mfxStatus virtio_video_decode_one_frame(VirtIOVideoWork *work,
     MsdkSession *m_session = stream->opaque;
     MsdkSurface *work_surface, *vpp_work_surface;
     mfxStatus status;
-    mfxVideoParam param;
+    mfxVideoParam param = {0};
     mfxBitstream *bitstream = &m_session->bitstream;
     mfxFrameSurface1 *out_surface = NULL;
 
@@ -440,7 +440,8 @@ static void virtio_video_decode_retrieve_one_frame(VirtIOVideoFrame *frame,
 
     qemu_mutex_lock(&stream->mutex);
     QTAILQ_REMOVE(&stream->pending_frames, frame, next);
-    QTAILQ_REMOVE(&stream->output_work, work, next);
+    if (QTAILQ_IN_USE(work, next))
+        QTAILQ_REMOVE(&stream->output_work, work, next);
     work->timestamp = frame->timestamp;
     virtio_video_msdk_uninit_frame(frame);
     virtio_video_work_done(work);
