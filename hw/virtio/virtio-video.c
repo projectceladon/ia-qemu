@@ -489,6 +489,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         }                                                                   \
     } while (0)
 #define CMD_SET_RESP(resp, len, alloc) do {                                 \
+        printf("cmd: resp: 0x%x\n", ((struct virtio_video_cmd_hdr*)resp)->type);       \
         if (len == 0 || resp == NULL) {                                     \
             virtio_error(vdev, "virtio-video command unexpected error");    \
             return -1;                                                      \

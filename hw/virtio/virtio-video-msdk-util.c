@@ -344,6 +344,7 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
         if (vpp) {
             QLIST_INSERT_HEAD(&session->vpp_surface_pool, surface, next);
         } else {
+            printf("%s insert surface_pool\n", __func__);
             QLIST_INSERT_HEAD(&session->surface_pool, surface, next);
         }
     }
@@ -369,6 +370,7 @@ static void virtio_video_msdk_uninit_surface(MsdkSurface *surface)
 void virtio_video_msdk_uninit_surface_pools(MsdkSession *session)
 {
     MsdkSurface *surface, *tmp_surface;
+    printf("virtio_video_msdk_uninit_surface_pools\n");
 
     QLIST_FOREACH_SAFE(surface, &session->surface_pool, next, tmp_surface) {
         QLIST_REMOVE(surface, next);
@@ -385,6 +387,7 @@ void virtio_video_msdk_uninit_frame(VirtIOVideoFrame *frame)
     MsdkFrame *m_frame = frame->opaque;
 
     if (m_frame != NULL) {
+        printf("%s, set surface:%p used to false\n", __func__, m_frame->surface);
         m_frame->surface->used = false;
         if (m_frame->vpp_surface)
             m_frame->vpp_surface->used = false;
@@ -393,13 +396,14 @@ void virtio_video_msdk_uninit_frame(VirtIOVideoFrame *frame)
     g_free(frame);
 }
 
-#define DUMP_SURFACE
+//#define DUMP_SURFACE
 #define DUMP_SURFACE_COUNT 200
 void virtio_video_msdk_dump_surface(char * src, int len) {
+#ifdef DUMP_SURFACE
     static FILE *file;
     static int surface_idx=0;
-#ifdef DUMP_SURFACE    
-    if(surface_idx++ < DUMP_SURFACE_COUNT) {
+    if(surface_idx < DUMP_SURFACE_COUNT) {
+        surface_idx++;
         if (!file) {
             file = fopen("/tmp/dec.yuv", "w");
             if(!file) {
@@ -419,7 +423,7 @@ void virtio_video_msdk_dump_surface(char * src, int len) {
         
 }
 
-#define DUMP_SURFACE_END
+//#define DUMP_SURFACE_END
 int virtio_video_msdk_output_surface(MsdkSurface *surface,
     VirtIOVideoResource *resource)
 {
@@ -485,10 +489,12 @@ int virtio_video_msdk_output_surface(MsdkSurface *surface,
         break;
     }
 
+    printf("%s, set surface:%p used to false\n", __func__, surface);
     surface->used = false;
     return ret < 0 ? -1 : 0;
 
 error:
+    printf("%s, set surface:%p used to false\n", __func__, surface);
     surface->used = false;
     return -1;
 }
@@ -785,5 +791,93 @@ char * virtio_video_fmt_to_string(virtio_video_format fmt){
             return (char *)"VIRTIO_VIDEO_FORMAT_VP9";
         default:
             return (char *)"unknown format";
+    }
+}
+
+char * virtio_video_status_to_string(mfxStatus status){
+    switch (status) {
+        case MFX_ERR_NONE:
+            return (char *)"MFX_ERR_NONE";
+        case MFX_ERR_UNKNOWN:
+            return (char *)"MFX_ERR_UNKNOWN";
+        case MFX_ERR_NULL_PTR:
+            return (char *)"MFX_ERR_NULL_PTR";
+        case MFX_ERR_UNSUPPORTED:
+            return (char *)"MFX_ERR_UNSUPPORTED";
+        case MFX_ERR_MEMORY_ALLOC:
+            return (char *)"MFX_ERR_MEMORY_ALLOC";
+        case MFX_ERR_NOT_ENOUGH_BUFFER:
+            return (char *)"MFX_ERR_NOT_ENOUGH_BUFFER";
+        case MFX_ERR_INVALID_HANDLE:
+            return (char *)"MFX_ERR_INVALID_HANDLE";
+        case MFX_ERR_LOCK_MEMORY:
+            return (char *)"MFX_ERR_LOCK_MEMORY";
+        case MFX_ERR_NOT_INITIALIZED:
+            return (char *)"MFX_ERR_NOT_INITIALIZED";
+        case MFX_ERR_NOT_FOUND:
+            return (char *)"MFX_ERR_NOT_FOUND";
+        case MFX_ERR_MORE_DATA:
+            return (char *)"MFX_ERR_MORE_DATA";
+        case MFX_ERR_MORE_SURFACE:
+            return (char *)"MFX_ERR_MORE_SURFACE";
+        case MFX_ERR_ABORTED:
+            return (char *)"MFX_ERR_ABORTED";
+        case MFX_ERR_DEVICE_LOST:
+            return (char *)"MFX_ERR_DEVICE_LOST";
+        case MFX_ERR_INCOMPATIBLE_VIDEO_PARAM:
+            return (char *)"MFX_ERR_INCOMPATIBLE_VIDEO_PARAM";
+        case MFX_ERR_INVALID_VIDEO_PARAM:
+            return (char *)"MFX_ERR_INVALID_VIDEO_PARAM";
+        case MFX_ERR_UNDEFINED_BEHAVIOR:
+            return (char *)"MFX_ERR_UNDEFINED_BEHAVIOR";
+        case MFX_ERR_DEVICE_FAILED:
+            return (char *)"MFX_ERR_DEVICE_FAILED";
+        case MFX_ERR_MORE_BITSTREAM:
+            return (char *)"MFX_ERR_MORE_BITSTREAM";
+        case MFX_ERR_INCOMPATIBLE_AUDIO_PARAM:
+            return (char *)"MFX_ERR_INCOMPATIBLE_AUDIO_PARAM";
+        case MFX_ERR_INVALID_AUDIO_PARAM:
+            return (char *)"MFX_ERR_INVALID_AUDIO_PARAM";
+        case MFX_ERR_GPU_HANG:
+            return (char *)"MFX_ERR_GPU_HANG";
+        case MFX_ERR_REALLOC_SURFACE:
+            return (char *)"MFX_ERR_REALLOC_SURFACE";
+        case MFX_WRN_IN_EXECUTION:
+            return (char *)"MFX_WRN_IN_EXECUTION";
+        case MFX_WRN_DEVICE_BUSY:
+            return (char *)"MFX_WRN_DEVICE_BUSY";
+        case MFX_WRN_VIDEO_PARAM_CHANGED:
+            return (char *)"MFX_WRN_VIDEO_PARAM_CHANGED";
+        case MFX_WRN_PARTIAL_ACCELERATION:
+            return (char *)"MFX_WRN_PARTIAL_ACCELERATION";
+        case MFX_WRN_INCOMPATIBLE_VIDEO_PARAM:
+            return (char *)"MFX_WRN_INCOMPATIBLE_VIDEO_PARAM";
+        case MFX_WRN_VALUE_NOT_CHANGED:
+            return (char *)"MFX_WRN_VALUE_NOT_CHANGED";
+        case MFX_WRN_OUT_OF_RANGE:
+            return (char *)"MFX_WRN_OUT_OF_RANGE";
+        case MFX_WRN_FILTER_SKIPPED:
+            return (char *)"MFX_WRN_FILTER_SKIPPED";
+        case MFX_WRN_INCOMPATIBLE_AUDIO_PARAM:
+            return (char *)"MFX_WRN_INCOMPATIBLE_AUDIO_PARAM";
+        default:
+            return (char *)"unknown status";
+    }
+}
+
+char * virtio_video_stream_statu_to_string(virtio_video_stream_state statu){
+    switch (statu) {
+        case STREAM_STATE_INIT:
+            return (char *)"STREAM_STATE_INIT";
+        case STREAM_STATE_RUNNING:
+            return (char *)"STREAM_STATE_RUNNING";
+        case STREAM_STATE_DRAIN:
+            return (char *)"STREAM_STATE_DRAIN";
+        case STREAM_STATE_INPUT_PAUSED:
+            return (char *)"STREAM_STATE_INPUT_PAUSED";
+        case STREAM_STATE_TERMINATE:
+            return (char *)"STREAM_STATE_TERMINATE";
+        default:
+            return (char *)"unknown status";
     }
 }

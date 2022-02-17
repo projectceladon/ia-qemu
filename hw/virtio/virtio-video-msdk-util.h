@@ -66,6 +66,8 @@ void printf_mfxFrameSurface1(mfxFrameSurface1 surface);
 void printf_mfxBitstream(mfxBitstream *bs);
 
 char * virtio_video_fmt_to_string(virtio_video_format fmt);
+char * virtio_video_status_to_string(mfxStatus fmt);
 void virtio_video_msdk_dump_surface(char * src, int len);
+char * virtio_video_stream_statu_to_string(virtio_video_stream_state statu);
 
 #endif /* QEMU_VIRTIO_VIDEO_MSDK_UTIL_H */

@@ -493,6 +493,9 @@ static int virtio_video_cmd_resource_queue_complete(VirtIOVideo *v,
     resp.timestamp = work->timestamp;
     resp.flags = work->flags;
     resp.size = work->size;
+    printf("%s L%d,resp.timestamp = work->timestamp = %lu \n", __func__, __LINE__, work->timestamp);
+
+    printf("%s, type:%d, streamID:%d, flags:%d, size:%d\n", __func__, resp.hdr.type,resp.hdr.stream_id, resp.flags, resp.size);
 
     if (unlikely(iov_from_buf(work->elem->in_sg, work->elem->in_num, 0,
                               &resp, sizeof(resp)) != sizeof(resp))) {
@@ -506,7 +509,7 @@ static int virtio_video_cmd_resource_queue_complete(VirtIOVideo *v,
     virtqueue_push(v->cmd_vq, work->elem, sizeof(resp));
     virtio_notify(vdev, v->cmd_vq);
 
-    DPRINTF("CMD_RESOURCE_QUEUE: stream %d dequeued %s resource %d, "
+    DPRINTF("CMD_RESOURCE_QUEUE complete: stream %d dequeued %s resource %d, "
             "flags=0x%x size=%d\n", stream_id, work->queue_type ==
             VIRTIO_VIDEO_QUEUE_TYPE_INPUT ? "input" : "output",
             resource_id, work->flags, work->size);
