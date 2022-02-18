@@ -23,6 +23,7 @@
 #ifndef QEMU_VIRTIO_VIDEO_H
 #define QEMU_VIRTIO_VIDEO_H
 
+#include <time.h>
 #include "standard-headers/linux/virtio_video.h"
 #include "hw/virtio/virtio.h"
 #include "sysemu/iothread.h"
@@ -32,7 +33,14 @@
 
 #ifdef DEBUG_VIRTIO_VIDEO
 #define DPRINTF(fmt, ...) \
-    do { fprintf(stderr, "virtio-video: " fmt, ## __VA_ARGS__); } while (0)
+    do { \
+        long tc = 0;   \
+        struct timespec ts;    \
+        clock_gettime(CLOCK_MONOTONIC, &ts); \
+        tc = (ts.tv_sec * 1000 + ts.tv_nsec / 1000000); \
+        fprintf(stderr, "[%ld |%s:%d] " fmt, \
+        tc, __FUNCTION__, __LINE__, ##__VA_ARGS__); } while (0)
+    // do { fprintf(stderr, "virtio-video: " fmt, ## __VA_ARGS__); } while (0)
 #else
 #define DPRINTF(fmt, ...) do { } while (0)
 #endif
