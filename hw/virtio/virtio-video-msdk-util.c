@@ -568,11 +568,10 @@ error:
 }
 
 void virtio_video_msdk_stream_reset_param(VirtIOVideoStream *stream,
-    mfxVideoParam *param, bool encode)
+    mfxVideoParam *param, bool bInput)
 {
     /* TODO: maybe we should keep crop values set by guest? */
-    virtio_video_params *pVvp = encode ? &stream->in.params : &stream->out.params;
-
+    virtio_video_params *pVvp = bInput ? &stream->in.params : &stream->out.params;
     pVvp->frame_width = param->mfx.FrameInfo.Width;
     pVvp->frame_height = param->mfx.FrameInfo.Height;
     pVvp->frame_rate = param->mfx.FrameInfo.FrameRateExtN /

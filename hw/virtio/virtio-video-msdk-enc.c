@@ -29,7 +29,11 @@
 #include "virtio-video-msdk-util.h"
 #include "mfx/mfxvideo.h"
 
+// #define CALL_NO_DEBUG
+
+#ifdef CALL_NO_DEBUG
 static uint32_t CALL_No = 0;
+#endif
 
 #define THREAD_NAME_LEN 48
 void virtio_video_msdk_enc_set_param_default(VirtIOVideoStream *pStream, uint32_t coded_fmt);
@@ -44,6 +48,11 @@ int virtio_video_encode_fill_input_data(MsdkFrame *pFrame, VirtIOVideoResource *
 int virtio_video_encode_retrieve_one_frame(VirtIOVideoWork *pWorkOut);
 void virtio_video_encode_clear_work(VirtIOVideoWork *pWork);
 void virtio_video_encode_start_running(VirtIOVideoStream *pStream);
+
+#define CHECK_AND_FILL_PARAM(A, B, C) \
+if (A.C != 0) { \
+    B->C = A.C; \
+}
 
 
 
@@ -165,7 +174,9 @@ static void *virtio_video_enc_output_thread(void *arg)
 size_t virtio_video_msdk_enc_stream_create(VirtIOVideo *v,
     virtio_video_stream_create *req, virtio_video_cmd_hdr *resp)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     VirtIOVideoFormat *pFmt = NULL;
     VirtIOVideoStream *pStream = NULL;
     MsdkHandle *pHdl = v->opaque;
@@ -269,7 +280,9 @@ size_t virtio_video_msdk_enc_stream_destroy(VirtIOVideo* v,
     virtio_video_stream_destroy *req, virtio_video_cmd_hdr *resp, 
     VirtQueueElement *elem)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     VirtIOVideoStream *pStream = NULL;
     size_t len = 0;
 
@@ -295,7 +308,9 @@ size_t virtio_video_msdk_enc_stream_drain(VirtIOVideo *v,
     virtio_video_stream_drain *req, virtio_video_cmd_hdr *resp,
     VirtQueueElement *elem)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     return 0;
 }
 
@@ -303,7 +318,9 @@ size_t virtio_video_msdk_enc_resource_queue(VirtIOVideo *v,
     virtio_video_resource_queue *req, virtio_video_resource_queue_resp *resp,
     VirtQueueElement *elem)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     VirtIOVideoStream *pStream = NULL;
     MsdkSession *pSession = NULL;
     MsdkFrame *pFrame = NULL;
@@ -431,8 +448,7 @@ size_t virtio_video_msdk_enc_resource_queue(VirtIOVideo *v,
         if (!bQueueSuccess) {
             g_free(pWork->opaque);
             g_free(pWork);
-            DPRINTF("%s %s : CMD_RESOURCE_QUEUE: stream %d currently unable to queue input resources\n", 
-                    __FILE__, __FUNCTION__, pStream->id);
+            DPRINTF("CMD_RESOURCE_QUEUE: stream %d currently unable to queue input resources\n", pStream->id);
         }
         qemu_mutex_unlock(&pStream->mutex);
     break;
@@ -440,20 +456,18 @@ size_t virtio_video_msdk_enc_resource_queue(VirtIOVideo *v,
         if (!virtio_video_format_is_valid(pStream->out.params.format,
                                           req->num_data_sizes)) {
             resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
-            error_report("%s %s : CMD_RESOURCE_QUEUE: stream %d try to queue "
+            error_report("CMD_RESOURCE_QUEUE: stream %d try to queue "
                          "a resource with num_data_sizes=%d for output queue "
-                         "whose format is %s", __FILE__, __FUNCTION__, 
-                         pStream->id, req->num_data_sizes,
+                         "whose format is %s", pStream->id, req->num_data_sizes,
                          virtio_video_format_name(pStream->out.params.format));
             break;
         }
 
         /* Only input resources have timestamp assigned. */
         if (req->timestamp != 0) {
-            error_report("%s %s : CMD_RESOURCE_QUEUE: stream %d try to assign "
+            error_report("CMD_RESOURCE_QUEUE: stream %d try to assign "
                          "timestamp 0x%llx to output resource, which is "
-                         "not allowed", __FILE__, __FUNCTION__, 
-                         pStream->id, req->timestamp);
+                         "not allowed", pStream->id, req->timestamp);
             resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
             break;
         }
@@ -461,9 +475,8 @@ size_t virtio_video_msdk_enc_resource_queue(VirtIOVideo *v,
         qemu_mutex_lock(&pStream->mutex_enc);
         QTAILQ_FOREACH(pWork, &pStream->output_work, next) {
             if (pRes->id == pWork->resource->id) {
-                error_report("%s %s : CMD_RESOURCE_QUEUE: stream %d output resource %d "
-                             "already queued, cannot be queued again", __FILE__, __FUNCTION__, 
-                             pStream->id, pRes->id);
+                error_report("CMD_RESOURCE_QUEUE: stream %d output resource %d "
+                             "already queued, cannot be queued again", pStream->id, pRes->id);
                 qemu_mutex_unlock(&pStream->mutex_enc);
                 return len;
             }
@@ -471,8 +484,8 @@ size_t virtio_video_msdk_enc_resource_queue(VirtIOVideo *v,
         if (pStream->state == STREAM_STATE_TERMINATE) {
             assert(pCmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DESTROY);
             qemu_mutex_unlock(&pStream->mutex_enc);
-            DPRINTF("%s %s : CMD_RESOURCE_QUEUE: stream %d currently unable to "
-                    "queue output resources\n", __FILE__, __FUNCTION__, pStream->id);
+            DPRINTF("CMD_RESOURCE_QUEUE: stream %d currently unable to "
+                    "queue output resources\n", pStream->id);
             return len;
         }
 
@@ -494,14 +507,12 @@ size_t virtio_video_msdk_enc_resource_queue(VirtIOVideo *v,
         qemu_event_set(&pSession->input_notifier);
         qemu_mutex_unlock(&pStream->mutex_enc);
 
-        DPRINTF("%s %s : CMD_RESOURCE_QUEUE : stream %d queued output resource %d\n", __FILE__, __FUNCTION__, 
-                pStream->id, pRes->id);
+        DPRINTF("CMD_RESOURCE_QUEUE : stream %d queued output resource %d\n", pStream->id, pRes->id);
         len = 0;
         break;
     default :
         resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
-        error_report("%s %s : CMD_RESOURCE_QUEUE : invalid queue type 0x%x\n", __FILE__, __FUNCTION__, 
-                        req->queue_type);
+        error_report("CMD_RESOURCE_QUEUE : invalid queue type 0x%x\n", req->queue_type);
     break;
     }
 
@@ -512,7 +523,9 @@ size_t virtio_video_msdk_enc_resource_destroy_all(VirtIOVideo *v,
     virtio_video_resource_destroy_all *req, virtio_video_cmd_hdr *resp, 
     VirtQueueElement *elem)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     return 0;
 }
 
@@ -520,14 +533,18 @@ size_t virtio_video_msdk_enc_queue_clear(VirtIOVideo *v,
     virtio_video_queue_clear *req, virtio_video_cmd_hdr *resp, 
     VirtQueueElement *elem)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     return 0;
 }
 
 size_t virtio_video_msdk_enc_get_params(VirtIOVideo *v,
     virtio_video_get_params *req, virtio_video_get_params_resp *resp)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     VirtIOVideoStream *pStream = NULL;
     size_t len = 0;
 
@@ -549,18 +566,39 @@ size_t virtio_video_msdk_enc_get_params(VirtIOVideo *v,
     switch (req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT :
         memcpy(&resp->params, &pStream->in.params, sizeof(resp->params));
-        DPRINTF("%s : CMD_GET_PARAMS : reported input params\n", __FUNCTION__);
+        DPRINTF("CMD_GET_PARAMS : reported input params\n");
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT :
         memcpy(&resp->params, &pStream->out.params, sizeof(resp->params));
-        DPRINTF("%s : CMD_GET_PARAMS : reported output params\n", __FUNCTION__);
+        DPRINTF("CMD_GET_PARAMS : reported output params\n");
         break;
     default :
         resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
-        error_report(" %s : CMD_GET_PARAMS : invalid queue type 0x%x", __FUNCTION__, req->queue_type);
+        error_report("CMD_GET_PARAMS : invalid queue type 0x%x", req->queue_type);
         break;
     }
 
+    DPRINTF(
+            "Get %d Params:\n"
+            "format       = %s\n"
+            "frame_width  = %d\n"
+            "frame_height = %d\n"
+            "min_buffers  = %d\n"
+            "max_buffers  = %d\n"
+            "cropX        = %d\n"
+            "cropY        = %d\n"
+            "cropW        = %d\n"
+            "cropH        = %d\n"
+            "frame_rate   = %d\n"
+            "num_planes   = %d\n", 
+            req->queue_type, 
+            virtio_video_format_name(resp->params.format), 
+            resp->params.frame_width, resp->params.frame_height, 
+            resp->params.min_buffers, resp->params.max_buffers, 
+            resp->params.crop.left  , resp->params.crop.top, 
+            resp->params.crop.width , resp->params.crop.height, 
+            resp->params.frame_rate , resp->params.num_planes
+            );
     
     return len;
 }
@@ -568,10 +606,13 @@ size_t virtio_video_msdk_enc_get_params(VirtIOVideo *v,
 size_t virtio_video_msdk_enc_set_params(VirtIOVideo *v,
     virtio_video_set_params *req, virtio_video_cmd_hdr *resp)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     VirtIOVideoStream *pStream = NULL;
     size_t len = sizeof(*resp);
     mfxStatus sts = MFX_ERR_NONE;
+    virtio_video_params *pPara = NULL;
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
     resp->stream_id = req->hdr.stream_id;
@@ -594,25 +635,11 @@ size_t virtio_video_msdk_enc_set_params(VirtIOVideo *v,
         if (pStream->state != STREAM_STATE_INIT) {
             resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
             error_report("CMD_SET_PARAMS: stream %d is not allowed to change "
-                         "param after encoding has started", pStream->id);
+                        "param after encoding has started", pStream->id);
+            break;
         }
         else {
-            memcpy(&pStream->in.params, &req->params, sizeof(virtio_video_params));
-            pStream->in.setted = true;
-            if (pStream->in.setted && pStream->out.setted) {
-                sts = virtio_video_msdk_init_encoder_stream(pStream);
-                if (sts == MFX_ERR_NONE) {
-                    pStream->state = STREAM_STATE_RUNNING;
-                    virtio_video_encode_start_running(pStream);
-                }
-            }
-        }
-
-        if (virtio_video_format_is_codec(req->params.format)) {
-            error_report("CMD_SET_PARAMS: stream %d try to set encode "
-                         "input queue format to %s", pStream->id, 
-                         virtio_video_format_name(req->params.format));
-            break;
+            pPara = &pStream->in.params;
         }
     break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT :
@@ -623,22 +650,83 @@ size_t virtio_video_msdk_enc_set_params(VirtIOVideo *v,
                          "param after encoding has started", pStream->id);
             break;
         }
-        else { // init the encoder and create threads
-            memcpy(&pStream->out.params, &req->params, sizeof(virtio_video_params));
-            pStream->out.setted = true;
-            resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
-            DPRINTF("Set stream %d's output param, the format is %d\n", pStream->id, req->params.format);
-            if (pStream->in.setted && pStream->out.setted) {
+        else {
+            pPara = &pStream->out.params;
+        }
+    break;
+    default :
+    break;
+    }
+
+    if (pPara != NULL) {
+         DPRINTF(
+                "Current Params:                    Incoming Params:\n"
+                "format       = %s       <-         format        = %s\n"
+                "frame_width  = %d       <-         frame_width   = %d\n"
+                "frame_height = %d       <-         frame_height  = %d\n"
+                "min_buffers  = %d       <-         min_buffers   = %d\n"
+                "max_buffers  = %d       <-         max_buffers   = %d\n"
+                "cropX        = %d       <-         cropX         = %d\n"
+                "cropY        = %d       <-         cropY         = %d\n"
+                "cropW        = %d       <-         cropW         = %d\n"
+                "cropH        = %d       <-         cropH         = %d\n"
+                "frame_rate   = %d       <-         frame_rate    = %d\n"
+                "num_planes   = %d       <-         num_planes    = %d\n", 
+                virtio_video_format_name(pPara->format), virtio_video_format_name(req->params.format), 
+                pPara->frame_width,  req->params.frame_width, 
+                pPara->frame_height, req->params.frame_height, 
+                pPara->min_buffers,  req->params.min_buffers, 
+                pPara->max_buffers,  req->params.max_buffers, 
+                pPara->crop.left  ,  req->params.crop.left, 
+                pPara->crop.top,     req->params.crop.top, 
+                pPara->crop.width ,  req->params.crop.width, 
+                pPara->crop.height,  req->params.crop.height, 
+                pPara->frame_rate ,  req->params.frame_rate, 
+                pPara->num_planes,   req->params.num_planes
+                );
+
+        CHECK_AND_FILL_PARAM(req->params, pPara, format);
+        CHECK_AND_FILL_PARAM(req->params, pPara, frame_width);
+        CHECK_AND_FILL_PARAM(req->params, pPara, frame_height);
+        CHECK_AND_FILL_PARAM(req->params, pPara, min_buffers);
+        CHECK_AND_FILL_PARAM(req->params, pPara, max_buffers);
+        CHECK_AND_FILL_PARAM(req->params, pPara, crop.left);
+        CHECK_AND_FILL_PARAM(req->params, pPara, crop.top);
+        CHECK_AND_FILL_PARAM(req->params, pPara, crop.width);
+        CHECK_AND_FILL_PARAM(req->params, pPara, crop.height);
+        CHECK_AND_FILL_PARAM(req->params, pPara, frame_rate);
+        CHECK_AND_FILL_PARAM(req->params, pPara, num_planes);
+
+
+        DPRINTF(
+                "After setting:\n"
+                "format       = %s\n"
+                "frame_width  = %d\n"
+                "frame_height = %d\n"
+                "min_buffers  = %d\n"
+                "max_buffers  = %d\n"
+                "cropX        = %d\n"
+                "cropY        = %d\n"
+                "cropW        = %d\n"
+                "cropH        = %d\n"
+                "frame_rate   = %d\n"
+                "num_planes   = %d\n", 
+                virtio_video_format_name(pPara->format), 
+                pPara->frame_width, pPara->frame_height, 
+                pPara->min_buffers, pPara->max_buffers, 
+                pPara->crop.left  , pPara->crop.top, 
+                pPara->crop.width , pPara->crop.height, 
+                pPara->frame_rate , pPara->num_planes
+                );
+
+        if (pStream->in.params.format != 0 && pStream->out.params.format != 0 && 
+            pStream->out.params.frame_width != 0 && pStream->out.params.frame_height != 0) {
                 sts = virtio_video_msdk_init_encoder_stream(pStream);
                 if (sts == MFX_ERR_NONE) {
                     pStream->state = STREAM_STATE_RUNNING;
                     virtio_video_encode_start_running(pStream);
                 }
-            }
         }
-    break;
-    default :
-    break;
     }
 
     qemu_mutex_unlock(&pStream->mutex);
@@ -648,7 +736,9 @@ size_t virtio_video_msdk_enc_set_params(VirtIOVideo *v,
 size_t virtio_video_msdk_enc_query_control(VirtIOVideo *v,
     virtio_video_query_control *req, virtio_video_query_control_resp **resp)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     VirtIOVideoFormat *pFmt = NULL;
     void *pReqBuf = (char *)req + sizeof(*req);
     void *pRespBuf = NULL;
@@ -754,7 +844,9 @@ size_t virtio_video_msdk_enc_query_control(VirtIOVideo *v,
 size_t virtio_video_msdk_enc_get_control(VirtIOVideo *v,
     virtio_video_get_control *req, virtio_video_get_control_resp **resp)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     VirtIOVideoStream *pStream = NULL;
     size_t len = sizeof(**resp);
     bool bSuccess = true;
@@ -778,55 +870,40 @@ size_t virtio_video_msdk_enc_get_control(VirtIOVideo *v,
     case VIRTIO_VIDEO_CONTROL_BITRATE :
     {
         virtio_video_control_val_bitrate *val = NULL;
+        len += sizeof(virtio_video_control_val_bitrate);
+        *resp = g_malloc0(len);
+        (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_CONTROL;
 
-        if (pStream->control.bitrate == 0) {
-            bSuccess = false;
-        } else {
-            len += sizeof(virtio_video_control_val_bitrate);
-            *resp = g_malloc0(len);
-            (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_CONTROL;
-
-            val = (void *)(*resp) + sizeof(**resp);
-            val->bitrate = pStream->control.bitrate;
-            DPRINTF("CMD_GET_CONTROL: stream %d reports bitrate = %d\n",
-                    pStream->id, val->bitrate);
-        }
+        val = (void *)(*resp) + sizeof(**resp);
+        val->bitrate = pStream->control.bitrate;
+        DPRINTF("CMD_GET_CONTROL: stream %d reports bitrate = %d\n",
+                pStream->id, val->bitrate);
         break;
     }
     case VIRTIO_VIDEO_CONTROL_PROFILE:
     {
         virtio_video_control_val_profile *val = NULL;
+        len += sizeof(virtio_video_control_val_profile);
+        *resp = g_malloc0(len);
+        (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_CONTROL;
 
-        if (pStream->control.profile == 0) {
-            bSuccess = false;
-        } else {
-            len += sizeof(virtio_video_control_val_profile);
-            *resp = g_malloc0(len);
-            (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_CONTROL;
-
-            val = (void *)(*resp) + sizeof(**resp);
-            val->profile = pStream->control.profile;
-            DPRINTF("CMD_GET_CONTROL: stream %d reports profile = %d\n",
-                    pStream->id, val->profile);
-        }
+        val = (void *)(*resp) + sizeof(**resp);
+        val->profile = pStream->control.profile;
+        DPRINTF("CMD_GET_CONTROL: stream %d reports profile = %d\n",
+                pStream->id, val->profile);
         break;
     }
     case VIRTIO_VIDEO_CONTROL_LEVEL:
     {
         virtio_video_control_val_level *val = NULL;
+        len += sizeof(virtio_video_control_val_level);
+        *resp = g_malloc0(len);
+        (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_CONTROL;
 
-        if (pStream->control.level == 0) {
-            bSuccess = false;
-        } else {
-            len += sizeof(virtio_video_control_val_level);
-            *resp = g_malloc0(len);
-            (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_CONTROL;
-
-            val = (void *)(*resp) + sizeof(**resp);
-            val->level = pStream->control.level;
-            DPRINTF("CMD_GET_CONTROL: stream %d reports level = %d\n",
-                    pStream->id, val->level);
-        }
+        val = (void *)(*resp) + sizeof(**resp);
+        val->level = pStream->control.level;
+        DPRINTF("CMD_GET_CONTROL: stream %d reports level = %d\n",
+                pStream->id, val->level);
         break;
     }
     default:
@@ -848,7 +925,9 @@ size_t virtio_video_msdk_enc_get_control(VirtIOVideo *v,
 size_t virtio_video_msdk_enc_set_control(VirtIOVideo *v,
     virtio_video_set_control *req, virtio_video_set_control_resp *resp)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
     
     return 0;
@@ -857,7 +936,9 @@ size_t virtio_video_msdk_enc_set_control(VirtIOVideo *v,
 
 int virtio_video_init_msdk_enc(VirtIOVideo *v)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     MsdkHandle *hdl = NULL;
     mfxStatus sts = MFX_ERR_NONE;
     mfxSession mfx_session;
@@ -902,7 +983,7 @@ int virtio_video_init_msdk_enc(VirtIOVideo *v)
     /* For encoder, just query output format */
     DPRINTF("Query output capabilities\n");
     for (out_format = VIRTIO_VIDEO_FORMAT_H264;
-            out_format <= VIRTIO_VIDEO_FORMAT_CODED_MAX; out_format++) {
+            out_format <= VIRTIO_VIDEO_FORMAT_H264; out_format++) {
         uint32_t w_min = 0, h_min = 0, w_max = 0, h_max = 0;
         uint32_t ctl_min = 0, ctl_max = 0, ctl = 0;
         uint32_t msdk_format = virtio_video_format_to_msdk(out_format);
@@ -969,40 +1050,6 @@ int virtio_video_init_msdk_enc(VirtIOVideo *v)
                     );
         } while (w_min <= w_max && h_min <= h_max);
 
-/*
-        param.mfx.FrameInfo.Width = 0;
-        param.mfx.FrameInfo.Height = 0;
-        fr_maxN = 0;
-        fr_maxD = VIRTIO_VIDEO_MSDK_FRAME_RATE_MAX;
-
-        do {
-            param.mfx.FrameInfo.FrameRateExtN = fr_maxN;
-            param.mfx.FrameInfo.FrameRateExtD = fr_maxD;
-            sts = MFXVideoENCODE_Query(mfx_session, &param, &param);
-            if (sts == MFX_ERR_NONE || sts == MFX_WRN_PARTIAL_ACCELERATION) {
-                DPRINTF("Get the max framerate(%d)\n", fr_maxD);
-                break;
-            } else {
-                DPRINTF("The framerate = %d, sts = %d\n", param.mfx.FrameInfo.FrameRateExtD, sts);
-                fr_maxD -= VIRTIO_VIDEO_MSDK_FRAME_RATE_STEP;
-            }
-        } while (fr_maxD >= VIRTIO_VIDEO_MSDK_FRAME_RATE_MIN);
-
-
-        fr_minN = 0;
-        fr_minD = VIRTIO_VIDEO_MSDK_FRAME_RATE_MIN;
-        do {
-            param.mfx.FrameInfo.FrameRateExtN = fr_minN;
-            param.mfx.FrameInfo.FrameRateExtD = fr_minD;
-            sts = MFXVideoENCODE_Query(mfx_session, &param, &param);
-            if (sts == MFX_ERR_NONE || sts == MFX_WRN_PARTIAL_ACCELERATION) {
-                DPRINTF("Get the min framerate(%d)\n", fr_minD);
-                break;
-            } else {
-                fr_minD += VIRTIO_VIDEO_MSDK_FRAME_RATE_STEP;
-            }   
-        } while (fr_minD <= fr_maxD);
-*/
         if ((w_min > w_max) || (h_min > h_max)) { // || (fr_minD > fr_maxD)) {
             DPRINTF("failed to query frame size and frame rate for format %x in encoder\n", out_format);
             virtio_video_msdk_unload_plugin(mfx_session, out_format, false);
@@ -1093,13 +1140,6 @@ int virtio_video_init_msdk_enc(VirtIOVideo *v)
         QLIST_INSERT_HEAD(&in_fmt->frames, in_fmt_frame, next);
         QLIST_INSERT_HEAD(&v->format_list[VIRTIO_VIDEO_QUEUE_INPUT], in_fmt, next);
 
-        // DPRINTF("Add input caps for format %x, width [%d, %d]@%d, "
-        //               "height [%d, %d]@%d, rate [%d, %d]@%d  in encoder", in_format[i],
-        //               in_fmt_frame->frame.width.min, in_fmt_frame->frame.width.max,
-        //               in_fmt_frame->frame.width.step, in_fmt_frame->frame.height.min,
-        //               in_fmt_frame->frame.height.max, in_fmt_frame->frame.height.step,
-        //               in_fmt_frame->frame_rates[0].min, in_fmt_frame->frame_rates[0].max,
-        //               in_fmt_frame->frame_rates[0].step);
     }
 
    QLIST_FOREACH(in_fmt, &v->format_list[VIRTIO_VIDEO_QUEUE_INPUT], next) {
@@ -1114,15 +1154,19 @@ int virtio_video_init_msdk_enc(VirtIOVideo *v)
 
 void virtio_video_uninit_msdk_enc(VirtIOVideo *v)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
 }
 
 void virtio_video_msdk_enc_set_param_default(VirtIOVideoStream *pStream, uint32_t coded_fmt) {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     if (pStream == NULL) return ;
 
     pStream->in.params.queue_type = VIRTIO_VIDEO_QUEUE_TYPE_INPUT;
-    pStream->in.params.format = VIRTIO_VIDEO_FORMAT_ARGB8888;
+    pStream->in.params.format = VIRTIO_VIDEO_FORMAT_NV12;
     pStream->in.params.min_buffers = 1;
     pStream->in.params.max_buffers = 32;
     pStream->in.params.frame_rate = 0;
@@ -1159,6 +1203,7 @@ void virtio_video_msdk_enc_set_param_default(VirtIOVideoStream *pStream, uint32_
     case VIRTIO_VIDEO_FORMAT_H264:
         pStream->control.profile = VIRTIO_VIDEO_PROFILE_H264_BASELINE;
         pStream->control.level = VIRTIO_VIDEO_LEVEL_H264_1_0;
+        pStream->control.bitrate = 0;
         break;
     case VIRTIO_VIDEO_FORMAT_HEVC:
         pStream->control.profile = VIRTIO_VIDEO_PROFILE_HEVC_MAIN;
@@ -1179,7 +1224,9 @@ void virtio_video_msdk_enc_set_param_default(VirtIOVideoStream *pStream, uint32_
 
 int virtio_video_msdk_enc_stream_terminate(VirtIOVideoStream *pStream, VirtQueueElement *pElem)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     VirtIOVideoCmd *pCmd = &pStream->inflight_cmd;
     MsdkSession *pSession = pStream->opaque;
 
@@ -1230,7 +1277,9 @@ int virtio_video_msdk_enc_stream_terminate(VirtIOVideoStream *pStream, VirtQueue
 
 int virtio_video_msdk_init_encoder_stream(VirtIOVideoStream *pStream)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     mfxStatus sts = MFX_ERR_NONE;
     MsdkSession *pSession = NULL;
     mfxVideoParam enc_param = {0}, vpp_param = {0};
@@ -1254,8 +1303,10 @@ int virtio_video_msdk_init_encoder_stream(VirtIOVideoStream *pStream)
      */
     
     // Check if need vpp and preenc
-    pStream->bVpp = true;
-    pStream->bPreenc = true;
+    
+    pStream->bVpp = false;
+    pStream->bPreenc = false;
+    
     QLIST_FOREACH(pFmt, &pV->format_list[VIRTIO_VIDEO_QUEUE_INPUT], next) {
         if (pFmt->desc.format == pInputPara->format) {
             pStream->bVpp = false;
@@ -1263,6 +1314,10 @@ int virtio_video_msdk_init_encoder_stream(VirtIOVideoStream *pStream)
             break;
         }
     }
+
+    pStream->bVpp = false;
+    pStream->bPreenc = false;
+    
 
     QLIST_FOREACH(pFmt, &pV->format_list[VIRTIO_VIDEO_QUEUE_OUTPUT], next) {
         DPRINTF("pFmt->desc.format = %d, pOutputPara->format = %d\n", pFmt->desc.format, pOutputPara->format);
@@ -1272,12 +1327,31 @@ int virtio_video_msdk_init_encoder_stream(VirtIOVideoStream *pStream)
         }
     }
     if (!bOutFmtSupported) { /* The encode format is not support yet */
-        error_report("%s %s: The encode format %d is not support yet!!!\n", __FILE__, __FUNCTION__, pOutputPara->format);
+        error_report("The encode format %d is not support yet!!!\n", pOutputPara->format);
         return MFX_ERR_UNSUPPORTED;
     }
 
     if (virtio_video_msdk_init_enc_param(&enc_param, pStream) < 0) {
          return MFX_ERR_UNSUPPORTED;
+    }
+
+    switch (pOutputPara->format) {
+    case VIRTIO_VIDEO_FORMAT_H264:
+        pStream->control.profile = VIRTIO_VIDEO_PROFILE_H264_BASELINE;
+        pStream->control.level = VIRTIO_VIDEO_LEVEL_H264_1_0;
+        break;
+    case VIRTIO_VIDEO_FORMAT_HEVC:
+        pStream->control.profile = VIRTIO_VIDEO_PROFILE_HEVC_MAIN;
+        pStream->control.level = VIRTIO_VIDEO_LEVEL_HEVC_1_0;
+        break;
+    case VIRTIO_VIDEO_FORMAT_VP8:
+        pStream->control.profile = VIRTIO_VIDEO_PROFILE_VP8_PROFILE0;
+        break;
+    case VIRTIO_VIDEO_FORMAT_VP9:
+        pStream->control.profile = VIRTIO_VIDEO_PROFILE_VP9_PROFILE0;
+        break;
+    default:
+        break;
     }
 
     sts = MFXVideoENCODE_Init(pSession->session, &enc_param);
@@ -1289,8 +1363,7 @@ int virtio_video_msdk_init_encoder_stream(VirtIOVideoStream *pStream)
 
     sts = MFXVideoENCODE_QueryIOSurf(pSession->session, &enc_param, &enc_req);
     if (sts != MFX_ERR_NONE) {
-        error_report("%s %s : stream %d MFXVideoENCODE_QueryIOSurf failed(%d)\n", __FILE__, __FUNCTION__, 
-                     pStream->id, sts);
+        error_report("stream %d MFXVideoENCODE_QueryIOSurf failed(%d)\n", pStream->id, sts);
         return MFX_ERR_UNSUPPORTED;
     }
 
@@ -1302,16 +1375,14 @@ int virtio_video_msdk_init_encoder_stream(VirtIOVideoStream *pStream)
 
         sts = MFXVideoVPP_QueryIOSurf(pSession->session, &vpp_param, vpp_req);
         if (sts != MFX_ERR_NONE && sts != MFX_WRN_PARTIAL_ACCELERATION) {
-            error_report("%s %s : stream %d MFXVideoVPP_QuerySurf failed(%d)\n", 
-                        __FILE__, __FUNCTION__, pStream->id, sts);
+            error_report("stream %d MFXVideoVPP_QuerySurf failed(%d)\n", pStream->id, sts);
             MFXVideoENCODE_Close(pSession->session);
             return MFX_ERR_UNSUPPORTED;
         }
 
         sts = MFXVideoVPP_Init(pSession->session, &vpp_param);
         if (sts != MFX_ERR_NONE && sts != MFX_WRN_PARTIAL_ACCELERATION) {
-            error_report("%s %s : stream %d MFXVideoVPP_Init failed(%d)\n", 
-                        __FILE__, __FUNCTION__, pStream->id, sts);
+            error_report("stream %d MFXVideoVPP_Init failed(%d)\n", pStream->id, sts);
             MFXVideoENCODE_Close(pSession->session);
             return MFX_ERR_UNSUPPORTED;
         }
@@ -1325,16 +1396,22 @@ int virtio_video_msdk_init_encoder_stream(VirtIOVideoStream *pStream)
     pSession->surface_num += enc_req.NumFrameSuggested;
     virtio_video_msdk_init_surface_pool(pSession, &enc_req, &enc_param.mfx.FrameInfo, false);
 
+
     pStream->in.params.min_buffers = enc_req.NumFrameMin;
     pStream->in.params.max_buffers = enc_req.NumFrameSuggested;
+    pStream->out.params.min_buffers = enc_req.NumFrameMin;
+    pStream->out.params.max_buffers = enc_req.NumFrameSuggested;
     virtio_video_msdk_stream_reset_param(pStream, &enc_param, true);
+    virtio_video_msdk_stream_reset_param(pStream, &enc_param, false);
 
     return MFX_ERR_NONE;
 }
 
 int virtio_video_msdk_init_enc_param(mfxVideoParam *pPara, VirtIOVideoStream *pStream)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     virtio_video_params *pOutPara = NULL;
     VirtIOVideoEncodeParamPreset vvepp = {0};
     mfxExtCodingOption2 *pOpt2 = NULL;
@@ -1345,7 +1422,8 @@ int virtio_video_msdk_init_enc_param(mfxVideoParam *pPara, VirtIOVideoStream *pS
     pOutPara = &(pStream->out.params);
     if (pOutPara->frame_rate == 0) pOutPara->frame_rate = 30;
 
-    // Only support h264 encode param init for now
+    // H.264 encode param init
+    // TODO : Added support for other formats.
     memset(pPara, 0, sizeof(mfxVideoParam));
 
     pPara->mfx.CodecId                 = virtio_video_format_to_msdk(pOutPara->format);
@@ -1431,7 +1509,9 @@ int virtio_video_msdk_init_enc_param(mfxVideoParam *pPara, VirtIOVideoStream *pS
 int virtio_video_msdk_init_vpp_param(mfxVideoParam *pEncParam, mfxVideoParam *pVppParam, 
                                          VirtIOVideoStream *pStream)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     if (pEncParam == NULL || pVppParam == NULL || pStream == NULL)
         return -1;
 
@@ -1464,7 +1544,9 @@ int virtio_video_msdk_init_vpp_param(mfxVideoParam *pEncParam, mfxVideoParam *pV
 
 mfxStatus virtio_video_encode_submit_one_frame(VirtIOVideoWork *pWork)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     VirtIOVideoStream *pStream = pWork->parent;
     MsdkSession *pSession = pStream->opaque;
     MsdkFrame *pFrame = pWork->opaque;
@@ -1482,8 +1564,8 @@ mfxStatus virtio_video_encode_submit_one_frame(VirtIOVideoWork *pWork)
         }
 
         if (pWorkSurf == NULL) {
-            error_report("%s %s : virtio-video: stream %d no available surface "
-                      "in vpp surface pool", __FILE__, __FUNCTION__, pStream->id);
+            error_report("virtio-video: stream %d no available surface "
+                      "in vpp surface pool", pStream->id);
              return MFX_ERR_NOT_ENOUGH_BUFFER;
         }
 
@@ -1498,9 +1580,8 @@ mfxStatus virtio_video_encode_submit_one_frame(VirtIOVideoWork *pWork)
             case MFX_ERR_NONE:
                 break;
             default:
-                error_report("%s %s : virtio-video: stream %d input resource %d "
-                         "MFXVideoVPP_RunFrameVPPAsync failed: %d", __FILE__, __FUNCTION__, 
-                         pStream->id, pWork->resource->id, sts);
+                error_report("virtio-video: stream %d input resource %d "
+                         "MFXVideoVPP_RunFrameVPPAsync failed: %d", pStream->id, pWork->resource->id, sts);
                 return sts;
             } 
         } while (sts == MFX_WRN_DEVICE_BUSY);
@@ -1534,7 +1615,9 @@ mfxStatus virtio_video_encode_submit_one_frame(VirtIOVideoWork *pWork)
 
 int virtio_video_encode_fill_input_data(MsdkFrame *pFrame, VirtIOVideoResource *pRes, uint32_t format)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     mfxFrameSurface1 *pSurf = NULL;
     mfxFrameData *pData = NULL;
     bool bSuccess = true;
@@ -1584,7 +1667,9 @@ int virtio_video_encode_fill_input_data(MsdkFrame *pFrame, VirtIOVideoResource *
 
 int virtio_video_encode_retrieve_one_frame(VirtIOVideoWork *pWorkOut)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     VirtIOVideoStream *pStream = pWorkOut->parent;
     MsdkSession *pSession = pStream->opaque;
     MsdkFrame *pFrameOut = pWorkOut->opaque;
@@ -1616,7 +1701,9 @@ int virtio_video_encode_retrieve_one_frame(VirtIOVideoWork *pWorkOut)
 
 void virtio_video_encode_clear_work(VirtIOVideoWork *pWork)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     if (pWork != NULL) {
         pWork->timestamp = 0;
         pWork->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
@@ -1627,7 +1714,9 @@ void virtio_video_encode_clear_work(VirtIOVideoWork *pWork)
 
 void virtio_video_encode_start_running(VirtIOVideoStream *pStream)
 {
+#ifdef CALL_NO_DEBUG
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
+#endif
     MsdkSession *pSession = NULL;
     if (pStream == NULL) return ;
 
