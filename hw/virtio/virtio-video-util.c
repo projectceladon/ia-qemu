@@ -457,6 +457,10 @@ int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event)
     resp.event_type = event->event_type;
     resp.stream_id = event->stream_id;
 
+    printf("%s, iov:%p, iov_cnt:%d, copy size:%d, streamid:%d, event_type:0x%x\n", __func__, event->elem->in_sg, 
+                                                                            event->elem->in_num, (int)sizeof(resp)
+                                                                            , resp.stream_id, resp.event_type);
+
     if (unlikely(iov_from_buf(event->elem->in_sg, event->elem->in_num, 0,
                               &resp, sizeof(resp)) != sizeof(resp))) {
         virtio_error(vdev, "virtio-video event input incorrect");
@@ -471,7 +475,7 @@ int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event)
 
     DPRINTF("stream %d event %s triggered\n", event->stream_id,
             virtio_video_event_name(resp.event_type));
-    g_free(event->elem);
+    g_free(event->elem); //event->elem pushed to virtqueue, any race if free it remove it immediately?
     g_free(event);
     return 0;
 }
@@ -641,23 +645,35 @@ static void virtio_video_event_bh(void *opaque)
     struct virtio_video_event_bh_arg *s = opaque;
     VirtIODevice *vdev = s->vdev;
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-    VirtIOVideoEvent *event;
+    VirtIOVideoEvent *event, *tmp_event;
+    VirtQueueElement *elem;
+    VirtQueue *vq = v->event_vq;
 
     qemu_mutex_lock(&v->mutex);
-
-    event = QTAILQ_FIRST(&v->event_queue);
-    if (event && event->elem) {
-        event->event_type = s->event_type;
-        event->stream_id = s->stream_id;
-        QTAILQ_REMOVE(&v->event_queue, event, next);
-        virtio_video_event_complete(vdev, event);
-        goto done;
+    QTAILQ_FOREACH_SAFE(event, &v->event_queue, next, tmp_event) {
+        printf("event_queue_debug, %s, all event in event_queue:%p\n", __func__, event);
     }
 
     event = g_new0(VirtIOVideoEvent, 1);
     event->event_type = s->event_type;
     event->stream_id = s->stream_id;
-    QTAILQ_INSERT_TAIL(&v->event_queue, event, next);
+
+    elem = virtqueue_pop(vq, sizeof(VirtQueueElement));
+    if (!elem || elem->in_num < 1 || elem->in_sg[0].iov_len < sizeof(virtio_video_event)) {
+        // no usable element in vq, queue event and wait for new element
+        QTAILQ_INSERT_TAIL(&v->event_queue, event, next);
+        if (elem) {
+            virtio_error(vdev, "virtio-video event error\n");
+            virtqueue_detach_element(vq, elem, 0);
+            g_free(elem);
+        }
+
+        goto done;
+    }
+
+    event->elem = elem;
+    printf("event_queue_debug, %s, complete event %p\n", __func__,event);
+    virtio_video_event_complete(vdev, event);
 
 done:
     qemu_mutex_unlock(&v->mutex);

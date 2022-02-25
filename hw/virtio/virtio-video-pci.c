@@ -47,6 +47,7 @@ static void virtio_video_pci_realize(VirtIOPCIProxy *vpci_dev, Error **errp)
 {
     VirtIOVideoPCI *dev = VIRTIO_VIDEO_PCI(vpci_dev);
     DeviceState *vdev = DEVICE(&dev->vdev);
+    printf("%s\n", __func__);
 
     qdev_realize(vdev, BUS(&vpci_dev->bus), errp);
 }
@@ -56,6 +57,8 @@ static void virtio_video_pci_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     VirtioPCIClass *k = VIRTIO_PCI_CLASS(klass);
     PCIDeviceClass *pcidev_k = PCI_DEVICE_CLASS(klass);
+
+    printf("%s\n", __func__);
 
     set_bit(DEVICE_CATEGORY_MISC, dc->categories);
     device_class_set_props(dc, virtio_video_pci_properties);
@@ -69,6 +72,8 @@ static void virtio_video_pci_class_init(ObjectClass *klass, void *data)
 static void virtio_video_pci_instance_init(Object *obj)
 {
     VirtIOVideoPCI *dev = VIRTIO_VIDEO_PCI(obj);
+
+    printf("%s\n", __func__);
 
     virtio_instance_init_common(obj, &dev->vdev, sizeof(dev->vdev),
                                 TYPE_VIRTIO_VIDEO);
@@ -86,6 +91,7 @@ static const VirtioPCIDeviceTypeInfo virtio_video_pci_info = {
 
 static void virtio_video_pci_register(void)
 {
+    printf("%s\n", __func__);
     virtio_pci_types_register(&virtio_video_pci_info);
 }
 

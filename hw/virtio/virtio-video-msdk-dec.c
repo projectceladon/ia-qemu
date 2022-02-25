@@ -810,6 +810,11 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
             resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
             error_report("CMD_STREAM_CREATE: stream %d already created",
                          resp->stream_id);
+            // if the android crash, hang and reboot, it may not remove all streams created, then after
+            // Android reboot, it will create the steam with ID which existing in backend driver.
+            // But in normal case, frontend driver should never double create stream with same ID.
+            // We should believe frontend driver, if create stream with the ID exist, we should
+            // remove the older one, then create a new.
             return len;
         }
     }

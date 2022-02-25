@@ -699,6 +699,8 @@ static void virtio_video_command_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
     size_t len = 0;
     int ret;
 
+    printf("%s\n", __func__);
+
     for (;;) {
         elem = virtqueue_pop(vq, sizeof(VirtQueueElement));
         if (!elem)
@@ -734,44 +736,42 @@ static void virtio_video_event_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
     VirtQueueElement *elem;
 
     for (;;) {
-        elem = virtqueue_pop(vq, sizeof(VirtQueueElement));
-        if (!elem)
-            break;
-
-        if (elem->in_num < 1) {
-            virtio_error(vdev, "virtio-video event missing input");
-            virtqueue_detach_element(vq, elem, 0);
-            g_free(elem);
-            break;
-        }
-
         qemu_mutex_lock(&v->mutex);
 
         /* handle pending event */
         event = QTAILQ_FIRST(&v->event_queue);
+        printf("event_queue_debug, %s, get first event:%p\n", __func__, event);
         if (event && event->elem == NULL) {
+            elem = virtqueue_pop(vq, sizeof(VirtQueueElement));
+            if (!elem) {
+                qemu_mutex_unlock(&v->mutex);
+                break;
+            }
+
+            if (elem->in_num < 1) {
+                virtio_error(vdev, "virtio-video event missing input");
+                virtqueue_detach_element(vq, elem, 0);
+                g_free(elem);
+                qemu_mutex_unlock(&v->mutex);
+                break;
+            }
+            if (elem->in_sg[0].iov_len < sizeof(virtio_video_event)) {
+                virtio_error(vdev, "virtio-video event input too short");
+                virtqueue_detach_element(vq, elem, 0);
+                g_free(elem);
+                qemu_mutex_unlock(&v->mutex);
+                break;
+            }
             event->elem = elem;
             QTAILQ_REMOVE(&v->event_queue, event, next);
+            printf("event_queue_debug, %s, remove&complete event:%p \n", __func__, event);
             virtio_video_event_complete(vdev, event);
             qemu_mutex_unlock(&v->mutex);
             continue;
         }
 
-        if (elem->in_sg[0].iov_len < sizeof(virtio_video_event)) {
-            virtio_error(vdev, "virtio-video event input too short");
-            virtqueue_detach_element(vq, elem, 0);
-            g_free(elem);
-            qemu_mutex_unlock(&v->mutex);
-            break;
-        }
-
-        /* event type = 0 means no event assigned yet */
-        event = g_new(VirtIOVideoEvent, 1);
-        event->elem = elem;
-        event->event_type = 0;
-        event->stream_id = 0;
-        QTAILQ_INSERT_TAIL(&v->event_queue, event, next);
         qemu_mutex_unlock(&v->mutex);
+        break;
     }
 }
 
@@ -780,6 +780,8 @@ static void virtio_video_device_realize(DeviceState *dev, Error **errp)
     VirtIODevice *vdev = VIRTIO_DEVICE(dev);
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     int i, ret = -1;
+
+    printf("%s\n", __func__);
 
     if (!v->conf.model) {
         error_setg(errp, "virtio-video model isn't set");
@@ -835,6 +837,7 @@ static void virtio_video_device_realize(DeviceState *dev, Error **errp)
     v->event_vq = virtio_add_queue(vdev, VIRTIO_VIDEO_VQ_SIZE,
                                    virtio_video_event_vq_cb);
 
+    printf("event_queue_debug, %s, init\n", __func__);
     QTAILQ_INIT(&v->event_queue);
     QLIST_INIT(&v->stream_list);
     for (i = 0; i < VIRTIO_VIDEO_QUEUE_NUM; i++)
@@ -878,6 +881,8 @@ static void virtio_video_device_unrealize(DeviceState *dev)
     VirtIOVideoFormatFrame *frame, *tmp_frame;
     int i;
 
+    printf("%s\n", __func__);
+
     switch (v->backend) {
     case VIRTIO_VIDEO_BACKEND_MEDIA_SDK:
         virtio_video_uninit_msdk(v);
@@ -891,6 +896,7 @@ static void virtio_video_device_unrealize(DeviceState *dev)
             virtqueue_detach_element(v->event_vq, event->elem, 0);
             g_free(event->elem);
         }
+        printf("event_queue_debug, %s, remove:%p\n", __func__, event);
         g_free(event);
     }
 
