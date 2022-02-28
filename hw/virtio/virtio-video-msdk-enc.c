@@ -327,10 +327,12 @@ size_t virtio_video_msdk_enc_resource_queue(VirtIOVideo *v,
     VirtIOVideoStream *pStream = NULL;
     MsdkSession *pSession = NULL;
     MsdkFrame *pFrame = NULL;
+    MsdkSurface *pSurface = NULL;
     mfxBitstream *pBs = NULL;
     VirtIOVideoCmd *pCmd = NULL;
     VirtIOVideoResource *pRes = NULL;
     VirtIOVideoWork *pWork = NULL;
+    mfxStatus sts = MFX_ERR_NONE;
     size_t len = 0;
     uint8_t queue_type = VIRTIO_VIDEO_QUEUE_INPUT;
     bool bQueued = false;
@@ -441,8 +443,23 @@ size_t virtio_video_msdk_enc_resource_queue(VirtIOVideo *v,
         }
 
         pFrame = g_new0(MsdkFrame, 1);
-        virtio_video_encode_fill_input_data(pFrame, pRes, pStream->in.params.format);
-        
+        // Pick a free MsdkSurface from SurfacePool.
+        QLIST_FOREACH(pSurface, &pSession->surface_pool, next) {
+            if (pSurface->used == false) {
+                pSurface->used = true;
+                break;
+            }
+        }
+
+        if (pSurface == NULL) {
+            pSurface = (MsdkSurface *)virtio_video_msdk_inc_pool_size(pSession, 2, false);
+            pSurface->used = true;
+        }
+
+        virtio_video_msdk_input_surface(pSurface, pRes);
+        pFrame->surface = pSurface;
+        // virtio_video_encode_fill_input_data(pFrame, pRes, pStream->in.params.format);
+        // virtio_video_msdk_fill_surface(pSurface, pRes);
         
         pWork = g_new0(VirtIOVideoWork, 1);
         pWork->parent = pStream;
@@ -614,11 +631,11 @@ size_t virtio_video_msdk_enc_get_params(VirtIOVideo *v,
     switch (req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT :
         memcpy(&resp->params, &pStream->in.params, sizeof(resp->params));
-        DPRINTF("CMD_GET_PARAMS : reported input params\n");
+        // DPRINTF("CMD_GET_PARAMS : reported input params\n");
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT :
         memcpy(&resp->params, &pStream->out.params, sizeof(resp->params));
-        DPRINTF("CMD_GET_PARAMS : reported output params\n");
+        // DPRINTF("CMD_GET_PARAMS : reported output params\n");
         break;
     default :
         resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
@@ -626,6 +643,7 @@ size_t virtio_video_msdk_enc_get_params(VirtIOVideo *v,
         break;
     }
 
+/*
     DPRINTF(
             "Get %d Params:\n"
             "format       = %s\n"
@@ -647,7 +665,7 @@ size_t virtio_video_msdk_enc_get_params(VirtIOVideo *v,
             resp->params.crop.width , resp->params.crop.height, 
             resp->params.frame_rate , resp->params.num_planes
             );
-    
+*/  
     return len;
 }
 
@@ -659,7 +677,7 @@ size_t virtio_video_msdk_enc_set_params(VirtIOVideo *v,
 #endif
     VirtIOVideoStream *pStream = NULL;
     size_t len = sizeof(*resp);
-    mfxStatus sts = MFX_ERR_NONE;
+    // mfxStatus sts = MFX_ERR_NONE;
     virtio_video_params *pPara = NULL;
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
@@ -719,7 +737,9 @@ size_t virtio_video_msdk_enc_set_params(VirtIOVideo *v,
                 "cropW        = %d       <-         cropW         = %d\n"
                 "cropH        = %d       <-         cropH         = %d\n"
                 "frame_rate   = %d       <-         frame_rate    = %d\n"
-                "num_planes   = %d       <-         num_planes    = %d\n", 
+                "num_planes   = %d       <-         num_planes    = %d\n" 
+                "plane_format[0].stride = %d  <-    stride        = %d\n"
+                "plane_format[0].plane_size = %d  <- plane_size   = %d\n",
                 virtio_video_format_name(pPara->format), virtio_video_format_name(req->params.format), 
                 pPara->frame_width,  req->params.frame_width, 
                 pPara->frame_height, req->params.frame_height, 
@@ -730,8 +750,9 @@ size_t virtio_video_msdk_enc_set_params(VirtIOVideo *v,
                 pPara->crop.width ,  req->params.crop.width, 
                 pPara->crop.height,  req->params.crop.height, 
                 pPara->frame_rate ,  req->params.frame_rate, 
-                pPara->num_planes,   req->params.num_planes
-                );
+                pPara->num_planes,   req->params.num_planes,
+                pPara->plane_formats[0].stride, req->params.plane_formats[0].stride,
+                pPara->plane_formats[0].plane_size, req->params.plane_formats[0].plane_size);
 
         CHECK_AND_FILL_PARAM(req->params, pPara, format);
         CHECK_AND_FILL_PARAM(req->params, pPara, frame_width);
@@ -744,8 +765,9 @@ size_t virtio_video_msdk_enc_set_params(VirtIOVideo *v,
         CHECK_AND_FILL_PARAM(req->params, pPara, crop.height);
         CHECK_AND_FILL_PARAM(req->params, pPara, frame_rate);
         CHECK_AND_FILL_PARAM(req->params, pPara, num_planes);
+        pPara->plane_formats[0] = req->params.plane_formats[0];
 
-
+        /*
         DPRINTF(
                 "After setting:\n"
                 "format       = %s\n"
@@ -758,14 +780,17 @@ size_t virtio_video_msdk_enc_set_params(VirtIOVideo *v,
                 "cropW        = %d\n"
                 "cropH        = %d\n"
                 "frame_rate   = %d\n"
-                "num_planes   = %d\n", 
+                "num_planes   = %d\n"
+                "stride       = %d\n"
+                "plane_size   = %d\n",
                 virtio_video_format_name(pPara->format), 
                 pPara->frame_width, pPara->frame_height, 
                 pPara->min_buffers, pPara->max_buffers, 
                 pPara->crop.left  , pPara->crop.top, 
                 pPara->crop.width , pPara->crop.height, 
-                pPara->frame_rate , pPara->num_planes
-                );
+                pPara->frame_rate , pPara->num_planes,
+                pPara->plane_formats[0].stride, pPara->plane_formats[0].plane_size);
+        */
     }
 
     qemu_mutex_unlock(&pStream->mutex);
@@ -1175,6 +1200,7 @@ int virtio_video_init_msdk_enc(VirtIOVideo *v)
         out_fmt_frame->frame.height.max = h_max;
         out_fmt_frame->frame.height.step = (param.mfx.FrameInfo.PicStruct == MFX_PICSTRUCT_PROGRESSIVE) ?
             VIRTIO_VIDEO_MSDK_DIM_STEP_PROGRESSIVE : VIRTIO_VIDEO_MSDK_DIM_STEP_OTHERS;
+        out_fmt_frame->frame.num_rates = 1;
         out_fmt_frame->frame_rates = g_new0(virtio_video_format_range, 1);
         out_fmt_frame->frame_rates[0].min = 1;
         out_fmt_frame->frame_rates[0].max = 60;
@@ -1236,12 +1262,20 @@ int virtio_video_init_msdk_enc(VirtIOVideo *v)
      * encode. So add two descs of them with empty frame size/rate.
      */
     DPRINTF("Query Input capabilities\n");
-
+    out_fmt = QLIST_FIRST(&v->format_list[VIRTIO_VIDEO_QUEUE_OUTPUT]);
+    out_fmt_frame = QLIST_FIRST(&out_fmt->frames);
     for (unsigned int i = 0; i < in_fmt_nums; i++) {
+        size_t len = 0;
         in_fmt = g_new0(VirtIOVideoFormat, 1);
         virtio_video_init_format(in_fmt, in_format[i]);
 
         in_fmt_frame = g_new0(VirtIOVideoFormatFrame, 1);
+        memcpy(&in_fmt_frame->frame, &out_fmt_frame->frame, sizeof(virtio_video_format_frame));
+
+        len = sizeof(virtio_video_format_range) * out_fmt_frame->frame.num_rates;
+        in_fmt_frame->frame_rates = g_malloc0(len);
+        memcpy(in_fmt_frame->frame_rates, out_fmt_frame->frame_rates, len);
+
         in_fmt->desc.num_frames++;
         QLIST_INSERT_HEAD(&in_fmt->frames, in_fmt_frame, next);
         QLIST_INSERT_HEAD(&v->format_list[VIRTIO_VIDEO_QUEUE_INPUT], in_fmt, next);
@@ -1484,12 +1518,12 @@ int virtio_video_msdk_init_encoder_stream(VirtIOVideoStream *pStream)
     virtio_video_msdk_init_surface_pool(pSession, &enc_req, &enc_param.mfx.FrameInfo, false);
 
 
-    // pStream->in.params.min_buffers = enc_req.NumFrameMin;
-    // pStream->in.params.max_buffers = enc_req.NumFrameSuggested;
-    // pStream->out.params.min_buffers = enc_req.NumFrameMin;
-    // pStream->out.params.max_buffers = enc_req.NumFrameSuggested;
-    // virtio_video_msdk_stream_reset_param(pStream, &enc_param, true);
-    // virtio_video_msdk_stream_reset_param(pStream, &enc_param, false);
+    pStream->in.params.min_buffers = enc_req.NumFrameMin;
+    pStream->in.params.max_buffers = enc_req.NumFrameSuggested;
+    pStream->out.params.min_buffers = enc_req.NumFrameMin;
+    pStream->out.params.max_buffers = enc_req.NumFrameSuggested;
+    virtio_video_msdk_stream_reset_param(pStream, &enc_param, true);
+    virtio_video_msdk_stream_reset_param(pStream, &enc_param, false);
 
     return MFX_ERR_NONE;
 }
@@ -1536,8 +1570,8 @@ int virtio_video_msdk_init_enc_param(mfxVideoParam *pPara, VirtIOVideoStream *pS
     pPara->mfx.GopOptFlag              = 0;
     pPara->mfx.BufferSizeInKB          = vvepp.dpp.TargetKbps / 8;
     
-    pPara->mfx.CodecProfile            = pStream->control.profile == 0 ? MFX_PROFILE_AVC_BASELINE : virtio_video_profile_to_msdk(pStream->control.profile);
-    pPara->mfx.CodecLevel              = pStream->control.level == 0   ? MFX_LEVEL_AVC_1 : virtio_video_level_to_msdk(pStream->control.level);
+    // pPara->mfx.CodecProfile            = pStream->control.profile == 0 ? MFX_PROFILE_AVC_BASELINE : virtio_video_profile_to_msdk(pStream->control.profile);
+    // pPara->mfx.CodecLevel              = pStream->control.level == 0   ? MFX_LEVEL_AVC_1 : virtio_video_level_to_msdk(pStream->control.level);
 
     if (pPara->mfx.RateControlMethod == MFX_RATECONTROL_CQP) {
         pPara->mfx.QPI                 = 0;
@@ -1558,7 +1592,7 @@ int virtio_video_msdk_init_enc_param(mfxVideoParam *pPara, VirtIOVideoStream *pS
 
     pPara->mfx.NumSlice                = 0;
 
-    virtio_video_msdk_convert_frame_rate(pOutPara->frame_rate, &(pPara->mfx.FrameInfo.FrameRateExtN), 
+    virtio_video_msdk_convert_frame_rate(frame_rate, &(pPara->mfx.FrameInfo.FrameRateExtN), 
                     &(pPara->mfx.FrameInfo.FrameRateExtD));
 
     pPara->mfx.EncodedOrder            = 0;

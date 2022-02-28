@@ -43,11 +43,14 @@ int virtio_video_msdk_init_param_dec(MsdkSession *session, mfxVideoParam *param,
                                      VirtIOVideoStream *stream);
 int virtio_video_msdk_init_vpp_param_dec(mfxVideoParam *param,
     mfxVideoParam *vpp_param, VirtIOVideoStream *stream);
+void *virtio_video_msdk_inc_pool_size(MsdkSession *session, uint32_t inc_num, bool vpp); // Added by Shenlin 2022.2.28
 void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     mfxFrameAllocRequest *alloc_req, mfxFrameInfo *info, bool vpp);
 void virtio_video_msdk_uninit_surface_pools(MsdkSession *session);
 void virtio_video_msdk_uninit_frame(VirtIOVideoFrame *frame);
-int virtio_video_msdk_output_surface(MsdkSession * session, MsdkSurface *surface,
+int virtio_video_msdk_input_surface(MsdkSurface *surface,  // Copy from resource to surface
+    VirtIOVideoResource *resource); // Added by Shenlin 2022.2.25
+int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
     VirtIOVideoResource *resource);
 void virtio_video_msdk_stream_reset_param(VirtIOVideoStream *stream,
     mfxVideoParam *param, bool encode);

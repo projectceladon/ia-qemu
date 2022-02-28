@@ -330,6 +330,86 @@ int virtio_video_msdk_init_vpp_param_dec(mfxVideoParam *param,
     return 0;
 }
 
+
+// Added by Shenlin 2022.2.28
+void *virtio_video_msdk_inc_pool_size(MsdkSession *session, uint32_t inc_num, bool vpp)
+{
+    assert(session == NULL);
+    assert(inc_num > 0);
+    MsdkSurface *pSurf = NULL, *pSampleSurf = NULL;
+    mfxU8 *pSurfBuf = NULL;
+    uint32_t width = 0, height = 0, size = 0;
+    int i = 0;
+    mfxFrameInfo *pInfo = NULL;
+
+    pSampleSurf = QLIST_FIRST(&session->surface_pool);
+    pInfo = &pSampleSurf->surface.Info;
+    width = MSDK_ALIGN32(pInfo->Width);
+    height = MSDK_ALIGN32(pInfo->Height);
+    switch (pInfo->FourCC) {
+        case MFX_FOURCC_RGB4:
+        size = width * height * 4;
+        break;
+        case MFX_FOURCC_NV12:
+        case MFX_FOURCC_IYUV:
+        case MFX_FOURCC_YV12:
+            size = width * height * 12 / 8;
+            break;
+        default:
+            return NULL;
+    }
+
+    for (i = 0; i < inc_num; i++) {
+        pSurf = g_new0(MsdkSurface, 1);
+        pSurfBuf = g_malloc0(size);
+
+        pSurf->used = false;
+        pSurf->surface.Info = *pInfo;
+        switch (pInfo->FourCC) {
+        case MFX_FOURCC_RGB4:
+            pSurf->surface.Data.B = pSurfBuf;
+            pSurf->surface.Data.G = pSurf->surface.Data.B + 1;
+            pSurf->surface.Data.R = pSurf->surface.Data.B + 2;
+            pSurf->surface.Data.A = pSurf->surface.Data.B + 3;
+            pSurf->surface.Data.PitchLow = width * 4;
+            pSurf->surface.Data.PitchHigh = 0;
+            break;
+        case MFX_FOURCC_NV12:
+            pSurf->surface.Data.Y = pSurfBuf;
+            pSurf->surface.Data.UV = pSurf->surface.Data.Y + width * height;
+            pSurf->surface.Data.PitchLow = width;
+            pSurf->surface.Data.PitchHigh = 0;
+            break;
+        case MFX_FOURCC_IYUV:
+            pSurf->surface.Data.Y = pSurfBuf;
+            pSurf->surface.Data.U = pSurf->surface.Data.Y + width * height;
+            pSurf->surface.Data.V = pSurf->surface.Data.U + width * height / 4;
+            pSurf->surface.Data.PitchLow = width;
+            pSurf->surface.Data.PitchHigh = 0;
+            break;
+        case MFX_FOURCC_YV12:
+            pSurf->surface.Data.Y = pSurfBuf;
+            pSurf->surface.Data.V = pSurf->surface.Data.Y + width * height;
+            pSurf->surface.Data.U = pSurf->surface.Data.V + width * height / 4;
+            pSurf->surface.Data.PitchLow = width;
+            pSurf->surface.Data.PitchHigh = 0;
+            break;
+        default:
+            break;
+        }
+
+         if (vpp) {
+            QLIST_INSERT_HEAD(&session->vpp_surface_pool, pSurf, next);
+            session->vpp_surface_num++;
+        } else {
+            QLIST_INSERT_HEAD(&session->surface_pool, pSurf, next);
+            session->surface_num++;
+        }
+    }
+
+    return pSurf;
+}
+
 void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     mfxFrameAllocRequest *alloc_req, mfxFrameInfo *info, bool vpp)
 {
@@ -470,8 +550,73 @@ void virtio_video_msdk_dump_surface(char * src, int len) {
             file = NULL;
         }
     }
-#endif        
-        
+#endif
+}
+
+// Added by Shenlin 2022.2.25
+// Copy data from resource to surface
+int virtio_video_msdk_input_surface(MsdkSurface *surface, 
+    VirtIOVideoResource *resource)
+{
+    if (surface == NULL || resource == NULL)
+        return -1;
+    mfxFrameSurface1 *pSurf = &surface->surface;
+    uint32_t width = 0, height = 0;
+    int ret = 0;
+    bool bSuccess = true;
+
+    width = pSurf->Info.Width;
+    height = pSurf->Info.Height;
+    switch (pSurf->Info.FourCC) {
+    case MFX_FOURCC_RGB4 :
+        if (resource->num_planes != 1) {
+            bSuccess = false;
+            ret = -1;
+            break;
+        }
+        ret += virtio_video_memcpy_r(resource, 0, pSurf->Data.B, width * height * 4);
+        break;
+    case MFX_FOURCC_NV12 :
+        if (resource->num_planes != 2) {
+            bSuccess = false;
+            ret = -1;
+            break;
+        }
+        ret += virtio_video_memcpy_r(resource, 0, pSurf->Data.Y, width * height);
+        ret += virtio_video_memcpy_r(resource, 1, pSurf->Data.U, width * height / 2);
+        break;
+    case MFX_FOURCC_IYUV:
+        if (resource->num_planes != 3) {
+            bSuccess = false;
+            ret = -1;
+            break;
+        }
+        ret += virtio_video_memcpy_r(resource, 0, pSurf->Data.Y, width * height);
+        ret += virtio_video_memcpy_r(resource, 1, pSurf->Data.U, width * height / 4);
+        ret += virtio_video_memcpy_r(resource, 2, pSurf->Data.V, width * height / 4);
+        break;
+    case MFX_FOURCC_YV12:
+        if (resource->num_planes != 3) {
+            bSuccess = false;
+            ret = -1;
+            break;
+        }
+        ret += virtio_video_memcpy_r(resource, 0, pSurf->Data.Y, width * height);
+        ret += virtio_video_memcpy_r(resource, 1, pSurf->Data.V, width * height / 4);
+        ret += virtio_video_memcpy_r(resource, 2, pSurf->Data.U, width * height / 4);
+        break;
+    default :
+        bSuccess = false;
+        break;
+    }
+
+    if (bSuccess) {
+        surface->used = true;
+    } else {
+        surface->used = false;
+    }
+
+    return ret < 0 ? -1 : 0;
 }
 
 int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
@@ -535,7 +680,6 @@ int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
             }
         }
 #endif
-
         break;
     case MFX_FOURCC_IYUV:
         if (resource->num_planes != 3)
@@ -1003,7 +1147,7 @@ void GetBasicPreset(EncPresPara *pEpp, EPresetModes mode, uint32_t fourCC)
         }
 
         pEpp->TargetUsage = MFX_TARGETUSAGE_BALANCED;
-        pEpp->RateControlMethod = MFX_RATECONTROL_CBR;
+        pEpp->RateControlMethod = MFX_RATECONTROL_CBR; // Default rate control
 
         pEpp->AsyncDepth = 4;
     }

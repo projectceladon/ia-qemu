@@ -329,6 +329,67 @@ void virtio_video_destroy_resource_list(VirtIOVideoStream *stream, bool in)
     }
 }
 
+// Added by Shenlin 2022.2.28
+static int virtio_video_memcpy_singlebuffer_r(VirtIOVideoResource *res, 
+    uint32_t idx, void *dst, uint32_t size)
+{
+    // VirtIOVideoResourceSlice *slice;
+    // uint32_t ost_bgn = res->plane_offsets[idx], ost_end = ost_bgn + size;
+    // uint32_t base = 0, diff, len;
+    // int i;
+
+    // for (i = 0; i < res->num_entries[0]; i++, base += slice->page.len) {
+    //     slice = &res->slices[0][i];
+    //     if (ost_bgn >= base + slice->page.len)
+    //         continue;
+    //     /* ost_bgn >= base is always true */
+    //     diff = begin - base;
+    //     len = slice->page.len - diff;
+    //     if (ost_end <= base + slice->page.len) {
+    //         memcpy(dst, slice->page.base + diff, size);
+    //         return 0;
+    //     } else {
+    //         memcpy(dst, slice->page.base + diff, len);
+    //         ost_begin += len;
+    //         size -= len;
+    //     }
+    // }
+
+    // if (size > 0) {
+    //     error_report("CMD_RESOURCE_QUEUE: output buffer insufficient "
+    //                  "to contain the frame");
+    //     return -1;
+    // }
+
+    return 0;
+}
+
+// Added by Shenlin 2022.2.28
+static int virtio_video_memcpy_perplane_r(VirtIOVideoResource *res, 
+    uint32_t idx, void *dst, uint32_t size)
+{
+    VirtIOVideoResourceSlice *slice;
+    int i = 0;
+    uint32_t dst_pos = 0, cur_len = 0;;
+
+    for (; i < res->num_entries[idx]; i++) {
+        slice = &res->slices[idx][i];
+        cur_len = size >= slice->page.len ? slice->page.len : size;
+        
+        memcpy(dst + dst_pos, slice->page.base, cur_len);
+        size -= cur_len;
+        dst_pos += cur_len;
+    }
+
+    if (size > 0) {
+        error_report("CMD_RESOURCE_QUEUE: output buffer insufficient "
+                     "to contain the frame");
+        return -1;
+    }
+
+    return 0;
+}
+
 static int virtio_video_memcpy_singlebuffer(VirtIOVideoResource *res,
                                             uint32_t idx, void *src,
                                             uint32_t size)
@@ -598,6 +659,19 @@ int virtio_video_memcpy(VirtIOVideoResource *res, uint32_t idx, void *src,
     }
 }
 
+int virtio_video_memcpy_r(VirtIOVideoResource *res, uint32_t idx, void *dst, 
+    uint32_t size)
+{
+    switch (res->planes_layout) {
+        case VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER :
+            return virtio_video_memcpy_singlebuffer_r(res, idx, dst, size);
+        case VIRTIO_VIDEO_PLANES_LAYOUT_PER_PLANE :
+            return virtio_video_memcpy_perplane_r(res, idx, dst, size);
+        default :
+            return -1;
+    }
+}
+
 #if defined DEBUG_VIRTIO_VIDEO && defined VIRTIO_VIDEO_UTIL_DEBUG
 static const char *virtio_video_event_name(uint32_t event)
 {
@@ -611,6 +685,7 @@ static const char *virtio_video_event_name(uint32_t event)
     }
 }
 #endif
+
 /* @event must be removed from @event_queue first */
 int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event)
 {
