@@ -457,7 +457,7 @@ int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event)
     resp.event_type = event->event_type;
     resp.stream_id = event->stream_id;
 
-    printf("%s, iov:%p, iov_cnt:%d, copy size:%d, streamid:%d, event_type:0x%x\n", __func__, event->elem->in_sg, 
+    DPRINTF_IOV("%s, iov:%p, iov_cnt:%d, copy size:%d, streamid:%d, event_type:0x%x\n", __func__, event->elem->in_sg, 
                                                                             event->elem->in_num, (int)sizeof(resp)
                                                                             , resp.stream_id, resp.event_type);
 
@@ -497,9 +497,9 @@ static int virtio_video_cmd_resource_queue_complete(VirtIOVideo *v,
     resp.timestamp = work->timestamp;
     resp.flags = work->flags;
     resp.size = work->size;
-    printf("%s L%d,resp.timestamp = work->timestamp = %lu \n", __func__, __LINE__, work->timestamp);
+    DPRINTF("%s L%d,resp.timestamp = work->timestamp = %lu \n", __func__, __LINE__, work->timestamp/1000000000);
 
-    printf("%s, type:%d, streamID:%d, flags:%d, size:%d\n", __func__, resp.hdr.type,resp.hdr.stream_id, resp.flags, resp.size);
+    DPRINTF("%s, type:%d, streamID:%d, flags:%d, size:%d\n", __func__, resp.hdr.type,resp.hdr.stream_id, resp.flags, resp.size);
 
     if (unlikely(iov_from_buf(work->elem->in_sg, work->elem->in_num, 0,
                               &resp, sizeof(resp)) != sizeof(resp))) {
@@ -521,7 +521,8 @@ static int virtio_video_cmd_resource_queue_complete(VirtIOVideo *v,
     g_free(work);
     return 0;
 }
-
+//#define USE_BH_FOR_OUTPUT
+#ifdef USE_BH_FOR_OUTPUT
 static void virtio_video_output_one_work_bh(void *opaque)
 {
     struct virtio_video_work_bh_arg *s = opaque;
@@ -531,10 +532,11 @@ static void virtio_video_output_one_work_bh(void *opaque)
     object_unref(OBJECT(s->v));
     g_free(opaque);
 }
-
+#endif
 /* must be called with stream->mutex held */
 void virtio_video_work_done(VirtIOVideoWork *work)
 {
+#ifdef USE_BH_FOR_OUTPUT
     struct virtio_video_work_bh_arg *s;
     VirtIOVideoStream *stream = work->parent;
     VirtIOVideo *v = stream->parent;
@@ -547,6 +549,11 @@ void virtio_video_work_done(VirtIOVideoWork *work)
 
     object_ref(OBJECT(v));
     aio_bh_schedule_oneshot(v->ctx, virtio_video_output_one_work_bh, s);
+#else
+    VirtIOVideoStream *stream = work->parent;
+    VirtIOVideo *v = stream->parent;
+    virtio_video_cmd_resource_queue_complete(v, work, stream->id, work->resource->id);
+#endif
 }
 
 static void virtio_video_cmd_others_complete(struct virtio_video_cmd_bh_arg *s,
@@ -651,7 +658,7 @@ static void virtio_video_event_bh(void *opaque)
 
     qemu_mutex_lock(&v->mutex);
     QTAILQ_FOREACH_SAFE(event, &v->event_queue, next, tmp_event) {
-        printf("event_queue_debug, %s, all event in event_queue:%p\n", __func__, event);
+        DPRINTF_EVENT("event_queue_debug, %s, all event in event_queue:%p\n", __func__, event);
     }
 
     event = g_new0(VirtIOVideoEvent, 1);
@@ -672,7 +679,7 @@ static void virtio_video_event_bh(void *opaque)
     }
 
     event->elem = elem;
-    printf("event_queue_debug, %s, complete event %p\n", __func__,event);
+    DPRINTF_EVENT("event_queue_debug, %s, complete event %p\n", __func__,event);
     virtio_video_event_complete(vdev, event);
 
 done:

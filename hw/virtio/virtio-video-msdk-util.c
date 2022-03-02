@@ -344,7 +344,7 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
         if (vpp) {
             QLIST_INSERT_HEAD(&session->vpp_surface_pool, surface, next);
         } else {
-            printf("%s insert surface_pool\n", __func__);
+            DPRINTF("%s insert surface_pool\n", __func__);
             QLIST_INSERT_HEAD(&session->surface_pool, surface, next);
         }
     }
@@ -370,7 +370,7 @@ static void virtio_video_msdk_uninit_surface(MsdkSurface *surface)
 void virtio_video_msdk_uninit_surface_pools(MsdkSession *session)
 {
     MsdkSurface *surface, *tmp_surface;
-    printf("virtio_video_msdk_uninit_surface_pools\n");
+    DPRINTF("virtio_video_msdk_uninit_surface_pools\n");
 
     QLIST_FOREACH_SAFE(surface, &session->surface_pool, next, tmp_surface) {
         QLIST_REMOVE(surface, next);
@@ -387,7 +387,7 @@ void virtio_video_msdk_uninit_frame(VirtIOVideoFrame *frame)
     MsdkFrame *m_frame = frame->opaque;
 
     if (m_frame != NULL) {
-        printf("%s, set surface:%p used to false\n", __func__, m_frame->surface);
+        DPRINTF("%s, set surface:%p used to false\n", __func__, m_frame->surface);
         m_frame->surface->used = false;
         if (m_frame->vpp_surface)
             m_frame->vpp_surface->used = false;
@@ -407,7 +407,7 @@ void virtio_video_msdk_dump_surface(char * src, int len) {
         if (!file) {
             file = fopen("/tmp/dec.yuv", "w");
             if(!file) {
-                printf("openfile failed.\n");
+                DPRINTF("openfile failed.\n");
                 return;
             }
         }
@@ -438,6 +438,7 @@ int virtio_video_msdk_output_surface(MsdkSurface *surface,
 
     width = frame->Info.Width;
     height = frame->Info.Height;
+    DPRINTF("%s, with timestamp:%lld\n", __func__, frame->Data.TimeStamp);
     switch (frame->Info.FourCC) {
     case MFX_FOURCC_RGB4:
         if (resource->num_planes != 1)
@@ -489,12 +490,12 @@ int virtio_video_msdk_output_surface(MsdkSurface *surface,
         break;
     }
 
-    printf("%s, set surface:%p used to false\n", __func__, surface);
+    DPRINTF("%s, set surface:%p used to false\n", __func__, surface);
     surface->used = false;
     return ret < 0 ? -1 : 0;
 
 error:
-    printf("%s, set surface:%p used to false\n", __func__, surface);
+    DPRINTF("%s, set surface:%p used to false\n", __func__, surface);
     surface->used = false;
     return -1;
 }
@@ -531,7 +532,7 @@ void virtio_video_msdk_stream_reset_param(VirtIOVideoStream *stream,
             stream->out.params.frame_width * stream->out.params.frame_height / 2;
         stream->out.params.plane_formats[1].stride =
             stream->out.params.frame_width;
-			printf("virtio_video_msdk_stream_reset_param, nv12:plane_size:%d, stride:%d, plane_size:%d, stride:%d\n", 
+			DPRINTF("virtio_video_msdk_stream_reset_param, nv12:plane_size:%d, stride:%d, plane_size:%d, stride:%d\n", 
 				stream->out.params.plane_formats[0].plane_size, stream->out.params.plane_formats[0].stride,
 				stream->out.params.plane_formats[1].plane_size, stream->out.params.plane_formats[1].stride);
         break;

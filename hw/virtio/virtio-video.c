@@ -162,12 +162,12 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
     for (i = 0, n = 0; i < resource->num_planes; i++) {
         resource->slices[i] = g_new0(VirtIOVideoResourceSlice,
                                      resource->num_entries[i]);
-        printf("%s, plane:%d, entry:%d\n", __func__, i, resource->num_entries[i]);
+        DPRINTF_IOV("%s, plane:%d, entry:%d\n", __func__, i, resource->num_entries[i]);
         for (j = 0; j < resource->num_entries[i]; j++, n++) {
             len = entries[n].length;
             slice = &resource->slices[i][j];
 
-            printf("%s, slice[%d][%d] = %d\n", __func__, i,j, entries[n].length);
+            DPRINTF_IOV("%s, slice[%d][%d] = %d\n", __func__, i,j, entries[n].length);
 
             slice->page.base = dma_memory_map(resource->dma_as,
                                               entries[n].addr, &len, dir);
@@ -225,7 +225,7 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     qemu_mutex_lock(&stream->mutex);
     switch (req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
-        printf("virtio_video_process_cmd_resource_create VIRTIO_VIDEO_QUEUE_TYPE_INPUT\n");
+        DPRINTF("virtio_video_process_cmd_resource_create VIRTIO_VIDEO_QUEUE_TYPE_INPUT\n");
         format = stream->in.params.format;
         mem_type = stream->in.mem_type;
         dir = VIRTIO_VIDEO_QUEUE_INPUT;
@@ -236,7 +236,7 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
         }
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
-        printf("virtio_video_process_cmd_resource_create VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT\n");
+        DPRINTF("virtio_video_process_cmd_resource_create VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT\n");
         format = stream->out.params.format;
         mem_type = stream->out.mem_type;
         dir = VIRTIO_VIDEO_QUEUE_OUTPUT;
@@ -489,7 +489,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         }                                                                   \
     } while (0)
 #define CMD_SET_RESP(resp, len, alloc) do {                                 \
-        printf("cmd: resp: 0x%x\n", ((struct virtio_video_cmd_hdr*)resp)->type);       \
+        DPRINTF("cmd: resp: 0x%x\n", ((struct virtio_video_cmd_hdr*)resp)->type);       \
         if (len == 0 || resp == NULL) {                                     \
             virtio_error(vdev, "virtio-video command unexpected error");    \
             return -1;                                                      \
@@ -511,7 +511,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
     switch (hdr.type) {
     case VIRTIO_VIDEO_CMD_QUERY_CAPABILITY:
     {
-        printf("cmd: VIRTIO_VIDEO_CMD_QUERY_CAPABILITY \n");
+        DPRINTF("cmd: VIRTIO_VIDEO_CMD_QUERY_CAPABILITY \n");
         virtio_video_query_capability req = {0};
         virtio_video_query_capability_resp *resp = NULL;
 
@@ -523,7 +523,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
     }
     case VIRTIO_VIDEO_CMD_STREAM_CREATE:
     {
-        printf("cmd: VIRTIO_VIDEO_CMD_STREAM_CREATE \n");
+        DPRINTF("cmd: VIRTIO_VIDEO_CMD_STREAM_CREATE \n");
         virtio_video_stream_create req = {0};
         virtio_video_cmd_hdr resp = {0};
 
@@ -534,7 +534,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
     }
     case VIRTIO_VIDEO_CMD_STREAM_DESTROY:
     {
-        printf("cmd: VIRTIO_VIDEO_CMD_STREAM_DESTROY \n");
+        DPRINTF("cmd: VIRTIO_VIDEO_CMD_STREAM_DESTROY \n");
         virtio_video_stream_destroy req = {0};
         virtio_video_cmd_hdr resp = {0};
 
@@ -549,7 +549,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
     }
     case VIRTIO_VIDEO_CMD_STREAM_DRAIN:
     {
-        printf("cmd: VIRTIO_VIDEO_CMD_STREAM_DRAIN \n");
+        DPRINTF("cmd: VIRTIO_VIDEO_CMD_STREAM_DRAIN \n");
         virtio_video_stream_drain req = {0};
         virtio_video_cmd_hdr resp = {0};
 
@@ -564,7 +564,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
     }
     case VIRTIO_VIDEO_CMD_RESOURCE_CREATE:
     {
-        printf("cmd: VIRTIO_VIDEO_CMD_RESOURCE_CREATE \n");
+        DPRINTF("cmd: VIRTIO_VIDEO_CMD_RESOURCE_CREATE \n");
         virtio_video_resource_create req = {0};
         virtio_video_cmd_hdr resp = {0};
 
@@ -582,7 +582,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
     }
     case VIRTIO_VIDEO_CMD_RESOURCE_QUEUE:
     {
-        printf("cmd: VIRTIO_VIDEO_CMD_RESOURCE_QUEUE \n");
+        DPRINTF("cmd: VIRTIO_VIDEO_CMD_RESOURCE_QUEUE \n");
         virtio_video_resource_queue req = {0};
         virtio_video_resource_queue_resp resp = {0};
 
@@ -597,7 +597,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
     }
     case VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL:
     {
-        printf("cmd: VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL \n");
+        DPRINTF("cmd: VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL \n");
         virtio_video_resource_destroy_all req = {0};
         virtio_video_cmd_hdr resp = {0};
 
@@ -612,7 +612,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
     }
     case VIRTIO_VIDEO_CMD_QUEUE_CLEAR:
     {
-        printf("cmd: VIRTIO_VIDEO_CMD_QUEUE_CLEAR \n");
+        DPRINTF("cmd: VIRTIO_VIDEO_CMD_QUEUE_CLEAR \n");
         virtio_video_queue_clear req = {0};
         virtio_video_cmd_hdr resp = {0};
 
@@ -627,7 +627,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
     }
     case VIRTIO_VIDEO_CMD_GET_PARAMS:
     {
-        printf("cmd: VIRTIO_VIDEO_CMD_GET_PARAMS \n");
+        DPRINTF("cmd: VIRTIO_VIDEO_CMD_GET_PARAMS \n");
         virtio_video_get_params req = {0};
         virtio_video_get_params_resp resp = {0};
 
@@ -638,7 +638,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
     }
     case VIRTIO_VIDEO_CMD_SET_PARAMS:
     {
-        printf("cmd: VIRTIO_VIDEO_CMD_SET_PARAMS \n");
+        DPRINTF("cmd: VIRTIO_VIDEO_CMD_SET_PARAMS \n");
         virtio_video_set_params req = {0};
         virtio_video_cmd_hdr resp = {0};
 
@@ -649,7 +649,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
     }
     case VIRTIO_VIDEO_CMD_QUERY_CONTROL:
     {
-        printf("cmd: VIRTIO_VIDEO_CMD_QUERY_CONTROL \n");
+        DPRINTF("cmd: VIRTIO_VIDEO_CMD_QUERY_CONTROL \n");
         virtio_video_query_control req = {0};
         virtio_video_query_control_resp *resp = NULL;
 
@@ -661,7 +661,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
     }
     case VIRTIO_VIDEO_CMD_GET_CONTROL:
     {
-        printf("cmd: VIRTIO_VIDEO_CMD_GET_CONTROL \n");
+        DPRINTF("cmd: VIRTIO_VIDEO_CMD_GET_CONTROL \n");
         virtio_video_get_control req = {0};
         virtio_video_get_control_resp *resp = NULL;
 
@@ -673,7 +673,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
     }
     case VIRTIO_VIDEO_CMD_SET_CONTROL:
     {
-        printf("cmd: VIRTIO_VIDEO_CMD_SET_CONTROL \n");
+        DPRINTF("cmd: VIRTIO_VIDEO_CMD_SET_CONTROL \n");
         virtio_video_set_control req = {0};
         virtio_video_set_control_resp resp = {0};
 
@@ -683,7 +683,7 @@ static int virtio_video_process_command(VirtIODevice *vdev,
         break;
     }
     default:
-        printf("cmd: Unsupported cmd opcode \n");
+        DPRINTF("cmd: Unsupported cmd opcode \n");
         error_report("Unsupported cmd opcode: 0x%x", hdr.type);
         break;
     }
@@ -699,7 +699,7 @@ static void virtio_video_command_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
     size_t len = 0;
     int ret;
 
-    printf("%s\n", __func__);
+    DPRINTF_EVENT("%s\n", __func__);
 
     for (;;) {
         elem = virtqueue_pop(vq, sizeof(VirtQueueElement));
@@ -740,7 +740,7 @@ static void virtio_video_event_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
 
         /* handle pending event */
         event = QTAILQ_FIRST(&v->event_queue);
-        printf("event_queue_debug, %s, get first event:%p\n", __func__, event);
+        DPRINTF_EVENT("event_queue_debug, %s, get first event:%p\n", __func__, event);
         if (event && event->elem == NULL) {
             elem = virtqueue_pop(vq, sizeof(VirtQueueElement));
             if (!elem) {
@@ -764,7 +764,7 @@ static void virtio_video_event_vq_cb(VirtIODevice *vdev, VirtQueue *vq)
             }
             event->elem = elem;
             QTAILQ_REMOVE(&v->event_queue, event, next);
-            printf("event_queue_debug, %s, remove&complete event:%p \n", __func__, event);
+            DPRINTF_EVENT("event_queue_debug, %s, remove&complete event:%p \n", __func__, event);
             virtio_video_event_complete(vdev, event);
             qemu_mutex_unlock(&v->mutex);
             continue;
@@ -781,7 +781,7 @@ static void virtio_video_device_realize(DeviceState *dev, Error **errp)
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
     int i, ret = -1;
 
-    printf("%s\n", __func__);
+    DPRINTF_EVENT("%s\n", __func__);
 
     if (!v->conf.model) {
         error_setg(errp, "virtio-video model isn't set");
@@ -837,7 +837,7 @@ static void virtio_video_device_realize(DeviceState *dev, Error **errp)
     v->event_vq = virtio_add_queue(vdev, VIRTIO_VIDEO_VQ_SIZE,
                                    virtio_video_event_vq_cb);
 
-    printf("event_queue_debug, %s, init\n", __func__);
+    DPRINTF_EVENT("event_queue_debug, %s, init\n", __func__);
     QTAILQ_INIT(&v->event_queue);
     QLIST_INIT(&v->stream_list);
     for (i = 0; i < VIRTIO_VIDEO_QUEUE_NUM; i++)
@@ -881,7 +881,7 @@ static void virtio_video_device_unrealize(DeviceState *dev)
     VirtIOVideoFormatFrame *frame, *tmp_frame;
     int i;
 
-    printf("%s\n", __func__);
+    DPRINTF_EVENT("%s\n", __func__);
 
     switch (v->backend) {
     case VIRTIO_VIDEO_BACKEND_MEDIA_SDK:
@@ -896,7 +896,7 @@ static void virtio_video_device_unrealize(DeviceState *dev)
             virtqueue_detach_element(v->event_vq, event->elem, 0);
             g_free(event->elem);
         }
-        printf("event_queue_debug, %s, remove:%p\n", __func__, event);
+        DPRINTF_EVENT("event_queue_debug, %s, remove:%p\n", __func__, event);
         g_free(event);
     }
 

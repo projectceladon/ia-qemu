@@ -30,20 +30,33 @@
 #include "block/aio.h"
 
 #define DEBUG_VIRTIO_VIDEO
+//#define DEBUG_VIRTIO_VIDEO_IOV
+//#ifdef DEBUG_VIRTIO_VIDEO_EVENT
 
 #ifdef DEBUG_VIRTIO_VIDEO
 #define DPRINTF(fmt, ...) \
     do { \
-        long tc = 0;   \
         struct timespec ts;    \
         clock_gettime(CLOCK_MONOTONIC, &ts); \
-        tc = (ts.tv_sec * 1000 + ts.tv_nsec / 1000000); \
-        fprintf(stderr, "[%ld |%s:%d] " fmt, \
-        tc, __FUNCTION__, __LINE__, ##__VA_ARGS__); } while (0)
+        fprintf(stderr, "[%ld.%03ld |%s:%d] " fmt, \
+        ts.tv_sec, ts.tv_nsec / 1000000, __FUNCTION__, __LINE__, ##__VA_ARGS__); } while (0)
     // do { fprintf(stderr, "virtio-video: " fmt, ## __VA_ARGS__); } while (0)
 #else
 #define DPRINTF(fmt, ...) do { } while (0)
 #endif
+
+#ifdef DEBUG_VIRTIO_VIDEO_IOV
+#define DPRINTF_IOV DPRINTF
+#else
+#define DPRINTF_IOV(fmt, ...) do { } while (0)
+#endif
+
+#ifdef DEBUG_VIRTIO_VIDEO_EVENT
+#define DPRINTF_EVENT DPRINTF
+#else
+#define DPRINTF_EVENT(fmt, ...) do { } while (0)
+#endif
+
 
 #define TYPE_VIRTIO_VIDEO "virtio-video-device"
 
@@ -166,6 +179,7 @@ struct VirtIOVideoStream {
     VirtIOVideoQueueInfo out;
     VirtIOVideoControlInfo control;
     virtio_video_stream_state state;
+    int csd_received_after_clear;
     QemuMutex mutex;
     void *opaque;
     QLIST_HEAD(, VirtIOVideoResource) resource_list[VIRTIO_VIDEO_QUEUE_NUM];
