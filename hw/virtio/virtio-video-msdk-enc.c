@@ -758,6 +758,9 @@ size_t virtio_video_msdk_enc_set_params(VirtIOVideo *v,
         CHECK_AND_FILL_PARAM(req->params, pPara, num_planes);
         pPara->plane_formats[0] = req->params.plane_formats[0];
 
+        if (req->params.queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT) {
+            virtio_video_param_fixup(pPara);
+        }
         /*
         DPRINTF(
                 "After setting:\n"
