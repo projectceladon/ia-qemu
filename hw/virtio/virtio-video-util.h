@@ -42,13 +42,11 @@ void virtio_video_destroy_resource(VirtIOVideoResource *resource,
 void virtio_video_destroy_resource_list(VirtIOVideoStream *stream, bool in);
 int virtio_video_memcpy(VirtIOVideoResource *res, uint32_t idx, void *src,
                         uint32_t size);
-
 int virtio_video_memcpy_NV12_byline(VirtIOVideoResource *res, void *Y, void *UV,
                uint32_t width, uint32_t height, uint32_t pitch);
 int virtio_video_memcpy_NV12(VirtIOVideoResource *res, void *Y, uint32_t size_Y,
                              void *UV, uint32_t size_UV);
-
-int virtio_video_memcpy_r(VirtIOVideoResource *res, uint32_t idx, void *dst,  // Added by Shenlin 2022.2.28
+int virtio_video_memcpy_r(VirtIOVideoResource *pRes, uint32_t idx, void *pDst,  // Added by Shenlin 2022.2.28
                         uint32_t size); // resource -> surface
 
 int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event);

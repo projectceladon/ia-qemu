@@ -330,36 +330,30 @@ void virtio_video_destroy_resource_list(VirtIOVideoStream *stream, bool in)
 }
 
 // Added by Shenlin 2022.2.28
-static int virtio_video_memcpy_singlebuffer_r(VirtIOVideoResource *res, 
-    uint32_t idx, void *dst, uint32_t size)
+static int virtio_video_memcpy_singlebuffer_r(VirtIOVideoResource *pRes, 
+    uint32_t idx, void *pDst, uint32_t size)
 {
-    // VirtIOVideoResourceSlice *slice;
-    // uint32_t ost_bgn = res->plane_offsets[idx], ost_end = ost_bgn + size;
-    // uint32_t base = 0, diff, len;
-    // int i;
+    if (pRes == NULL || pDst == NULL)
+        return -1;
 
-    // for (i = 0; i < res->num_entries[0]; i++, base += slice->page.len) {
-    //     slice = &res->slices[0][i];
-    //     if (ost_bgn >= base + slice->page.len)
-    //         continue;
-    //     /* ost_bgn >= base is always true */
-    //     diff = begin - base;
-    //     len = slice->page.len - diff;
-    //     if (ost_end <= base + slice->page.len) {
-    //         memcpy(dst, slice->page.base + diff, size);
-    //         return 0;
-    //     } else {
-    //         memcpy(dst, slice->page.base + diff, len);
-    //         ost_begin += len;
-    //         size -= len;
-    //     }
-    // }
+    VirtIOVideoResourceSlice *pSlice = NULL;
+    uint32_t begin = pRes->plane_offsets[idx];
+    uint32_t i = 0, cur_len = 0, pos = 0;
+    uint32_t diff = 0;
 
-    // if (size > 0) {
-    //     error_report("CMD_RESOURCE_QUEUE: output buffer insufficient "
-    //                  "to contain the frame");
-    //     return -1;
-    // }
+    for ( ; i < pRes->num_entries[0]; i++, pos += pSlice->page.len) {
+        pSlice = &pRes->slices[0][i];
+        if (begin >= pos + pSlice->page.len) {
+            continue;
+        }
+        diff = begin - pos;
+        cur_len = size > pSlice->page.len - diff ? pSlice->page.len - diff : size;
+        memcpy(pDst, pSlice->page.base + diff, cur_len);
+
+        pDst += cur_len;
+        size -= cur_len;
+        begin += cur_len;
+    }
 
     return 0;
 }
@@ -739,6 +733,7 @@ static int virtio_video_cmd_resource_queue_complete(VirtIOVideo *v,
     resp.timestamp = work->timestamp;
     resp.flags = work->flags;
     resp.size = work->size;
+    
     DPRINTF("resp.timestamp = work->timestamp = %lu \n",
             work->timestamp / 1000000000);
 

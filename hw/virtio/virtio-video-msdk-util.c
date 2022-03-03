@@ -518,11 +518,18 @@ void virtio_video_msdk_uninit_frame(VirtIOVideoFrame *frame)
 {
     MsdkFrame *m_frame = frame->opaque;
 
-    if (m_frame != NULL) {
-        DPRINTF("set surface:%p used to false\n", m_frame->surface);
-        m_frame->surface->used = false;
+    if (m_frame) {
+        if (m_frame->surface) {
+            DPRINTF("set surface:%p used to false\n", m_frame->surface);
+            m_frame->surface->used = false;
+        }
+        
         if (m_frame->vpp_surface)
             m_frame->vpp_surface->used = false;
+        
+        if (m_frame->pBitStream)
+            g_free(m_frame->pBitStream);
+        
         g_free(m_frame);
     }
     g_free(frame);

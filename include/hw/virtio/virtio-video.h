@@ -190,13 +190,12 @@ struct VirtIOVideoStream {
     QTAILQ_HEAD(, VirtIOVideoFrame) pending_frames;
     QTAILQ_HEAD(, VirtIOVideoWork) input_work;
     QTAILQ_HEAD(, VirtIOVideoWork) output_work;
-    QTAILQ_HEAD(, VirtIOVideoWork) pending_work;
     QLIST_ENTRY(VirtIOVideoStream) next;
     /* added by Shenlin 2022.1.4 */
     bool bTdRun;
     bool bVpp;
     bool bPreenc;
-    QemuMutex mutex_enc;
+    QemuMutex mutex_out;
     /* added end */
 };
 
