@@ -589,8 +589,22 @@ int virtio_video_msdk_input_surface(MsdkSurface *surface,
             ret = -1;
             break;
         }
-        ret += virtio_video_memcpy_r(resource, 0, pSurf->Data.Y, width * height);
-        ret += virtio_video_memcpy_r(resource, 1, pSurf->Data.U, width * height / 2);
+        if (resource->planes_layout == VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER) {
+            uint32_t j = 0;
+            uint32_t pos = 0, cur_len = 0;
+            uint32_t size = width * height * 3 / 2;
+            VirtIOVideoResourceSlice *pSlice = NULL;
+            for (j = 0; j < resource->num_entries[0]; j++) {
+                pSlice = &resource->slices[0][j];
+                cur_len = size <= pSlice->page.len ? size : pSlice->page.len;
+                memcpy(pSurf->Data.Y + pos, pSlice->page.base, cur_len);
+                pos += cur_len;
+                size -= cur_len;
+            }
+        } else {
+            ret += virtio_video_memcpy_r(resource, 0, pSurf->Data.Y, width * height);
+            ret += virtio_video_memcpy_r(resource, 1, pSurf->Data.U, width * height / 2);
+        }
         break;
     case MFX_FOURCC_IYUV:
         if (resource->num_planes != 3) {

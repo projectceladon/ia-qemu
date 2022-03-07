@@ -164,8 +164,13 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
                                 DMA_DIRECTION_TO_DEVICE;
     hwaddr len;
     int i, j, n;
+    char print_buffer[100];
+    bool copied = false;
+    memset(print_buffer, 0, sizeof(print_buffer));
+    // uint32_t plane_len = 0;
 
     for (i = 0, n = 0; i < resource->num_planes; i++) {
+        // plane_len = 0;
         resource->slices[i] = g_new0(VirtIOVideoResourceSlice,
                                      resource->num_entries[i]);
         DPRINTF_IOV("%s, plane:%d, entry:%d\n", __func__, i, resource->num_entries[i]);
@@ -178,13 +183,33 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
             slice->page.base = dma_memory_map(resource->dma_as,
                                               entries[n].addr, &len, dir);
             slice->page.len = len;
+
+            if (!copied) {
+                memcpy(print_buffer, slice->page.base, sizeof(print_buffer));
+                copied = true;
+            }
+
+            // if (len <= 0) {
+            //     DPRINTF("CMD_CREATE_RESOURCE : plane %d's page %d, len = %ld.\n", i, j, len);
+            // }
+            // plane_len += slice->page.len;
             if (len < entries[n].length) {
                 dma_memory_unmap(resource->dma_as, slice->page.base,
                                  slice->page.len, dir, 0);
                 goto error;
             }
         }
+
+        // DPRINTF("CMD_CREATE_RESOURCE : plane %d's length = %d\n", i, plane_len);
     }
+
+
+    for (i = 0; i < sizeof(print_buffer); i += 10) {
+        DPRINTF("%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", 
+        print_buffer[i], print_buffer[i + 1], print_buffer[i + 2], print_buffer[i + 3], print_buffer[i + 4], 
+        print_buffer[i + 5], print_buffer[i + 6], print_buffer[i + 7], print_buffer[i + 8], print_buffer[i + 9]);
+    }
+
     return 0;
 
 error:
@@ -298,6 +323,11 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
             req->planes_layout = VIRTIO_VIDEO_PLANES_LAYOUT_PER_PLANE;
         else
             req->planes_layout = VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER;
+        
+        if (stream->in.params.format == VIRTIO_VIDEO_FORMAT_NV12)
+            req->planes_layout = VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER;
+        
+
     }
 
     resource = g_new0(VirtIOVideoResource, 1);
@@ -823,11 +853,11 @@ static void virtio_video_device_realize(DeviceState *dev, Error **errp)
 
     switch (v->model) {
     case VIRTIO_VIDEO_DEVICE_V4L2_ENC:
-        virtio_init(vdev, "virtio-video", VIRTIO_ID_VIDEO_ENC,
+        virtio_init(vdev, "virtio-video-enc", VIRTIO_ID_VIDEO_ENC,
                     sizeof(virtio_video_config));
         break;
     case VIRTIO_VIDEO_DEVICE_V4L2_DEC:
-        virtio_init(vdev, "virtio-video", VIRTIO_ID_VIDEO_DEC,
+        virtio_init(vdev, "virtio-video-dec", VIRTIO_ID_VIDEO_DEC,
                     sizeof(virtio_video_config));
         break;
     default:
