@@ -505,9 +505,9 @@ size_t virtio_video_msdk_enc_resource_queue(VirtIOVideo *v,
 
        
         if (!bQueueSuccess) {
-            // g_free(pWork->opaque);
-            // g_free(pWork);
             DPRINTF("CMD_RESOURCE_QUEUE: stream %d currently unable to queue input resources\n", pStream->id);
+        } else {
+            len = 0;
         }
         qemu_mutex_unlock(&pStream->mutex);
     break;
@@ -1727,7 +1727,9 @@ int virtio_video_encode_retrieve_one_frame(VirtIOVideoFrame *pPendingFrame, Virt
 
     }
     virtio_video_memcpy(pRes, 0, pBs->Data, pBs->DataLength);
-
+    
+    // TODO: Fill in the frame type
+    // pOutWork->flags = pBs->FrameType
     pOutWork->size = pBs->DataLength;
     pOutWork->timestamp = pPendingFrame->timestamp;
     virtio_video_msdk_uninit_frame(pPendingFrame);

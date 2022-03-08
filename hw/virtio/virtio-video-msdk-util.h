@@ -37,6 +37,7 @@ uint32_t virtio_video_profile_to_msdk(uint32_t profile);
 uint32_t virtio_video_level_to_msdk(uint32_t level);
 uint32_t virtio_video_msdk_to_profile(uint32_t msdk);
 uint32_t virtio_video_msdk_to_level(uint32_t msdk);
+uint32_t virtio_video_msdk_to_frame_type(uint32_t msdk);
 
 int virtio_video_msdk_init_param(mfxVideoParam *param, uint32_t format);
 int virtio_video_msdk_init_param_dec(MsdkSession *session, mfxVideoParam *param,

@@ -227,6 +227,11 @@ uint32_t virtio_video_msdk_to_level(uint32_t msdk)
     return 0;
 }
 
+uint32_t virtio_video_msdk_to_frame_type(uint32_t msdk)
+{
+    return 0;
+}
+
 int virtio_video_msdk_init_param(mfxVideoParam *param, uint32_t format)
 {
     uint32_t msdk_format = virtio_video_format_to_msdk(format);
