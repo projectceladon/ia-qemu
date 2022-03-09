@@ -204,11 +204,11 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
     }
 
 
-    for (i = 0; i < sizeof(print_buffer); i += 10) {
-        DPRINTF("%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", 
-        print_buffer[i], print_buffer[i + 1], print_buffer[i + 2], print_buffer[i + 3], print_buffer[i + 4], 
-        print_buffer[i + 5], print_buffer[i + 6], print_buffer[i + 7], print_buffer[i + 8], print_buffer[i + 9]);
-    }
+    // for (i = 0; i < sizeof(print_buffer); i += 10) {
+    //     DPRINTF("%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", 
+    //     print_buffer[i], print_buffer[i + 1], print_buffer[i + 2], print_buffer[i + 3], print_buffer[i + 4], 
+    //     print_buffer[i + 5], print_buffer[i + 6], print_buffer[i + 7], print_buffer[i + 8], print_buffer[i + 9]);
+    // }
 
     return 0;
 

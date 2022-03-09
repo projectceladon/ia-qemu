@@ -171,6 +171,17 @@ static struct virtio_video_convert_table level_table[] = {
     {VIRTIO_VIDEO_LEVEL_HEVC_6_2, MFX_LEVEL_HEVC_62},
 };
 
+static struct virtio_video_convert_table frame_type_table[] = {
+    {VIRTIO_VIDEO_BUFFER_FLAG_IFRAME, MFX_FRAMETYPE_I}, 
+    {VIRTIO_VIDEO_BUFFER_FLAG_BFRAME, MFX_FRAMETYPE_B}, 
+    {VIRTIO_VIDEO_BUFFER_FLAG_PFRAME, MFX_FRAMETYPE_P}, 
+    {VIRTIO_VIDEO_BUFFER_FLAG_IFRAME, MFX_FRAMETYPE_IDR}, 
+    {VIRTIO_VIDEO_BUFFER_FLAG_IFRAME, MFX_FRAMETYPE_xI}, 
+    {VIRTIO_VIDEO_BUFFER_FLAG_IFRAME, MFX_FRAMETYPE_xIDR}, 
+    {VIRTIO_VIDEO_BUFFER_FLAG_BFRAME, MFX_FRAMETYPE_xB}, 
+    {VIRTIO_VIDEO_BUFFER_FLAG_PFRAME, MFX_FRAMETYPE_xP}
+};
+
 uint32_t virtio_video_format_to_msdk(uint32_t format)
 {
     int i;
@@ -229,6 +240,13 @@ uint32_t virtio_video_msdk_to_level(uint32_t msdk)
 
 uint32_t virtio_video_msdk_to_frame_type(uint32_t msdk)
 {
+    int i = 0;
+
+    for ( ; i < ARRAY_SIZE(frame_type_table); i++) {
+        if (frame_type_table[i].msdk_value == msdk)
+            return frame_type_table[i].virtio_value;
+    }
+    
     return 0;
 }
 
