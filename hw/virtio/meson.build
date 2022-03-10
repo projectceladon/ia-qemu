@@ -32,6 +32,7 @@ virtio_ss.add(when: 'CONFIG_VIRTIO_VIDEO', if_true: files(
   'virtio-video-msdk-dec.c',
   'virtio-video-msdk-enc.c',
   'virtio-video-msdk-util.c',
+  'virtio-video-va-allocator.c',
 ))
 
 virtio_pci_ss = ss.source_set()

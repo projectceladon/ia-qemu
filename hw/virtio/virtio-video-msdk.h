@@ -26,6 +26,7 @@
 
 #include "mfx/mfxsession.h"
 #include "mfx/mfxstructures.h"
+#include "va/va.h"
 #include "hw/virtio/virtio-video.h"
 
 #define VIRTIO_VIDEO_MSDK_VERSION_MAJOR         1
@@ -68,10 +69,17 @@ typedef struct MsdkSession {
     QemuEvent input_notifier;
     QemuEvent output_notifier;
     mfxSession session;
+    VADisplay va_dpy;
     mfxBitstream bitstream;
     bool input_accepted;
     int surface_num;
     int vpp_surface_num;
+
+    VASurfaceID *surfaces; //for video memory
+    mfxMemId    *surface_ids;
+
+    mfxU16  IOPattern;
+
     QLIST_HEAD(, MsdkSurface) surface_pool;
     QLIST_HEAD(, MsdkSurface) vpp_surface_pool;
 } MsdkSession;

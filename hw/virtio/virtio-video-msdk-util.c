@@ -207,7 +207,8 @@ int virtio_video_msdk_init_param_dec(mfxVideoParam *param,
     }
     switch (stream->out.mem_type) {
     case VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES:
-        param->IOPattern |= MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
+        //param->IOPattern |= MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
+        param->IOPattern = MFX_IOPATTERN_OUT_VIDEO_MEMORY;
         break;
     case VIRTIO_VIDEO_MEM_TYPE_VIRTIO_OBJECT:
         param->IOPattern |= MFX_IOPATTERN_OUT_VIDEO_MEMORY;
@@ -423,18 +424,89 @@ void virtio_video_msdk_dump_surface(char * src, int len) {
         
 }
 
+static int virtio_video_map_surface(MsdkSession *session,
+                                    mfxFrameSurface1 *surface, void **data,
+                                    VAImage *img)
+{
+    VASurfaceID surface_id = *(VASurfaceID *)surface->Data.MemId;
+    VAImageFormat img_fmt = {
+        .fourcc = VA_FOURCC_NV12,
+        .byte_order = VA_LSB_FIRST,
+        .bits_per_pixel = 8,
+        .depth = 8,
+    };
+
+    VAStatus err;
+    int ret;
+
+    DPRINTF("\n");
+
+    img->buf = VA_INVALID_ID;
+    img->image_id = VA_INVALID_ID;
+    err = vaCreateImage(session->va_dpy, &img_fmt, surface->Info.Width,
+                        surface->Info.Height, img);
+    if (err != VA_STATUS_SUCCESS) {
+        DPRINTF("Error creating an image: %s\n", vaErrorStr(err));
+        ret = -1;
+        goto fail;
+    }
+    err = vaGetImage(session->va_dpy, surface_id, 0, 0, surface->Info.Width,
+                     surface->Info.Height, img->image_id);
+    if (err != VA_STATUS_SUCCESS) {
+        DPRINTF("Error getting an image: %s\n", vaErrorStr(err));
+        ret = -1;
+        goto fail;
+    }
+    err = vaMapBuffer(session->va_dpy, img->buf, data);
+    if (err != VA_STATUS_SUCCESS) {
+        DPRINTF("Error mapping the image buffer: %s\n", vaErrorStr(err));
+        ret = -1;
+        goto fail;
+    }
+
+    DPRINTF("data:%p \n", data);
+    if(data)
+        DPRINTF("*data:%p \n", *data);
+
+    return 0;
+
+fail:
+    if (img->buf != VA_INVALID_ID)
+        vaUnmapBuffer(session->va_dpy, img->buf);
+    if (img->image_id != VA_INVALID_ID)
+        vaDestroyImage(session->va_dpy, img->image_id);
+    if (ret < 0)
+        return ret;
+    return 0;
+}
+
+static void virtio_video_unmap_surface(MsdkSession *session, VAImage *img)
+{
+    if (img->buf != VA_INVALID_ID) {
+        vaUnmapBuffer(session->va_dpy, img->buf);
+        img->buf = VA_INVALID_ID;
+    }
+
+    if (img->image_id != VA_INVALID_ID) {
+        vaDestroyImage(session->va_dpy, img->image_id);
+        img->image_id = VA_INVALID_ID;
+    }
+}
+
 //#define DUMP_SURFACE_END
-int virtio_video_msdk_output_surface(MsdkSurface *surface,
-    VirtIOVideoResource *resource)
+//#define DUMP_SURFACE_BEFORE
+int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
+                                     VirtIOVideoResource *resource)
 {
     mfxFrameSurface1 *frame = &surface->surface;
     uint32_t width, height;
     int ret = 0;
-    #ifdef DUMP_SURFACE_END
-    char *Y;
-    char *U;
-    static int i=0;
-    #endif
+    void *frame_data;
+    VAImage img;
+#ifdef DUMP_SURFACE_END
+    static char *Y = NULL;
+    static int i = 0;
+#endif
 
     width = frame->Info.Width;
     height = frame->Info.Height;
@@ -444,47 +516,74 @@ int virtio_video_msdk_output_surface(MsdkSurface *surface,
         if (resource->num_planes != 1)
             goto error;
 
-        ret += virtio_video_memcpy(resource, 0, frame->Data.B, width * height * 4);
+        ret +=
+            virtio_video_memcpy(resource, 0, frame->Data.B, width * height * 4);
         break;
     case MFX_FOURCC_NV12:
+        if (session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY) {
+            DPRINTF("\n");
+            //the video buffer will be reused, can we just map once and use it forever?
+            virtio_video_map_surface(session, frame, &frame_data, &img);
+        } else {
+            DPRINTF("\n");
+            frame_data = frame->Data.Y;
+        }
+
         if (resource->num_planes != 2)
             goto error;
+        ret += virtio_video_memcpy(resource, 0, frame_data,
+                                   width * height * 3 / 2);
+
+        if (session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY) {
+            virtio_video_unmap_surface(session, &img);
+        }
+#if 0
         if (resource->planes_layout == VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER)
             ret += virtio_video_memcpy(resource, 0, frame->Data.Y, width * height * 3 / 2);
-        else {
+        else
+        {
             ret += virtio_video_memcpy(resource, 0, frame->Data.Y, width * height);
             ret += virtio_video_memcpy(resource, 1, frame->Data.U, width * height / 2);
         }
-        //virtio_video_msdk_dump_surface((char*)(frame->Data.Y), width * height);
-        //virtio_video_msdk_dump_surface((char *)(frame->Data.U), width * height/2);
-        #ifdef DUMP_SURFACE_END
-        if (i++<100) {
-            Y = malloc(width*height);
-            U = malloc(width*height/2);
-            virtio_video_memdump(resource, 0, Y, width * height);
-            virtio_video_memdump(resource, 1, U, width * height / 2);
-            virtio_video_msdk_dump_surface(Y, width * height);
-            virtio_video_msdk_dump_surface(U, width * height/2);
-            free(Y);
-            free(U);
+#endif
+#ifdef DUMP_SURFACE_BEFORE
+        virtio_video_msdk_dump_surface((char *)frame_data,
+                                       width * height * 3 / 2);
+#endif
+#ifdef DUMP_SURFACE_END
+        if (i++ < 100) {
+            if (!Y)
+                Y = malloc(width * height * 3 / 2);
+            virtio_video_memdump(resource, 0, Y, width * height * 3 / 2);
+            virtio_video_msdk_dump_surface(Y, width * height * 3 / 2);
+        } else {
+            if (Y) {
+                free(Y);
+                Y = NULL;
+            }
         }
-        #endif
+#endif
+
         break;
     case MFX_FOURCC_IYUV:
         if (resource->num_planes != 3)
             goto error;
 
         ret += virtio_video_memcpy(resource, 0, frame->Data.Y, width * height);
-        ret += virtio_video_memcpy(resource, 1, frame->Data.U, width * height / 4);
-        ret += virtio_video_memcpy(resource, 2, frame->Data.V, width * height / 4);
+        ret +=
+            virtio_video_memcpy(resource, 1, frame->Data.U, width * height / 4);
+        ret +=
+            virtio_video_memcpy(resource, 2, frame->Data.V, width * height / 4);
         break;
     case MFX_FOURCC_YV12:
         if (resource->num_planes != 3)
             goto error;
 
         ret += virtio_video_memcpy(resource, 0, frame->Data.Y, width * height);
-        ret += virtio_video_memcpy(resource, 1, frame->Data.V, width * height / 4);
-        ret += virtio_video_memcpy(resource, 2, frame->Data.U, width * height / 4);
+        ret +=
+            virtio_video_memcpy(resource, 1, frame->Data.V, width * height / 4);
+        ret +=
+            virtio_video_memcpy(resource, 2, frame->Data.U, width * height / 4);
         break;
     default:
         break;
@@ -501,13 +600,13 @@ error:
 }
 
 void virtio_video_msdk_stream_reset_param(VirtIOVideoStream *stream,
-    mfxVideoParam *param)
+                                          mfxVideoParam *param)
 {
     /* TODO: maybe we should keep crop values set by guest? */
     stream->out.params.frame_width = param->mfx.FrameInfo.Width;
     stream->out.params.frame_height = param->mfx.FrameInfo.Height;
-    stream->out.params.frame_rate = param->mfx.FrameInfo.FrameRateExtN /
-                                    param->mfx.FrameInfo.FrameRateExtD;
+    stream->out.params.frame_rate =
+        param->mfx.FrameInfo.FrameRateExtN / param->mfx.FrameInfo.FrameRateExtD;
     stream->out.params.crop.left = param->mfx.FrameInfo.CropX;
     stream->out.params.crop.top = param->mfx.FrameInfo.CropY;
     stream->out.params.crop.width = param->mfx.FrameInfo.CropW;
@@ -518,7 +617,8 @@ void virtio_video_msdk_stream_reset_param(VirtIOVideoStream *stream,
     case VIRTIO_VIDEO_FORMAT_BGRA8888:
         stream->out.params.num_planes = 1;
         stream->out.params.plane_formats[0].plane_size =
-            stream->out.params.frame_width * stream->out.params.frame_height * 4;
+            stream->out.params.frame_width * stream->out.params.frame_height *
+            4;
         stream->out.params.plane_formats[0].stride =
             stream->out.params.frame_width * 4;
         break;
@@ -529,12 +629,16 @@ void virtio_video_msdk_stream_reset_param(VirtIOVideoStream *stream,
         stream->out.params.plane_formats[0].stride =
             stream->out.params.frame_width;
         stream->out.params.plane_formats[1].plane_size =
-            stream->out.params.frame_width * stream->out.params.frame_height / 2;
+            stream->out.params.frame_width * stream->out.params.frame_height /
+            2;
         stream->out.params.plane_formats[1].stride =
             stream->out.params.frame_width;
-			DPRINTF("virtio_video_msdk_stream_reset_param, nv12:plane_size:%d, stride:%d, plane_size:%d, stride:%d\n", 
-				stream->out.params.plane_formats[0].plane_size, stream->out.params.plane_formats[0].stride,
-				stream->out.params.plane_formats[1].plane_size, stream->out.params.plane_formats[1].stride);
+        DPRINTF("virtio_video_msdk_stream_reset_param, nv12:plane_size:%d, "
+                "stride:%d, plane_size:%d, stride:%d\n",
+                stream->out.params.plane_formats[0].plane_size,
+                stream->out.params.plane_formats[0].stride,
+                stream->out.params.plane_formats[1].plane_size,
+                stream->out.params.plane_formats[1].stride);
         break;
     case VIRTIO_VIDEO_FORMAT_YUV420:
     case VIRTIO_VIDEO_FORMAT_YVU420:
@@ -544,11 +648,13 @@ void virtio_video_msdk_stream_reset_param(VirtIOVideoStream *stream,
         stream->out.params.plane_formats[0].stride =
             stream->out.params.frame_width;
         stream->out.params.plane_formats[1].plane_size =
-            stream->out.params.frame_width * stream->out.params.frame_height / 4;
+            stream->out.params.frame_width * stream->out.params.frame_height /
+            4;
         stream->out.params.plane_formats[1].stride =
             stream->out.params.frame_width / 2;
         stream->out.params.plane_formats[2].plane_size =
-            stream->out.params.frame_width * stream->out.params.frame_height / 4;
+            stream->out.params.frame_width * stream->out.params.frame_height /
+            4;
         stream->out.params.plane_formats[2].stride =
             stream->out.params.frame_width / 2;
         break;

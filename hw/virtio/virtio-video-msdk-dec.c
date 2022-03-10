@@ -26,6 +26,7 @@
 #include "virtio-video-msdk.h"
 #include "virtio-video-msdk-dec.h"
 #include "virtio-video-msdk-util.h"
+#include "virtio-video-va-allocator.h"
 #include "mfx/mfxvideo.h"
 
 #define THREAD_NAME_LEN 48
@@ -128,12 +129,14 @@ static mfxStatus virtio_video_decode_parse_header(VirtIOVideoWork *work)
 
 done:
     m_session->surface_num += alloc_req.NumFrameSuggested;
-    virtio_video_msdk_init_surface_pool(m_session, &alloc_req,
-                                        &param.mfx.FrameInfo, false);
-
+    if (param.IOPattern != MFX_IOPATTERN_OUT_VIDEO_MEMORY) {
+        virtio_video_msdk_init_surface_pool(m_session, &alloc_req,
+                                            &param.mfx.FrameInfo, false);
+    }
     stream->out.params.min_buffers = alloc_req.NumFrameMin;
     stream->out.params.max_buffers = alloc_req.NumFrameSuggested;
     virtio_video_msdk_stream_reset_param(stream, &param);
+
     return MFX_ERR_NONE;
 
 error_vpp:
@@ -471,10 +474,10 @@ static void virtio_video_decode_retrieve_one_frame(VirtIOVideoFrame *frame,
         work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
     }
     if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12) {
-        ret = virtio_video_msdk_output_surface(m_frame->surface,
+        ret = virtio_video_msdk_output_surface(m_session, m_frame->surface,
                                                work->resource);
     } else {
-        ret = virtio_video_msdk_output_surface(m_frame->vpp_surface,
+        ret = virtio_video_msdk_output_surface(m_session, m_frame->vpp_surface,
                                                work->resource);
     }
 
@@ -823,6 +826,15 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
         .Version.Minor = VIRTIO_VIDEO_MSDK_VERSION_MINOR,
     };
 
+    mfxFrameAllocator frame_allocator = {
+    .pthis = NULL,
+    .Alloc = virtio_video_frame_alloc,
+    .Lock = virtio_video_frame_lock,
+    .Unlock = virtio_video_frame_unlock,
+    .GetHDL = virtio_video_frame_get_handle,
+    .Free = virtio_video_frame_free,
+};
+
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
     resp->stream_id = req->hdr.stream_id;
     len = sizeof(*resp);
@@ -868,9 +880,29 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
 
     status = MFXVideoCORE_SetHandle(m_session->session, MFX_HANDLE_VA_DISPLAY,
                                     m_handle->va_handle);
+    m_session->va_dpy = m_handle->va_handle;
     if (status != MFX_ERR_NONE) {
         error_report("CMD_STREAM_CREATE: MFXVideoCORE_SetHandle failed: %d",
                      status);
+        MFXClose(m_session->session);
+        g_free(m_session);
+        return len;
+    }
+
+    // the IOPattern = MFX_IOPATTERN_OUT_VIDEO_MEMORY; should be mfxVideoParam
+    // para it's not good idea to put it here since there isn't have
+    // mfxVideoParam yet.
+    // but where the MFXVideoCORE_SetFrameAllocator() should be called?
+    m_session->IOPattern = MFX_IOPATTERN_OUT_VIDEO_MEMORY;
+    if (m_session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY) {
+        frame_allocator.pthis = m_session;
+        status = MFXVideoCORE_SetFrameAllocator(m_session->session,
+                                                &frame_allocator);
+    } else {
+        status = MFXVideoCORE_SetFrameAllocator(m_session->session, NULL);
+    }
+    if (status != MFX_ERR_NONE) {
+        error_report("MFXVideoCORE_SetFrameAllocator failed: %d", status);
         MFXClose(m_session->session);
         g_free(m_session);
         return len;
@@ -1228,6 +1260,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
     qemu_mutex_lock(&stream->mutex);
     switch (req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
+        DPRINTF("VIRTIO_VIDEO_QUEUE_TYPE_INPUT\n");
         QLIST_FOREACH(resource,
                 &stream->resource_list[VIRTIO_VIDEO_QUEUE_INPUT], next) {
             if (resource->id == req->resource_id) {
@@ -1321,6 +1354,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         len = 0;
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
+        DPRINTF("VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT\n");
         QLIST_FOREACH(resource,
                 &stream->resource_list[VIRTIO_VIDEO_QUEUE_OUTPUT], next) {
             if (resource->id == req->resource_id) {

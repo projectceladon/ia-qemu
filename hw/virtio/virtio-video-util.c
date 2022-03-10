@@ -328,6 +328,7 @@ static int virtio_video_memcpy_singlebuffer(VirtIOVideoResource *res,
     uint32_t begin = res->plane_offsets[idx], end = begin + size;
     uint32_t base = 0, diff, len;
     int i;
+    DPRINTF("src:%p, size:%d\n", src, (int)size);
 
     for (i = 0; i < res->num_entries[0]; i++, base+= slice->page.len) {
         slice = &res->slices[0][i];
@@ -344,6 +345,41 @@ static int virtio_video_memcpy_singlebuffer(VirtIOVideoResource *res,
             begin += len;
             size -= len;
             src += len;
+        }
+    }
+
+    if (size > 0) {
+        error_report("CMD_RESOURCE_QUEUE: output buffer insufficient "
+                     "to contain the frame");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int virtio_video_memdump_singlebuffer(VirtIOVideoResource *res,
+    uint32_t idx, void *dst, uint32_t size)
+{
+    VirtIOVideoResourceSlice *slice;
+    uint32_t begin = res->plane_offsets[idx], end = begin + size;
+    uint32_t base = 0, diff, len;
+    int i;
+
+    for (i = 0; i < res->num_entries[0]; i++, base+= slice->page.len) {
+        slice = &res->slices[0][i];
+        if (begin >= base + slice->page.len)
+            continue;
+        /* begin >= base is always true */
+        diff = begin - base;
+        len = slice->page.len - diff;
+        if (end <= base + slice->page.len) {
+            memcpy(dst, slice->page.base + diff, size);
+            return 0;
+        } else {
+            memcpy(dst, slice->page.base + diff, len);
+            begin += len;
+            size -= len;
+            dst += len;
         }
     }
 
@@ -377,7 +413,7 @@ static int virtio_video_memcpy_perplane(VirtIOVideoResource *res,
     if (size > 0) {
         error_report("CMD_RESOURCE_QUEUE: output buffer insufficient "
                      "to contain the frame, idx:%d, left size:%d", idx, size);
-        //return -1;
+        return -1;
     }
 
     return 0;
@@ -411,11 +447,11 @@ static int virtio_video_memdump_perplane(VirtIOVideoResource *res,
 }
 
 int virtio_video_memdump(VirtIOVideoResource *res, uint32_t idx, void *dst,
-    uint32_t size)
+                         uint32_t size)
 {
     switch (res->planes_layout) {
     case VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER:
-        ;//return virtio_video_memcpy_singlebuffer(res, idx, dst, size);
+        return virtio_video_memdump_singlebuffer(res, idx, dst, size);
     case VIRTIO_VIDEO_PLANES_LAYOUT_PER_PLANE:
         return virtio_video_memdump_perplane(res, idx, dst, size);
     default:
@@ -497,9 +533,9 @@ static int virtio_video_cmd_resource_queue_complete(VirtIOVideo *v,
     resp.timestamp = work->timestamp;
     resp.flags = work->flags;
     resp.size = work->size;
-    DPRINTF("%s L%d,resp.timestamp = work->timestamp = %lu \n", __func__, __LINE__, work->timestamp/1000000000);
+    DPRINTF("resp.timestamp = work->timestamp = %lu \n", work->timestamp/1000000000);
 
-    DPRINTF("%s, type:%d, streamID:%d, flags:%d, size:%d\n", __func__, resp.hdr.type,resp.hdr.stream_id, resp.flags, resp.size);
+    DPRINTF("type:%d, streamID:%d, flags:%d, size:%d\n", resp.hdr.type,resp.hdr.stream_id, resp.flags, resp.size);
 
     if (unlikely(iov_from_buf(work->elem->in_sg, work->elem->in_num, 0,
                               &resp, sizeof(resp)) != sizeof(resp))) {
