@@ -164,9 +164,9 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
                                 DMA_DIRECTION_TO_DEVICE;
     hwaddr len;
     int i, j, n;
-    char print_buffer[100];
-    bool copied = false;
-    memset(print_buffer, 0, sizeof(print_buffer));
+    // char print_buffer[100];
+    // bool copied = false;
+    // memset(print_buffer, 0, sizeof(print_buffer));
     // uint32_t plane_len = 0;
 
     for (i = 0, n = 0; i < resource->num_planes; i++) {
@@ -184,10 +184,10 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
                                               entries[n].addr, &len, dir);
             slice->page.len = len;
 
-            if (!copied) {
-                memcpy(print_buffer, slice->page.base, sizeof(print_buffer));
-                copied = true;
-            }
+            // if (!copied) {
+            //     memcpy(print_buffer, slice->page.base, sizeof(print_buffer));
+            //     copied = true;
+            // }
 
             // if (len <= 0) {
             //     DPRINTF("CMD_CREATE_RESOURCE : plane %d's page %d, len = %ld.\n", i, j, len);
@@ -202,7 +202,6 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
 
         // DPRINTF("CMD_CREATE_RESOURCE : plane %d's length = %d\n", i, plane_len);
     }
-
 
     // for (i = 0; i < sizeof(print_buffer); i += 10) {
     //     DPRINTF("%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", 

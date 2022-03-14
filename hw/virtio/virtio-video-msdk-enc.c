@@ -35,6 +35,8 @@
 static uint32_t CALL_No = 0;
 #endif
 
+static uint32_t FRAME_NUM = 0;
+
 #define THREAD_NAME_LEN 48
 void virtio_video_msdk_enc_set_param_default(VirtIOVideoStream *pStream, uint32_t coded_fmt);
 int virtio_video_msdk_enc_stream_terminate(VirtIOVideoStream *pStream, VirtQueueElement *pElem);
@@ -130,7 +132,7 @@ static void *virtio_video_enc_input_thread(void *arg)
             sts = virtio_video_encode_submit_one_frame(pWork);
             QTAILQ_REMOVE(&pStream->input_work, pWork, next);
 
-            if (sts != MFX_ERR_MORE_DATA) {
+            if (sts != MFX_ERR_NONE && sts != MFX_ERR_MORE_DATA) {
                 pWork->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
             }
             pWork->timestamp = 0;
@@ -600,6 +602,7 @@ size_t virtio_video_msdk_enc_resource_queue(VirtIOVideo *v,
     break;
     }
 
+    DPRINTF("CMD_RESOURCE_QUEUE : resource %d processed complete\n", req->resource_id);
     return len;
 }
 
@@ -1795,7 +1798,7 @@ int virtio_video_encode_retrieve_one_frame(VirtIOVideoFrame *pPendingFrame, Virt
     pOutWork->size = pBs->DataLength;
     pOutWork->timestamp = pPendingFrame->timestamp;
     virtio_video_msdk_uninit_frame(pPendingFrame);
-    DPRINTF("Send output work response : %d timestamp : %ld\n", pOutWork->resource->id, pOutWork->timestamp);
+    DPRINTF("Send output work response : %d timestamp : %ld, total for now : %d\n", pOutWork->resource->id, pOutWork->timestamp, FRAME_NUM++);
     virtio_video_work_done(pOutWork);
     return 0;
 }
@@ -1842,9 +1845,9 @@ size_t virtio_video_msdk_enc_resource_clear(VirtIOVideoStream *pStream,
     size_t len = sizeof(*resp);
 
     resp->type = VIRTIO_VIDEO_RESP_OK_NODATA;
-    qemu_mutex_lock(&pStream->mutex);
     switch (queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
+        qemu_mutex_lock(&pStream->mutex);
         switch (pStream->state) {
         case STREAM_STATE_INIT:
             /*
@@ -1922,14 +1925,17 @@ size_t virtio_video_msdk_enc_resource_clear(VirtIOVideoStream *pStream,
                     pStream->id);
             resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
         }
+        qemu_mutex_unlock(&pStream->mutex);
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
+        qemu_mutex_lock(&pStream->mutex_out);
         if (pStream->state == STREAM_STATE_TERMINATE) {
             assert(pCmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DESTROY);
             resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
             DPRINTF("%s: stream %d currently unable to serve the request",
                     destroy ? "CMD_RESOURCE_DESTROY_ALL" : "CMD_QUEUE_CLEAR",
                     pStream->id);
+            qemu_mutex_unlock(&pStream->mutex_out);
             break;
         }
 
@@ -1949,6 +1955,7 @@ size_t virtio_video_msdk_enc_resource_clear(VirtIOVideoStream *pStream,
             DPRINTF("CMD_QUEUE_CLEAR: stream %d output queue cleared\n",
                     pStream->id);
         }
+        qemu_mutex_unlock(&pStream->mutex_out);
         break;
     default:
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
@@ -1958,7 +1965,7 @@ size_t virtio_video_msdk_enc_resource_clear(VirtIOVideoStream *pStream,
         break;
     }
 
-    qemu_mutex_unlock(&pStream->mutex);
+    DPRINTF("Resource_Destroy_All done.......\n");
     return len;
 }
 >>>>>>> 3d36f6e9dd (Merge encode part from WanHao and Shenlin)
