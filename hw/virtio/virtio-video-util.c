@@ -472,6 +472,7 @@ int virtio_video_memcpy(VirtIOVideoResource *res, uint32_t idx, void *src,
     }
 }
 
+#ifdef DEBUG_VIRTIO_VIDEO
 static const char *virtio_video_event_name(uint32_t event)
 {
     switch (event) {
@@ -483,7 +484,7 @@ static const char *virtio_video_event_name(uint32_t event)
         return "UNKNOWN";
     }
 }
-
+#endif
 /* @event must be removed from @event_queue first */
 int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event)
 {

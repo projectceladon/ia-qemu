@@ -589,13 +589,9 @@ int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
         break;
     }
 
-    DPRINTF("%s, set surface:%p used to false\n", __func__, surface);
-    surface->used = false;
     return ret < 0 ? -1 : 0;
 
 error:
-    DPRINTF("%s, set surface:%p used to false\n", __func__, surface);
-    surface->used = false;
     return -1;
 }
 

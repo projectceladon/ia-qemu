@@ -91,6 +91,7 @@ static mfxStatus virtio_video_decode_parse_header(VirtIOVideoWork *work)
         return status;
     }
 
+    param.AsyncDepth = 1;
     status = MFXVideoDECODE_Init(m_session->session, &param);
     if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
         error_report("virtio-video-decode/%d MFXVideoDECODE_Init "
@@ -168,6 +169,7 @@ static mfxStatus virtio_video_decode_one_frame(VirtIOVideoWork *work,
         }
         return MFX_ERR_NOT_ENOUGH_BUFFER;
     }
+    bitstream->TimeStamp = work->timestamp;
 
     if (stream->out.params.format != VIRTIO_VIDEO_FORMAT_NV12) {
         QLIST_FOREACH(vpp_work_surface, &m_session->vpp_surface_pool, next) {
@@ -178,14 +180,15 @@ static mfxStatus virtio_video_decode_one_frame(VirtIOVideoWork *work,
         }
         if (vpp_work_surface == NULL) {
             error_report("virtio-video: stream %d no available surface "
-                         "in vpp surface pool", stream->id);
+                         "in vpp surface pool",
+                         stream->id);
             return MFX_ERR_NOT_ENOUGH_BUFFER;
         }
     }
 
     do {
         DPRINTF("bs:%p, input surface:%p \n", bitstream, work_surface);
-        if (!bitstream->DataLength) bitstream = NULL;//Drain
+        if (bitstream && !bitstream->DataLength) bitstream = NULL;//Drain
         status = MFXVideoDECODE_DecodeFrameAsync(m_session->session, bitstream,
                 &work_surface->surface, &out_surface, &m_frame->sync);
         DPRINTF("MFXVideoDECODE_DecodeFrameAsync return %s\n", virtio_video_status_to_string(status));
@@ -349,6 +352,7 @@ static mfxStatus virtio_video_decode_submit_one_work(VirtIOVideoWork *work,
                 work->timestamp, work->timestamp);
         return MFX_ERR_UNDEFINED_BEHAVIOR;
     }
+    DPRINTF("decode input bs timestamp:%llu\n", (unsigned long long)work->timestamp);
 
     if (!m_session->input_accepted) {
         virtio_video_msdk_bitstream_append(bitstream, input);
@@ -361,6 +365,7 @@ static mfxStatus virtio_video_decode_submit_one_work(VirtIOVideoWork *work,
     while (true) {
         m_frame = g_new0(MsdkFrame, 1);
         status = virtio_video_decode_one_frame(work, m_frame);
+
         if (status != MFX_ERR_NONE && status != MFX_ERR_MORE_SURFACE) {
             g_free(m_frame);
             break;
@@ -384,7 +389,8 @@ static mfxStatus virtio_video_decode_submit_one_work(VirtIOVideoWork *work,
             }
             frame = g_new0(VirtIOVideoFrame, 1);
             frame->timestamp = work->timestamp;
-            DPRINTF("frame->timestamp = work->timestamp(ID) = %lu \n", frame->timestamp/1000000000);
+            DPRINTF("frame->timestamp = work->timestamp(ID) = %lu \n",
+                    frame->timestamp / 1000000000);
             QTAILQ_INSERT_TAIL(&stream->pending_frames, frame, next);
             inserted = true;
         }
@@ -473,6 +479,7 @@ static void virtio_video_decode_retrieve_one_frame(VirtIOVideoFrame *frame,
         error_report("%s:Line %d ret: %d", __func__, __LINE__, ret);
         work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
     }
+
     if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12) {
         ret = virtio_video_msdk_output_surface(m_session, m_frame->surface,
                                                work->resource);
@@ -493,8 +500,8 @@ static void virtio_video_decode_retrieve_one_frame(VirtIOVideoFrame *frame,
     QTAILQ_REMOVE(&stream->pending_frames, frame, next);
     if (QTAILQ_IN_USE(work, next))
         QTAILQ_REMOVE(&stream->output_work, work, next);
-    work->timestamp = frame->timestamp;
-    DPRINTF("work->timestamp = frame->timestamp = %lu \n", frame->timestamp/1000000000);
+
+    work->timestamp = m_frame->surface->surface.Data.TimeStamp;
     virtio_video_msdk_uninit_frame(frame);
     virtio_video_work_done(work);
     qemu_event_set(&m_session->input_notifier);
@@ -1025,7 +1032,8 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
 
     qemu_event_init(&m_session->input_notifier, false);
     qemu_event_init(&m_session->output_notifier, false);
-    m_session->bitstream.Data = g_malloc0(1024);//if 1k enough for bigger resolutions? potential risk
+    m_session->bitstream.Data =
+        g_malloc0(1024); // if 1k enough for bigger resolutions? potential risk
     m_session->bitstream.MaxLength = 1024;
     QLIST_INIT(&m_session->surface_pool);
     QLIST_INIT(&m_session->vpp_surface_pool);
@@ -1295,7 +1303,7 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
         }
 
         bitstream = g_new0(mfxBitstream, 1);
-        bitstream->Data = resource->slices[0]->page.base;
+        bitstream->Data = resource->slices[0]->page.base;//use page.base is a potential bug
         bitstream->DataLength = req->data_sizes[0];
         bitstream->MaxLength = req->data_sizes[0];
         DPRINTF("intput bitstream DataLength:%d\n", req->data_sizes[0]);

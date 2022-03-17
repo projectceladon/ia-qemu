@@ -100,7 +100,22 @@ fail:
 
 mfxStatus virtio_video_frame_free(mfxHDL pthis, mfxFrameAllocResponse *response)
 {
+    MsdkSession *m_session;
     DPRINTF("\n");
+
+    m_session = pthis;
+    if (m_session && m_session->surfaces) {
+        g_free(m_session->surfaces);
+        m_session->surfaces = NULL;
+        DPRINTF("free m_session->surfaces\n");
+    }
+
+    if (m_session && m_session->surface_ids) {
+        g_free(m_session->surface_ids);
+        m_session->surface_ids = NULL;
+        DPRINTF("free m_session->surface_ids\n");
+    }
+
     return MFX_ERR_NONE;
 }
 
