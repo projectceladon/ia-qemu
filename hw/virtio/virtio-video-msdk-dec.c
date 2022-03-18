@@ -473,6 +473,7 @@ static void virtio_video_decode_retrieve_one_frame(VirtIOVideoFrame *frame,
                      "corrupted: %d\n", stream->id, frame->timestamp, ret);
         }
     }
+    //printf_mfxFrameSurface1(m_frame->surface->surface);
 
     /* It's better to output something, even if it's corrupted. */
     if (ret != 0) {
@@ -806,6 +807,8 @@ done:
     qemu_event_destroy(&m_session->output_notifier);
     virtio_video_msdk_uninit_surface_pools(m_session);
     g_free(m_session->bitstream.Data);
+    if (m_session->frame_allocator)
+        g_free(m_session->frame_allocator);
     g_free(m_session);
 
     qemu_mutex_destroy(&stream->mutex);
@@ -832,15 +835,6 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
         .Version.Major = VIRTIO_VIDEO_MSDK_VERSION_MAJOR,
         .Version.Minor = VIRTIO_VIDEO_MSDK_VERSION_MINOR,
     };
-
-    mfxFrameAllocator frame_allocator = {
-    .pthis = NULL,
-    .Alloc = virtio_video_frame_alloc,
-    .Lock = virtio_video_frame_lock,
-    .Unlock = virtio_video_frame_unlock,
-    .GetHDL = virtio_video_frame_get_handle,
-    .Free = virtio_video_frame_free,
-};
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
     resp->stream_id = req->hdr.stream_id;
@@ -902,15 +896,24 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     // but where the MFXVideoCORE_SetFrameAllocator() should be called?
     m_session->IOPattern = MFX_IOPATTERN_OUT_VIDEO_MEMORY;
     if (m_session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY) {
-        frame_allocator.pthis = m_session;
+        m_session->frame_allocator = g_new0(mfxFrameAllocator, 1);
+        m_session->frame_allocator->pthis = m_session;
+        m_session->frame_allocator->Alloc = virtio_video_frame_alloc;
+        m_session->frame_allocator->Lock = virtio_video_frame_lock;
+        m_session->frame_allocator->Unlock = virtio_video_frame_unlock;
+        m_session->frame_allocator->GetHDL = virtio_video_frame_get_handle;
+        m_session->frame_allocator->Free = virtio_video_frame_free;
         status = MFXVideoCORE_SetFrameAllocator(m_session->session,
-                                                &frame_allocator);
+                                                m_session->frame_allocator);
     } else {
+        m_session->frame_allocator = NULL;
         status = MFXVideoCORE_SetFrameAllocator(m_session->session, NULL);
     }
     if (status != MFX_ERR_NONE) {
         error_report("MFXVideoCORE_SetFrameAllocator failed: %d", status);
         MFXClose(m_session->session);
+        if (m_session->frame_allocator)
+            g_free(m_session->frame_allocator);
         g_free(m_session);
         return len;
     }
@@ -1516,6 +1519,7 @@ static size_t virtio_video_msdk_dec_resource_clear(VirtIOVideoStream *stream,
             status = MFXVideoDECODE_Reset(m_session->session, &param);
             DPRINTF("MFXVideoDECODE_Reset %s\n", virtio_video_status_to_string(status));
             //frontend will send new PPS and SPS and Iframe, after clear command.
+            printf("%d\n", status);
             stream->csd_received_after_clear = 0;
             stream->state = STREAM_STATE_INPUT_PAUSED;
 

@@ -50,40 +50,41 @@ static struct {
     virtio_video_cmd_type cmd;
     const char *name;
 } virtio_video_cmds[] = {
-    {VIRTIO_VIDEO_CMD_QUERY_CAPABILITY, "QUERY_CAPABILITY"},
-    {VIRTIO_VIDEO_CMD_STREAM_CREATE, "STREAM_CREATE"},
-    {VIRTIO_VIDEO_CMD_STREAM_DESTROY, "STREAM_DESTROY"},
-    {VIRTIO_VIDEO_CMD_STREAM_DRAIN, "STREAM_DRAIN"},
-    {VIRTIO_VIDEO_CMD_RESOURCE_CREATE, "RESOURCE_CREATE"},
-    {VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL, "RESOURCE_DESTROY_ALL"},
-    {VIRTIO_VIDEO_CMD_RESOURCE_QUEUE, "RESOURCE_QUEUE"},
-    {VIRTIO_VIDEO_CMD_QUEUE_CLEAR, "QUEUE_CLEAR"},
-    {VIRTIO_VIDEO_CMD_GET_PARAMS, "GET_PARAMS"},
-    {VIRTIO_VIDEO_CMD_SET_PARAMS, "SET_PARAMS"},
-    {VIRTIO_VIDEO_CMD_QUERY_CONTROL, "QUERY_CONTROL"},
-    {VIRTIO_VIDEO_CMD_GET_CONTROL, "GET_CONTROL"},
-    {VIRTIO_VIDEO_CMD_SET_CONTROL, "SET_CONTROL"},
+    { VIRTIO_VIDEO_CMD_QUERY_CAPABILITY, "QUERY_CAPABILITY" },
+    { VIRTIO_VIDEO_CMD_STREAM_CREATE, "STREAM_CREATE" },
+    { VIRTIO_VIDEO_CMD_STREAM_DESTROY, "STREAM_DESTROY" },
+    { VIRTIO_VIDEO_CMD_STREAM_DRAIN, "STREAM_DRAIN" },
+    { VIRTIO_VIDEO_CMD_RESOURCE_CREATE, "RESOURCE_CREATE" },
+    { VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL, "RESOURCE_DESTROY_ALL" },
+    { VIRTIO_VIDEO_CMD_RESOURCE_QUEUE, "RESOURCE_QUEUE" },
+    { VIRTIO_VIDEO_CMD_QUEUE_CLEAR, "QUEUE_CLEAR" },
+    { VIRTIO_VIDEO_CMD_GET_PARAMS, "GET_PARAMS" },
+    { VIRTIO_VIDEO_CMD_SET_PARAMS, "SET_PARAMS" },
+    { VIRTIO_VIDEO_CMD_QUERY_CONTROL, "QUERY_CONTROL" },
+    { VIRTIO_VIDEO_CMD_GET_CONTROL, "GET_CONTROL" },
+    { VIRTIO_VIDEO_CMD_SET_CONTROL, "SET_CONTROL" },
 };
 
 static struct {
     virtio_video_format format;
     const char *name;
 } virtio_video_formats[] = {
-    {VIRTIO_VIDEO_FORMAT_ARGB8888, "ARGB8"},
-    {VIRTIO_VIDEO_FORMAT_BGRA8888, "BGRA8"},
-    {VIRTIO_VIDEO_FORMAT_NV12, "NV12"},
-    {VIRTIO_VIDEO_FORMAT_YUV420, "YUV420(IYUV)"},
-    {VIRTIO_VIDEO_FORMAT_YVU420, "YVU420(YV12)"},
+    { VIRTIO_VIDEO_FORMAT_ARGB8888, "ARGB8" },
+    { VIRTIO_VIDEO_FORMAT_BGRA8888, "BGRA8" },
+    { VIRTIO_VIDEO_FORMAT_NV12, "NV12" },
+    { VIRTIO_VIDEO_FORMAT_YUV420, "YUV420(IYUV)" },
+    { VIRTIO_VIDEO_FORMAT_YVU420, "YVU420(YV12)" },
 
-    {VIRTIO_VIDEO_FORMAT_MPEG2, "MPEG-2"},
-    {VIRTIO_VIDEO_FORMAT_MPEG4, "MPEG-4"},
-    {VIRTIO_VIDEO_FORMAT_H264, "H.264(AVC)"},
-    {VIRTIO_VIDEO_FORMAT_HEVC, "H.265(HEVC)"},
-    {VIRTIO_VIDEO_FORMAT_VP8, "VP8"},
-    {VIRTIO_VIDEO_FORMAT_VP9, "VP9"},
+    { VIRTIO_VIDEO_FORMAT_MPEG2, "MPEG-2" },
+    { VIRTIO_VIDEO_FORMAT_MPEG4, "MPEG-4" },
+    { VIRTIO_VIDEO_FORMAT_H264, "H.264(AVC)" },
+    { VIRTIO_VIDEO_FORMAT_HEVC, "H.265(HEVC)" },
+    { VIRTIO_VIDEO_FORMAT_VP8, "VP8" },
+    { VIRTIO_VIDEO_FORMAT_VP9, "VP9" },
 };
 
-const char *virtio_video_cmd_name(uint32_t cmd) {
+const char *virtio_video_cmd_name(uint32_t cmd)
+{
     int i;
 
     for (i = 0; i < ARRAY_SIZE(virtio_video_cmds); i++) {
@@ -94,7 +95,8 @@ const char *virtio_video_cmd_name(uint32_t cmd) {
     return "UNKNOWN_CMD";
 }
 
-const char *virtio_video_format_name(uint32_t format) {
+const char *virtio_video_format_name(uint32_t format)
+{
     int i;
 
     for (i = 0; i < ARRAY_SIZE(virtio_video_formats); i++) {
@@ -105,8 +107,8 @@ const char *virtio_video_format_name(uint32_t format) {
     return "UNKNOWN_FORMAT";
 }
 
-int virtio_video_format_profile_range(uint32_t format,
-    uint32_t *min, uint32_t *max)
+int virtio_video_format_profile_range(uint32_t format, uint32_t *min,
+                                      uint32_t *max)
 {
     if (min == NULL || max == NULL) {
         return -1;
@@ -136,8 +138,8 @@ int virtio_video_format_profile_range(uint32_t format,
     return 0;
 }
 
-int virtio_video_format_level_range(uint32_t format,
-    uint32_t *min, uint32_t *max)
+int virtio_video_format_level_range(uint32_t format, uint32_t *min,
+                                    uint32_t *max)
 {
     if (min == NULL || max == NULL) {
         return -1;
@@ -281,11 +283,10 @@ void virtio_video_init_format(VirtIOVideoFormat *fmt, uint32_t format)
 }
 
 void virtio_video_destroy_resource(VirtIOVideoResource *resource,
-    uint32_t mem_type, bool in)
+                                   uint32_t mem_type, bool in)
 {
     VirtIOVideoResourceSlice *slice;
-    DMADirection dir = in ? DMA_DIRECTION_TO_DEVICE :
-                            DMA_DIRECTION_FROM_DEVICE;
+    DMADirection dir = in ? DMA_DIRECTION_TO_DEVICE : DMA_DIRECTION_FROM_DEVICE;
     int i, j;
 
     QLIST_REMOVE(resource, next);
@@ -316,13 +317,15 @@ void virtio_video_destroy_resource_list(VirtIOVideoStream *stream, bool in)
         dir = VIRTIO_VIDEO_QUEUE_OUTPUT;
     }
 
-    QLIST_FOREACH_SAFE(res, &stream->resource_list[dir], next, tmp_res) {
+    QLIST_FOREACH_SAFE(res, &stream->resource_list[dir], next, tmp_res)
+    {
         virtio_video_destroy_resource(res, mem_type, in);
     }
 }
 
 static int virtio_video_memcpy_singlebuffer(VirtIOVideoResource *res,
-    uint32_t idx, void *src, uint32_t size)
+                                            uint32_t idx, void *src,
+                                            uint32_t size)
 {
     VirtIOVideoResourceSlice *slice;
     uint32_t begin = res->plane_offsets[idx], end = begin + size;
@@ -330,7 +333,7 @@ static int virtio_video_memcpy_singlebuffer(VirtIOVideoResource *res,
     int i;
     DPRINTF("src:%p, size:%d\n", src, (int)size);
 
-    for (i = 0; i < res->num_entries[0]; i++, base+= slice->page.len) {
+    for (i = 0; i < res->num_entries[0]; i++, base += slice->page.len) {
         slice = &res->slices[0][i];
         if (begin >= base + slice->page.len)
             continue;
@@ -357,15 +360,76 @@ static int virtio_video_memcpy_singlebuffer(VirtIOVideoResource *res,
     return 0;
 }
 
+/*
+ * For NV12, the target data will be Y+UV in one plane(contigeous), but the
+ * source maybe Y + Blank block + UV（non-contigeous), so need copy seperately
+ */
+int virtio_video_memcpy_NV12(VirtIOVideoResource *res, void *Y, uint32_t size_Y,
+                             void *UV, uint32_t size_UV)
+{
+    VirtIOVideoResourceSlice *slice;
+    uint32_t begin = res->plane_offsets[0], end = begin + size_Y + size_UV;
+    uint32_t base = 0, diff, len, size;
+    void *src;
+    int i;
+
+    src = Y;
+    size = size_Y;
+    for (i = 0; i < res->num_entries[0]; i++, base += slice->page.len) {
+        slice = &res->slices[0][i];
+        if (begin >= base + slice->page.len)
+            continue;
+        /* begin >= base is always true */
+        diff = begin - base;
+        len = slice->page.len - diff;
+        if (end <= base + slice->page.len) {
+            memcpy(slice->page.base + diff, src, size);
+            return 0;
+        } else {
+            if (size >= len) {
+                memcpy(slice->page.base + diff, src, len);
+                begin += len;
+                size -= len;
+                src += len;
+                len = 0;
+            } else {
+                memcpy(slice->page.base + diff, src, size);
+                begin += size;
+                src += size;
+                len -= size;
+                diff += size;
+                size = 0;
+            }
+            if (size == 0 && src <= UV) {
+                src = UV;
+                size = size_UV;
+                memcpy(slice->page.base + diff, src, len);
+                begin += len;
+                size -= len;
+                src += len;
+            }
+        }
+    }
+
+    if (size > 0) {
+        error_report("CMD_RESOURCE_QUEUE: output buffer insufficient "
+                     "to contain the frame");
+        return -1;
+    }
+
+    return 0;
+}
+
 static int virtio_video_memdump_singlebuffer(VirtIOVideoResource *res,
-    uint32_t idx, void *dst, uint32_t size)
+                                             uint32_t idx, void *dst,
+                                             uint32_t size)
 {
     VirtIOVideoResourceSlice *slice;
     uint32_t begin = res->plane_offsets[idx], end = begin + size;
     uint32_t base = 0, diff, len;
     int i;
 
-    for (i = 0; i < res->num_entries[0]; i++, base+= slice->page.len) {
+    for (i = 0; i < res->num_entries[0]; i++, base += slice->page.len) {
         slice = &res->slices[0][i];
         if (begin >= base + slice->page.len)
             continue;
@@ -392,8 +456,8 @@ static int virtio_video_memdump_singlebuffer(VirtIOVideoResource *res,
     return 0;
 }
 
-static int virtio_video_memcpy_perplane(VirtIOVideoResource *res,
-    uint32_t idx, void *src, uint32_t size)
+static int virtio_video_memcpy_perplane(VirtIOVideoResource *res, uint32_t idx,
+                                        void *src, uint32_t size)
 {
     VirtIOVideoResourceSlice *slice;
     int i;
@@ -412,15 +476,16 @@ static int virtio_video_memcpy_perplane(VirtIOVideoResource *res,
 
     if (size > 0) {
         error_report("CMD_RESOURCE_QUEUE: output buffer insufficient "
-                     "to contain the frame, idx:%d, left size:%d", idx, size);
+                     "to contain the frame, idx:%d, left size:%d",
+                     idx, size);
         return -1;
     }
 
     return 0;
 }
 
-static int virtio_video_memdump_perplane(VirtIOVideoResource *res,
-    uint32_t idx, void *dst, uint32_t size)
+static int virtio_video_memdump_perplane(VirtIOVideoResource *res, uint32_t idx,
+                                         void *dst, uint32_t size)
 {
     VirtIOVideoResourceSlice *slice;
     int i;
@@ -440,7 +505,7 @@ static int virtio_video_memdump_perplane(VirtIOVideoResource *res,
     if (size > 0) {
         error_report("CMD_RESOURCE_QUEUE: output buffer insufficient "
                      "to contain the frame");
-        //return -1;
+        // return -1;
     }
 
     return 0;
@@ -460,7 +525,7 @@ int virtio_video_memdump(VirtIOVideoResource *res, uint32_t idx, void *dst,
 }
 
 int virtio_video_memcpy(VirtIOVideoResource *res, uint32_t idx, void *src,
-    uint32_t size)
+                        uint32_t size)
 {
     switch (res->planes_layout) {
     case VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER:
@@ -489,17 +554,18 @@ static const char *virtio_video_event_name(uint32_t event)
 int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-    virtio_video_event resp = {0};
+    virtio_video_event resp = { 0 };
 
     resp.event_type = event->event_type;
     resp.stream_id = event->stream_id;
 
-    DPRINTF_IOV("%s, iov:%p, iov_cnt:%d, copy size:%d, streamid:%d, event_type:0x%x\n", __func__, event->elem->in_sg, 
-                                                                            event->elem->in_num, (int)sizeof(resp)
-                                                                            , resp.stream_id, resp.event_type);
+    DPRINTF_IOV(
+        "%s, iov:%p, iov_cnt:%d, copy size:%d, streamid:%d, event_type:0x%x\n",
+        __func__, event->elem->in_sg, event->elem->in_num, (int)sizeof(resp),
+        resp.stream_id, resp.event_type);
 
-    if (unlikely(iov_from_buf(event->elem->in_sg, event->elem->in_num, 0,
-                              &resp, sizeof(resp)) != sizeof(resp))) {
+    if (unlikely(iov_from_buf(event->elem->in_sg, event->elem->in_num, 0, &resp,
+                              sizeof(resp)) != sizeof(resp))) {
         virtio_error(vdev, "virtio-video event input incorrect");
         virtqueue_detach_element(v->event_vq, event->elem, 0);
         g_free(event->elem);
@@ -512,7 +578,8 @@ int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event)
 
     DPRINTF("stream %d event %s triggered\n", event->stream_id,
             virtio_video_event_name(resp.event_type));
-    g_free(event->elem); //event->elem pushed to virtqueue, any race if free it remove it immediately?
+    g_free(event->elem); // event->elem pushed to virtqueue, any race if free it
+                         // remove it immediately?
     g_free(event);
     return 0;
 }
@@ -524,22 +591,26 @@ int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event)
  *  @work->resource: should be removed from @resource_list and destroyed
  */
 static int virtio_video_cmd_resource_queue_complete(VirtIOVideo *v,
-    VirtIOVideoWork *work, uint32_t stream_id, uint32_t resource_id)
+                                                    VirtIOVideoWork *work,
+                                                    uint32_t stream_id,
+                                                    uint32_t resource_id)
 {
     VirtIODevice *vdev = VIRTIO_DEVICE(v);
-    virtio_video_resource_queue_resp resp = {0};
+    virtio_video_resource_queue_resp resp = { 0 };
 
     resp.hdr.type = VIRTIO_VIDEO_RESP_OK_NODATA;
     resp.hdr.stream_id = stream_id;
     resp.timestamp = work->timestamp;
     resp.flags = work->flags;
     resp.size = work->size;
-    DPRINTF("resp.timestamp = work->timestamp = %lu \n", work->timestamp/1000000000);
+    DPRINTF("resp.timestamp = work->timestamp = %lu \n",
+            work->timestamp / 1000000000);
 
-    DPRINTF("type:%d, streamID:%d, flags:%d, size:%d\n", resp.hdr.type,resp.hdr.stream_id, resp.flags, resp.size);
+    DPRINTF("type:%d, streamID:%d, flags:%d, size:%d\n", resp.hdr.type,
+            resp.hdr.stream_id, resp.flags, resp.size);
 
-    if (unlikely(iov_from_buf(work->elem->in_sg, work->elem->in_num, 0,
-                              &resp, sizeof(resp)) != sizeof(resp))) {
+    if (unlikely(iov_from_buf(work->elem->in_sg, work->elem->in_num, 0, &resp,
+                              sizeof(resp)) != sizeof(resp))) {
         virtio_error(vdev, "virtio-video command response incorrect");
         virtqueue_detach_element(v->cmd_vq, work->elem, 0);
         g_free(work->elem);
@@ -551,8 +622,10 @@ static int virtio_video_cmd_resource_queue_complete(VirtIOVideo *v,
     virtio_notify(vdev, v->cmd_vq);
 
     DPRINTF("CMD_RESOURCE_QUEUE complete: stream %d dequeued %s resource %d, "
-            "flags=0x%x size=%d\n", stream_id, work->queue_type ==
-            VIRTIO_VIDEO_QUEUE_TYPE_INPUT ? "input" : "output",
+            "flags=0x%x size=%d\n",
+            stream_id,
+            work->queue_type == VIRTIO_VIDEO_QUEUE_TYPE_INPUT ? "input" :
+                                                                "output",
             resource_id, work->flags, work->size);
     g_free(work->elem);
     g_free(work);
@@ -589,22 +662,23 @@ void virtio_video_work_done(VirtIOVideoWork *work)
 #else
     VirtIOVideoStream *stream = work->parent;
     VirtIOVideo *v = stream->parent;
-    virtio_video_cmd_resource_queue_complete(v, work, stream->id, work->resource->id);
+    virtio_video_cmd_resource_queue_complete(v, work, stream->id,
+                                             work->resource->id);
 #endif
 }
 
 static void virtio_video_cmd_others_complete(struct virtio_video_cmd_bh_arg *s,
-    bool success)
+                                             bool success)
 {
     VirtIODevice *vdev = VIRTIO_DEVICE(s->v);
-    virtio_video_cmd_hdr resp = {0};
+    virtio_video_cmd_hdr resp = { 0 };
 
     resp.type = success ? VIRTIO_VIDEO_RESP_OK_NODATA :
                           VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
     resp.stream_id = s->stream_id;
 
-    if (unlikely(iov_from_buf(s->cmd.elem->in_sg, s->cmd.elem->in_num, 0,
-                              &resp, sizeof(resp)) != sizeof(resp))) {
+    if (unlikely(iov_from_buf(s->cmd.elem->in_sg, s->cmd.elem->in_num, 0, &resp,
+                              sizeof(resp)) != sizeof(resp))) {
         virtio_error(vdev, "virtio-video command response incorrect");
         virtqueue_detach_element(s->v->cmd_vq, s->cmd.elem, 0);
         g_free(s->cmd.elem);
@@ -616,20 +690,20 @@ static void virtio_video_cmd_others_complete(struct virtio_video_cmd_bh_arg *s,
 
     switch (s->cmd.cmd_type) {
     case VIRTIO_VIDEO_CMD_STREAM_DRAIN:
-        DPRINTF("CMD_STREAM_DRAIN (async) for stream %d %s\n",
-                s->stream_id, success ? "done" : "cancelled");
+        DPRINTF("CMD_STREAM_DRAIN (async) for stream %d %s\n", s->stream_id,
+                success ? "done" : "cancelled");
         break;
     case VIRTIO_VIDEO_CMD_RESOURCE_DESTROY_ALL:
         DPRINTF("CMD_RESOURCE_DESTROY_ALL (async) for stream %d %s\n",
                 s->stream_id, success ? "done" : "cancelled");
         break;
     case VIRTIO_VIDEO_CMD_QUEUE_CLEAR:
-        DPRINTF("CMD_QUEUE_CLEAR (async) for stream %d %s\n",
-                s->stream_id, success ? "done" : "cancelled");
+        DPRINTF("CMD_QUEUE_CLEAR (async) for stream %d %s\n", s->stream_id,
+                success ? "done" : "cancelled");
         break;
     case VIRTIO_VIDEO_CMD_STREAM_DESTROY:
-        DPRINTF("CMD_STREAM_DESTROY (async) for stream %d %s\n",
-                s->stream_id, success ? "done" : "cancelled");
+        DPRINTF("CMD_STREAM_DESTROY (async) for stream %d %s\n", s->stream_id,
+                success ? "done" : "cancelled");
         break;
     default:
         break;
@@ -694,8 +768,10 @@ static void virtio_video_event_bh(void *opaque)
     VirtQueue *vq = v->event_vq;
 
     qemu_mutex_lock(&v->mutex);
-    QTAILQ_FOREACH_SAFE(event, &v->event_queue, next, tmp_event) {
-        DPRINTF_EVENT("event_queue_debug, %s, all event in event_queue:%p\n", __func__, event);
+    QTAILQ_FOREACH_SAFE(event, &v->event_queue, next, tmp_event)
+    {
+        DPRINTF_EVENT("event_queue_debug, %s, all event in event_queue:%p\n",
+                      __func__, event);
     }
 
     event = g_new0(VirtIOVideoEvent, 1);
@@ -703,7 +779,8 @@ static void virtio_video_event_bh(void *opaque)
     event->stream_id = s->stream_id;
 
     elem = virtqueue_pop(vq, sizeof(VirtQueueElement));
-    if (!elem || elem->in_num < 1 || elem->in_sg[0].iov_len < sizeof(virtio_video_event)) {
+    if (!elem || elem->in_num < 1 ||
+        elem->in_sg[0].iov_len < sizeof(virtio_video_event)) {
         // no usable element in vq, queue event and wait for new element
         QTAILQ_INSERT_TAIL(&v->event_queue, event, next);
         if (elem) {
@@ -716,7 +793,8 @@ static void virtio_video_event_bh(void *opaque)
     }
 
     event->elem = elem;
-    DPRINTF_EVENT("event_queue_debug, %s, complete event %p\n", __func__,event);
+    DPRINTF_EVENT("event_queue_debug, %s, complete event %p\n", __func__,
+                  event);
     virtio_video_event_complete(vdev, event);
 
 done:
@@ -726,7 +804,7 @@ done:
 }
 
 void virtio_video_report_event(VirtIOVideo *v, uint32_t event,
-    uint32_t stream_id)
+                               uint32_t stream_id)
 {
     struct virtio_video_event_bh_arg *s;
 

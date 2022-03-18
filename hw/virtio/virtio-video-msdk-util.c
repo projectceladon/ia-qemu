@@ -424,75 +424,6 @@ void virtio_video_msdk_dump_surface(char * src, int len) {
         
 }
 
-static int virtio_video_map_surface(MsdkSession *session,
-                                    mfxFrameSurface1 *surface, void **data,
-                                    VAImage *img)
-{
-    VASurfaceID surface_id = *(VASurfaceID *)surface->Data.MemId;
-    VAImageFormat img_fmt = {
-        .fourcc = VA_FOURCC_NV12,
-        .byte_order = VA_LSB_FIRST,
-        .bits_per_pixel = 8,
-        .depth = 8,
-    };
-
-    VAStatus err;
-    int ret;
-
-    DPRINTF("\n");
-
-    img->buf = VA_INVALID_ID;
-    img->image_id = VA_INVALID_ID;
-    err = vaCreateImage(session->va_dpy, &img_fmt, surface->Info.Width,
-                        surface->Info.Height, img);
-    if (err != VA_STATUS_SUCCESS) {
-        DPRINTF("Error creating an image: %s\n", vaErrorStr(err));
-        ret = -1;
-        goto fail;
-    }
-    err = vaGetImage(session->va_dpy, surface_id, 0, 0, surface->Info.Width,
-                     surface->Info.Height, img->image_id);
-    if (err != VA_STATUS_SUCCESS) {
-        DPRINTF("Error getting an image: %s\n", vaErrorStr(err));
-        ret = -1;
-        goto fail;
-    }
-    err = vaMapBuffer(session->va_dpy, img->buf, data);
-    if (err != VA_STATUS_SUCCESS) {
-        DPRINTF("Error mapping the image buffer: %s\n", vaErrorStr(err));
-        ret = -1;
-        goto fail;
-    }
-
-    DPRINTF("data:%p \n", data);
-    if(data)
-        DPRINTF("*data:%p \n", *data);
-
-    return 0;
-
-fail:
-    if (img->buf != VA_INVALID_ID)
-        vaUnmapBuffer(session->va_dpy, img->buf);
-    if (img->image_id != VA_INVALID_ID)
-        vaDestroyImage(session->va_dpy, img->image_id);
-    if (ret < 0)
-        return ret;
-    return 0;
-}
-
-static void virtio_video_unmap_surface(MsdkSession *session, VAImage *img)
-{
-    if (img->buf != VA_INVALID_ID) {
-        vaUnmapBuffer(session->va_dpy, img->buf);
-        img->buf = VA_INVALID_ID;
-    }
-
-    if (img->image_id != VA_INVALID_ID) {
-        vaDestroyImage(session->va_dpy, img->image_id);
-        img->image_id = VA_INVALID_ID;
-    }
-}
-
 //#define DUMP_SURFACE_END
 //#define DUMP_SURFACE_BEFORE
 int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
@@ -501,13 +432,13 @@ int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
     mfxFrameSurface1 *frame = &surface->surface;
     uint32_t width, height;
     int ret = 0;
-    void *frame_data;
-    VAImage img;
+    vaapiMemId vaapi_mid;
 #ifdef DUMP_SURFACE_END
     static char *Y = NULL;
     static int i = 0;
 #endif
 
+    vaapi_mid.m_frame = frame;
     width = frame->Info.Width;
     height = frame->Info.Height;
     DPRINTF("%s, with timestamp:%lld\n", __func__, frame->Data.TimeStamp);
@@ -520,34 +451,25 @@ int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
             virtio_video_memcpy(resource, 0, frame->Data.B, width * height * 4);
         break;
     case MFX_FOURCC_NV12:
-        if (session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY) {
-            DPRINTF("\n");
-            //the video buffer will be reused, can we just map once and use it forever?
-            virtio_video_map_surface(session, frame, &frame_data, &img);
-        } else {
-            DPRINTF("\n");
-            frame_data = frame->Data.Y;
+        if (session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY &&
+            session->frame_allocator) {
+            session->frame_allocator->Lock(session, &vaapi_mid, &frame->Data);
         }
 
         if (resource->num_planes != 2)
             goto error;
-        ret += virtio_video_memcpy(resource, 0, frame_data,
-                                   width * height * 3 / 2);
 
-        if (session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY) {
-            virtio_video_unmap_surface(session, &img);
+        ret += virtio_video_memcpy_NV12(resource, frame->Data.Y, width * height,
+                                        frame->Data.U, width * height / 2);
+
+        if (session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY &&
+            session->frame_allocator) {
+            // virtio_video_unmap_surface(session, &img);
+            session->frame_allocator->Unlock(session, &vaapi_mid, &frame->Data);
         }
-#if 0
-        if (resource->planes_layout == VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER)
-            ret += virtio_video_memcpy(resource, 0, frame->Data.Y, width * height * 3 / 2);
-        else
-        {
-            ret += virtio_video_memcpy(resource, 0, frame->Data.Y, width * height);
-            ret += virtio_video_memcpy(resource, 1, frame->Data.U, width * height / 2);
-        }
-#endif
+
 #ifdef DUMP_SURFACE_BEFORE
-        virtio_video_msdk_dump_surface((char *)frame_data,
+        virtio_video_msdk_dump_surface((char *)frame->Data.Y,
                                        width * height * 3 / 2);
 #endif
 #ifdef DUMP_SURFACE_END
@@ -849,7 +771,8 @@ void printf_mfxFrameData(mfxFrameData *mfxData){
     printf("mfxFrameData->MemId = %p\n", mfxData->MemId);
     printf("mfxFrameData->Corrupted = %d\n", mfxData->Corrupted);
     printf("mfxFrameData->DataFlag = %d\n", mfxData->DataFlag);
-    //printf("mfxFrameData->BitDepthLuma = %d\n", mfxData->BitDepthLuma);
+    printf("mfxFrameData->PitchLow = %d\n", mfxData->PitchLow);
+    printf("mfxFrameData->PitchHigh = %d\n", mfxData->PitchHigh);
 }
 void printf_mfxFrameSurface1(mfxFrameSurface1 surface){
     printf_mfxFrameInfo(&surface.Info);

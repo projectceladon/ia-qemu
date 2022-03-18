@@ -28,6 +28,7 @@
 #include "mfx/mfxstructures.h"
 #include "va/va.h"
 #include "hw/virtio/virtio-video.h"
+#include "hw/virtio/virtio-video-va-allocator.h"
 
 #define VIRTIO_VIDEO_MSDK_VERSION_MAJOR         1
 #define VIRTIO_VIDEO_MSDK_VERSION_MINOR         0
@@ -70,6 +71,7 @@ typedef struct MsdkSession {
     QemuEvent output_notifier;
     mfxSession session;
     VADisplay va_dpy;
+    mfxFrameAllocator *frame_allocator;
     mfxBitstream bitstream;
     bool input_accepted;
     int surface_num;

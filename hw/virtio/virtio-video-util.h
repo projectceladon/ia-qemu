@@ -42,7 +42,8 @@ void virtio_video_destroy_resource(VirtIOVideoResource *resource,
 void virtio_video_destroy_resource_list(VirtIOVideoStream *stream, bool in);
 int virtio_video_memcpy(VirtIOVideoResource *res, uint32_t idx, void *src,
                         uint32_t size);
-
+int virtio_video_memcpy_NV12(VirtIOVideoResource *res, void *Y, uint32_t size_Y,
+                             void *UV, uint32_t size_UV);
 int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event);
 
 void virtio_video_work_done(VirtIOVideoWork *work);

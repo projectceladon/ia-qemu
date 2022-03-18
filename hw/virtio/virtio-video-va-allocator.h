@@ -25,11 +25,30 @@
 
 #include "mfx/mfxvideo.h"
 
+// VAAPI Allocator internal Mem ID
+typedef struct {
+    VASurfaceID *m_surface;
+    VAImage m_image;
+    mfxFrameSurface1 *m_frame;
+    // variables for VAAPI Allocator internal color conversion
+    unsigned int m_fourcc;
+    mfxU8 *m_sys_buffer;
+    mfxU8 *m_va_buffer;
+    // buffer info to support surface export
+    VABufferInfo m_buffer_info;
+    // pointer to private export data
+    void *m_custom;
+} vaapiMemId;
 
-mfxStatus virtio_video_frame_alloc(mfxHDL pthis, mfxFrameAllocRequest *request, mfxFrameAllocResponse *response);
-mfxStatus virtio_video_frame_free(mfxHDL pthis, mfxFrameAllocResponse *response);
-mfxStatus virtio_video_frame_lock(mfxHDL pthis, mfxMemId mid, mfxFrameData *frame_data);
-mfxStatus virtio_video_frame_unlock(mfxHDL pthis, mfxMemId mid, mfxFrameData *frame_data);
-mfxStatus virtio_video_frame_get_handle(mfxHDL pthis, mfxMemId mid, mfxHDL *handle);
+mfxStatus virtio_video_frame_alloc(mfxHDL pthis, mfxFrameAllocRequest *request,
+                                   mfxFrameAllocResponse *response);
+mfxStatus virtio_video_frame_free(mfxHDL pthis,
+                                  mfxFrameAllocResponse *response);
+mfxStatus virtio_video_frame_lock(mfxHDL pthis, mfxMemId mid,
+                                  mfxFrameData *frame_data);
+mfxStatus virtio_video_frame_unlock(mfxHDL pthis, mfxMemId mid,
+                                    mfxFrameData *frame_data);
+mfxStatus virtio_video_frame_get_handle(mfxHDL pthis, mfxMemId mid,
+                                        mfxHDL *handle);
 
 #endif
