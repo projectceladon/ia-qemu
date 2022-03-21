@@ -35,7 +35,7 @@
 static uint32_t CALL_No = 0;
 #endif
 
-static uint32_t FRAME_NUM = 0;
+// static uint32_t FRAME_NUM = 0;
 
 #define THREAD_NAME_LEN 48
 void virtio_video_msdk_enc_set_param_default(VirtIOVideoStream *pStream, uint32_t coded_fmt);
@@ -1442,7 +1442,9 @@ int virtio_video_msdk_enc_stream_terminate(VirtIOVideoStream *pStream, VirtQueue
     qemu_event_set(&pSession->output_notifier);
 
     qemu_mutex_unlock(&pStream->mutex_out);
+    DPRINTF("Unlock mutex_out success.\n");
     qemu_mutex_unlock(&pStream->mutex);
+    DPRINTF("Unlock mutex success.\n");
 
     DPRINTF("Stream_Destroy complete.\n");
     // Waiting for input and output thread terminate
@@ -1791,11 +1793,15 @@ int virtio_video_encode_retrieve_one_frame(VirtIOVideoFrame *pPendingFrame, Virt
     }
 
     virtio_video_memcpy(pRes, 0, pBs->Data, pBs->DataLength);
-    pOutWork->flags = virtio_video_msdk_to_frame_type(pBs->FrameType);
+    pOutWork->flags = virtio_video_get_frame_type(pBs->FrameType);
+    // DPRINTF("DEQBUF timestamp(%lu) sdk_flags(%#x), vv_flags(%#x)\n",
+    //     pOutWork->timestamp, (uint32_t)pBs->FrameType, pOutWork->flags);
     pOutWork->size = pBs->DataLength;
     pOutWork->timestamp = pPendingFrame->timestamp;
     virtio_video_msdk_uninit_frame(pPendingFrame);
-    DPRINTF("Send output work response : %d timestamp : %ld, total for now : %d\n", pOutWork->resource->id, pOutWork->timestamp, FRAME_NUM++);
+    DPRINTF("Send output work response(%u) timestamp(%lu), data_size(%u), frame_type(%s)\n",
+            pOutWork->resource->id, pOutWork->timestamp / 1000, pOutWork->size,
+            virtio_video_frame_type_name(pOutWork->flags));
     virtio_video_work_done(pOutWork);
     return 0;
 }

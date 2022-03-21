@@ -250,6 +250,20 @@ uint32_t virtio_video_msdk_to_frame_type(uint32_t msdk)
     return 0;
 }
 
+inline uint32_t virtio_video_get_frame_type(mfxU16 m_frameType)
+{
+    if (m_frameType & MFX_FRAMETYPE_IDR)
+        return VIRTIO_VIDEO_BUFFER_FLAG_IFRAME;
+    else if (m_frameType & MFX_FRAMETYPE_I)
+        return VIRTIO_VIDEO_BUFFER_FLAG_IFRAME;
+    else if (m_frameType & MFX_FRAMETYPE_P)
+        return VIRTIO_VIDEO_BUFFER_FLAG_PFRAME;
+    // else if ((m_frameType & MFX_FRAMETYPE_REF) && (level == 0 || gopRefDist == 1))
+    //     return VIRTIO_VIDEO_BUFFER_FLAG_PFRAME; //low delay B
+    else
+        return VIRTIO_VIDEO_BUFFER_FLAG_BFRAME;
+}
+
 int virtio_video_msdk_init_param(mfxVideoParam *param, uint32_t format)
 {
     uint32_t msdk_format = virtio_video_format_to_msdk(format);

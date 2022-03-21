@@ -89,6 +89,15 @@ static struct {
     { VIRTIO_VIDEO_FORMAT_VP9, "VP9" },
 };
 
+static struct {
+    virtio_video_buffer_flag flag;
+    const char *name;
+} virtio_video_frame_types[] = {
+    {VIRTIO_VIDEO_BUFFER_FLAG_IFRAME, "I-Frame"},
+    {VIRTIO_VIDEO_BUFFER_FLAG_PFRAME, "P-Frame"},
+    {VIRTIO_VIDEO_BUFFER_FLAG_BFRAME, "B-Frame"},
+};
+
 const char *virtio_video_cmd_name(uint32_t cmd)
 {
     int i;
@@ -111,6 +120,18 @@ const char *virtio_video_format_name(uint32_t format)
         }
     }
     return "UNKNOWN_FORMAT";
+}
+
+const char *virtio_video_frame_type_name(uint32_t frame_type)
+{
+    int i;
+
+    for (i = 0; i < ARRAY_SIZE(virtio_video_frame_types); i++) {
+        if (virtio_video_frame_types[i].flag == frame_type) {
+            return virtio_video_frame_types[i].name;
+        }
+    }
+    return "UNKNOWN_FRAME_TYPE";
 }
 
 int virtio_video_format_profile_range(uint32_t format, uint32_t *min,
