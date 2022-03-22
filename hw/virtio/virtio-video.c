@@ -164,13 +164,8 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
                                 DMA_DIRECTION_TO_DEVICE;
     hwaddr len;
     int i, j, n;
-    // char print_buffer[100];
-    // bool copied = false;
-    // memset(print_buffer, 0, sizeof(print_buffer));
-    // uint32_t plane_len = 0;
 
     for (i = 0, n = 0; i < resource->num_planes; i++) {
-        // plane_len = 0;
         resource->slices[i] = g_new0(VirtIOVideoResourceSlice,
                                      resource->num_entries[i]);
         DPRINTF_IOV("%s, plane:%d, entry:%d\n", __func__, i, resource->num_entries[i]);
@@ -183,31 +178,13 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
             slice->page.base = dma_memory_map(resource->dma_as,
                                               entries[n].addr, &len, dir);
             slice->page.len = len;
-
-            // if (!copied) {
-            //     memcpy(print_buffer, slice->page.base, sizeof(print_buffer));
-            //     copied = true;
-            // }
-
-            // if (len <= 0) {
-            //     DPRINTF("CMD_CREATE_RESOURCE : plane %d's page %d, len = %ld.\n", i, j, len);
-            // }
-            // plane_len += slice->page.len;
             if (len < entries[n].length) {
                 dma_memory_unmap(resource->dma_as, slice->page.base,
                                  slice->page.len, dir, 0);
                 goto error;
             }
         }
-
-        // DPRINTF("CMD_CREATE_RESOURCE : plane %d's length = %d\n", i, plane_len);
     }
-
-    // for (i = 0; i < sizeof(print_buffer); i += 10) {
-    //     DPRINTF("%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", 
-    //     print_buffer[i], print_buffer[i + 1], print_buffer[i + 2], print_buffer[i + 3], print_buffer[i + 4], 
-    //     print_buffer[i + 5], print_buffer[i + 6], print_buffer[i + 7], print_buffer[i + 8], print_buffer[i + 9]);
-    // }
 
     return 0;
 
@@ -318,6 +295,7 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
         DPRINTF("CMD_RESOURCE_CREATE: stream %d meet invalid "
                 "planes layout (0x%x), fixed up automatically\n",
                 stream->id, req->planes_layout);
+
         if (mem_type == VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES)
             req->planes_layout = VIRTIO_VIDEO_PLANES_LAYOUT_PER_PLANE;
         else
@@ -325,8 +303,6 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
         
         if (stream->in.params.format == VIRTIO_VIDEO_FORMAT_NV12)
             req->planes_layout = VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER;
-        
-
     }
 
     resource = g_new0(VirtIOVideoResource, 1);
@@ -386,9 +362,9 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     }
 
     QLIST_INSERT_HEAD(&stream->resource_list[dir], resource, next);
-    DPRINTF("CMD_RESOURCE_CREATE: stream %d created %s resource %d\n",
-            stream->id, dir == VIRTIO_VIDEO_QUEUE_INPUT ? "input" : "output",
-            resource->id);
+    // DPRINTF("CMD_RESOURCE_CREATE: stream %d created %s resource %d\n",
+    //         stream->id, dir == VIRTIO_VIDEO_QUEUE_INPUT ? "input" : "output",
+    //         resource->id);
 out:
     qemu_mutex_unlock(&stream->mutex);
     return len;

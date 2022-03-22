@@ -197,6 +197,8 @@ struct VirtIOVideoStream {
     bool bPreenc;
     bool bParamSetDone;
     QemuMutex mutex_out;
+    uint32_t queue_clear_type;
+    mfxVideoParam *mvp;
     /* added end */
 };
 

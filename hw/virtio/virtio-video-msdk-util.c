@@ -371,7 +371,7 @@ int virtio_video_msdk_init_vpp_param_dec(mfxVideoParam *param,
 // Added by Shenlin 2022.2.28
 void *virtio_video_msdk_inc_pool_size(MsdkSession *session, uint32_t inc_num, bool vpp)
 {
-    assert(session == NULL);
+    assert(session != NULL);
     assert(inc_num > 0);
     MsdkSurface *pSurf = NULL, *pSampleSurf = NULL;
     mfxU8 *pSurfBuf = NULL;
