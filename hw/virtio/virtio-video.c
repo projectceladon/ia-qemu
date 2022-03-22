@@ -30,6 +30,12 @@
 #include "virtio-video-util.h"
 #include "virtio-video-msdk.h"
 
+//#define VIRTIO_VIDEO_DEBUG 1
+#ifndef VIRTIO_VIDEO_DEBUG
+#undef DPRINTF
+#define DPRINTF(fmt, ...) do { } while (0)
+#endif
+
 static struct {
     virtio_video_device_model id;
     const char *name;

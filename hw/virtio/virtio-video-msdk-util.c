@@ -32,6 +32,14 @@
 
 #define VIRTIO_VIDEO_DRM_DEVICE "/dev/dri/by-path/pci-0000:00:02.0-render"
 
+//#define VIRTIO_VIDEO_MSDK_UTIL_DEBUG 1
+//#define DUMP_SURFACE
+//#define DUMP_SURFACE_END
+//#define DUMP_SURFACE_BEFORE
+#ifndef VIRTIO_VIDEO_MSDK_UTIL_DEBUG
+#undef DPRINTF
+#define DPRINTF(fmt, ...) do { } while (0)
+#endif
 struct virtio_video_convert_table {
     uint32_t virtio_value;
     uint32_t msdk_value;
@@ -300,8 +308,6 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     }
 
     surface_num = vpp ? session->vpp_surface_num : session->surface_num;
-    //if (surface_num < 20)
-     //   surface_num = 20;
 
     for (i = 0; i < surface_num; i++) {
         surface = g_new0(MsdkSurface, 1);
@@ -345,7 +351,7 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
         if (vpp) {
             QLIST_INSERT_HEAD(&session->vpp_surface_pool, surface, next);
         } else {
-            DPRINTF("%s insert surface_pool\n", __func__);
+            DPRINTF("insert %p to surface_pool\n", surface);
             QLIST_INSERT_HEAD(&session->surface_pool, surface, next);
         }
     }
@@ -371,7 +377,6 @@ static void virtio_video_msdk_uninit_surface(MsdkSurface *surface)
 void virtio_video_msdk_uninit_surface_pools(MsdkSession *session)
 {
     MsdkSurface *surface, *tmp_surface;
-    DPRINTF("virtio_video_msdk_uninit_surface_pools\n");
 
     QLIST_FOREACH_SAFE(surface, &session->surface_pool, next, tmp_surface) {
         QLIST_REMOVE(surface, next);
@@ -388,7 +393,7 @@ void virtio_video_msdk_uninit_frame(VirtIOVideoFrame *frame)
     MsdkFrame *m_frame = frame->opaque;
 
     if (m_frame != NULL) {
-        DPRINTF("%s, set surface:%p used to false\n", __func__, m_frame->surface);
+        DPRINTF("set surface:%p used to false\n", m_frame->surface);
         m_frame->surface->used = false;
         if (m_frame->vpp_surface)
             m_frame->vpp_surface->used = false;
@@ -397,7 +402,6 @@ void virtio_video_msdk_uninit_frame(VirtIOVideoFrame *frame)
     g_free(frame);
 }
 
-//#define DUMP_SURFACE
 #define DUMP_SURFACE_COUNT 200
 void virtio_video_msdk_dump_surface(char * src, int len) {
 #ifdef DUMP_SURFACE
@@ -424,8 +428,6 @@ void virtio_video_msdk_dump_surface(char * src, int len) {
         
 }
 
-//#define DUMP_SURFACE_END
-//#define DUMP_SURFACE_BEFORE
 int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
                                      VirtIOVideoResource *resource)
 {
@@ -441,7 +443,7 @@ int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
     vaapi_mid.m_frame = frame;
     width = frame->Info.Width;
     height = frame->Info.Height;
-    DPRINTF("%s, with timestamp:%lld\n", __func__, frame->Data.TimeStamp);
+    DPRINTF("with timestamp:%lld\n", frame->Data.TimeStamp);
     switch (frame->Info.FourCC) {
     case MFX_FOURCC_RGB4:
         if (resource->num_planes != 1)
@@ -699,42 +701,60 @@ void virtio_video_msdk_uninit_handle(VirtIOVideo *v)
     v->opaque = NULL;
 }
 
-void printf_mfxVideoParam(mfxVideoParam *mfxVideoParam) {
-
+void printf_mfxVideoParam(mfxVideoParam *mfxVideoParam)
+{
     printf("mfxVideoParam->AllocId = %d\n", mfxVideoParam->AllocId);
     printf("mfxVideoParam->AsyncDepth = %d\n", mfxVideoParam->AsyncDepth);
 
-    printf("mfxVideoParam->mfx.FrameInfo.FourCC = 0x%x\n", mfxVideoParam->mfx.FrameInfo.FourCC);
-    printf("mfxVideoParam->mfx.FrameInfo.Width = %d\n", mfxVideoParam->mfx.FrameInfo.Width);
-    printf("mfxVideoParam->mfx.FrameInfo.Height = %d\n", mfxVideoParam->mfx.FrameInfo.Height);
-    printf("mfxVideoParam->mfx.FrameInfo.CropX = %d\n", mfxVideoParam->mfx.FrameInfo.CropX);
-    printf("mfxVideoParam->mfx.FrameInfo.CropY = %d\n", mfxVideoParam->mfx.FrameInfo.CropY);
-    printf("mfxVideoParam->mfx.FrameInfo.CropW = %d\n", mfxVideoParam->mfx.FrameInfo.CropW);
-    printf("mfxVideoParam->mfx.FrameInfo.CropH = %d\n", mfxVideoParam->mfx.FrameInfo.CropH);
-    printf("mfxVideoParam->mfx.FrameInfo.FrameRateExtN = %d\n", mfxVideoParam->mfx.FrameInfo.FrameRateExtN);
-    printf("mfxVideoParam->mfx.FrameInfo.FrameRateExtD = %d\n", mfxVideoParam->mfx.FrameInfo.FrameRateExtD);
-    printf("mfxVideoParam->mfx.FrameInfo.AspectRatioW = %d\n", mfxVideoParam->mfx.FrameInfo.AspectRatioW);
-    printf("mfxVideoParam->mfx.FrameInfo.AspectRatioH = %d\n", mfxVideoParam->mfx.FrameInfo.AspectRatioH);
-    printf("mfxVideoParam->mfx.FrameInfo.PicStruct = %d\n", mfxVideoParam->mfx.FrameInfo.PicStruct);
-    printf("mfxVideoParam->mfx.FrameInfo.ChromaFormat = %d\n", mfxVideoParam->mfx.FrameInfo.ChromaFormat);
+    printf("mfxVideoParam->mfx.FrameInfo.FourCC = 0x%x\n",
+           mfxVideoParam->mfx.FrameInfo.FourCC);
+    printf("mfxVideoParam->mfx.FrameInfo.Width = %d\n",
+           mfxVideoParam->mfx.FrameInfo.Width);
+    printf("mfxVideoParam->mfx.FrameInfo.Height = %d\n",
+           mfxVideoParam->mfx.FrameInfo.Height);
+    printf("mfxVideoParam->mfx.FrameInfo.CropX = %d\n",
+           mfxVideoParam->mfx.FrameInfo.CropX);
+    printf("mfxVideoParam->mfx.FrameInfo.CropY = %d\n",
+           mfxVideoParam->mfx.FrameInfo.CropY);
+    printf("mfxVideoParam->mfx.FrameInfo.CropW = %d\n",
+           mfxVideoParam->mfx.FrameInfo.CropW);
+    printf("mfxVideoParam->mfx.FrameInfo.CropH = %d\n",
+           mfxVideoParam->mfx.FrameInfo.CropH);
+    printf("mfxVideoParam->mfx.FrameInfo.FrameRateExtN = %d\n",
+           mfxVideoParam->mfx.FrameInfo.FrameRateExtN);
+    printf("mfxVideoParam->mfx.FrameInfo.FrameRateExtD = %d\n",
+           mfxVideoParam->mfx.FrameInfo.FrameRateExtD);
+    printf("mfxVideoParam->mfx.FrameInfo.AspectRatioW = %d\n",
+           mfxVideoParam->mfx.FrameInfo.AspectRatioW);
+    printf("mfxVideoParam->mfx.FrameInfo.AspectRatioH = %d\n",
+           mfxVideoParam->mfx.FrameInfo.AspectRatioH);
+    printf("mfxVideoParam->mfx.FrameInfo.PicStruct = %d\n",
+           mfxVideoParam->mfx.FrameInfo.PicStruct);
+    printf("mfxVideoParam->mfx.FrameInfo.ChromaFormat = %d\n",
+           mfxVideoParam->mfx.FrameInfo.ChromaFormat);
     printf("mfxVideoParam->mfx.CodecId = 0x%x\n", mfxVideoParam->mfx.CodecId);
-    printf("mfxVideoParam->mfx.CodecProfile = %d\n", mfxVideoParam->mfx.CodecProfile);
-    printf("mfxVideoParam->mfx.CodecLevel = %d\n", mfxVideoParam->mfx.CodecLevel);
+    printf("mfxVideoParam->mfx.CodecProfile = %d\n",
+           mfxVideoParam->mfx.CodecProfile);
+    printf("mfxVideoParam->mfx.CodecLevel = %d\n",
+           mfxVideoParam->mfx.CodecLevel);
     printf("mfxVideoParam->mfx.NumThread = %d\n", mfxVideoParam->mfx.NumThread);
-    printf("mfxVideoParam->mfx.DecodedOrder = %d\n", mfxVideoParam->mfx.DecodedOrder);
-    printf("mfxVideoParam->mfx.ExtendedPicStruct = %d\n", mfxVideoParam->mfx.ExtendedPicStruct);
+    printf("mfxVideoParam->mfx.DecodedOrder = %d\n",
+           mfxVideoParam->mfx.DecodedOrder);
+    printf("mfxVideoParam->mfx.ExtendedPicStruct = %d\n",
+           mfxVideoParam->mfx.ExtendedPicStruct);
 
     printf("mfxVideoParam->Protected = %d\n", mfxVideoParam->Protected);
     printf("mfxVideoParam->IOPattern = %d\n", mfxVideoParam->IOPattern);
     printf("mfxVideoParam->NumExtParam = %d\n", mfxVideoParam->NumExtParam);
 }
 
-void printf_mfxFrameInfo(mfxFrameInfo *mfxInfo){
+void printf_mfxFrameInfo(mfxFrameInfo *mfxInfo)
+{
     printf("mfxFrameInfo->BitDepthLuma = %d\n", mfxInfo->BitDepthLuma);
     printf("mfxFrameInfo->BitDepthChroma = %d\n", mfxInfo->BitDepthChroma);
     printf("mfxFrameInfo->Shift = %d\n", mfxInfo->Shift);
 
-    //printf("mfxFrameInfo->FrameId = %d\n", mfxInfo->FrameId);
+    // printf("mfxFrameInfo->FrameId = %d\n", mfxInfo->FrameId);
 
     printf("mfxFrameInfo->FourCC = %d\n", mfxInfo->FourCC);
     printf("mfxFrameInfo->Width = %d\n", mfxInfo->Width);
@@ -779,7 +799,8 @@ void printf_mfxFrameSurface1(mfxFrameSurface1 surface){
     printf_mfxFrameData(&surface.Data);
 }
 
-void printf_mfxBitstream(mfxBitstream *bs){
+void printf_mfxBitstream(mfxBitstream *bs)
+{
     printf("bs->DecodeTimeStamp = %ld\n", (long)bs->DecodeTimeStamp);
     printf("bs->TimeStamp = %ld\n", (long)bs->TimeStamp);
     printf("bs->Data = %p\n", bs->Data);
@@ -791,119 +812,122 @@ void printf_mfxBitstream(mfxBitstream *bs){
     printf("bs->DataFlag = %d\n", bs->DataFlag);
 }
 
-char * virtio_video_fmt_to_string(virtio_video_format fmt){
+char *virtio_video_fmt_to_string(virtio_video_format fmt)
+{
     switch (fmt) {
-        case VIRTIO_VIDEO_FORMAT_ARGB8888:
-            return (char *)"VIRTIO_VIDEO_FORMAT_ARGB8888";
-        case VIRTIO_VIDEO_FORMAT_BGRA8888:
-            return (char *)"VIRTIO_VIDEO_FORMAT_BGRA8888";
-        case VIRTIO_VIDEO_FORMAT_NV12:
-            return (char *)"VIRTIO_VIDEO_FORMAT_NV12";
-        case VIRTIO_VIDEO_FORMAT_YUV420:
-            return (char *)"VIRTIO_VIDEO_FORMAT_YUV420";
-        case VIRTIO_VIDEO_FORMAT_YVU420:
-            return (char *)"VIRTIO_VIDEO_FORMAT_YVU420";
-        case VIRTIO_VIDEO_FORMAT_MPEG2:
-            return (char *)"VIRTIO_VIDEO_FORMAT_MPEG2";
-        case VIRTIO_VIDEO_FORMAT_MPEG4:
-            return (char *)"VIRTIO_VIDEO_FORMAT_MPEG4";
-        case VIRTIO_VIDEO_FORMAT_H264:
-            return (char *)"VIRTIO_VIDEO_FORMAT_H264";
-        case VIRTIO_VIDEO_FORMAT_HEVC:
-            return (char *)"VIRTIO_VIDEO_FORMAT_HEVC";
-        case VIRTIO_VIDEO_FORMAT_VP8:
-            return (char *)"VIRTIO_VIDEO_FORMAT_VP8";
-        case VIRTIO_VIDEO_FORMAT_VP9:
-            return (char *)"VIRTIO_VIDEO_FORMAT_VP9";
-        default:
-            return (char *)"unknown format";
+    case VIRTIO_VIDEO_FORMAT_ARGB8888:
+        return (char *)"VIRTIO_VIDEO_FORMAT_ARGB8888";
+    case VIRTIO_VIDEO_FORMAT_BGRA8888:
+        return (char *)"VIRTIO_VIDEO_FORMAT_BGRA8888";
+    case VIRTIO_VIDEO_FORMAT_NV12:
+        return (char *)"VIRTIO_VIDEO_FORMAT_NV12";
+    case VIRTIO_VIDEO_FORMAT_YUV420:
+        return (char *)"VIRTIO_VIDEO_FORMAT_YUV420";
+    case VIRTIO_VIDEO_FORMAT_YVU420:
+        return (char *)"VIRTIO_VIDEO_FORMAT_YVU420";
+    case VIRTIO_VIDEO_FORMAT_MPEG2:
+        return (char *)"VIRTIO_VIDEO_FORMAT_MPEG2";
+    case VIRTIO_VIDEO_FORMAT_MPEG4:
+        return (char *)"VIRTIO_VIDEO_FORMAT_MPEG4";
+    case VIRTIO_VIDEO_FORMAT_H264:
+        return (char *)"VIRTIO_VIDEO_FORMAT_H264";
+    case VIRTIO_VIDEO_FORMAT_HEVC:
+        return (char *)"VIRTIO_VIDEO_FORMAT_HEVC";
+    case VIRTIO_VIDEO_FORMAT_VP8:
+        return (char *)"VIRTIO_VIDEO_FORMAT_VP8";
+    case VIRTIO_VIDEO_FORMAT_VP9:
+        return (char *)"VIRTIO_VIDEO_FORMAT_VP9";
+    default:
+        return (char *)"unknown format";
     }
 }
 
-char * virtio_video_status_to_string(mfxStatus status){
+char *virtio_video_status_to_string(mfxStatus status)
+{
     switch (status) {
-        case MFX_ERR_NONE:
-            return (char *)"MFX_ERR_NONE";
-        case MFX_ERR_UNKNOWN:
-            return (char *)"MFX_ERR_UNKNOWN";
-        case MFX_ERR_NULL_PTR:
-            return (char *)"MFX_ERR_NULL_PTR";
-        case MFX_ERR_UNSUPPORTED:
-            return (char *)"MFX_ERR_UNSUPPORTED";
-        case MFX_ERR_MEMORY_ALLOC:
-            return (char *)"MFX_ERR_MEMORY_ALLOC";
-        case MFX_ERR_NOT_ENOUGH_BUFFER:
-            return (char *)"MFX_ERR_NOT_ENOUGH_BUFFER";
-        case MFX_ERR_INVALID_HANDLE:
-            return (char *)"MFX_ERR_INVALID_HANDLE";
-        case MFX_ERR_LOCK_MEMORY:
-            return (char *)"MFX_ERR_LOCK_MEMORY";
-        case MFX_ERR_NOT_INITIALIZED:
-            return (char *)"MFX_ERR_NOT_INITIALIZED";
-        case MFX_ERR_NOT_FOUND:
-            return (char *)"MFX_ERR_NOT_FOUND";
-        case MFX_ERR_MORE_DATA:
-            return (char *)"MFX_ERR_MORE_DATA";
-        case MFX_ERR_MORE_SURFACE:
-            return (char *)"MFX_ERR_MORE_SURFACE";
-        case MFX_ERR_ABORTED:
-            return (char *)"MFX_ERR_ABORTED";
-        case MFX_ERR_DEVICE_LOST:
-            return (char *)"MFX_ERR_DEVICE_LOST";
-        case MFX_ERR_INCOMPATIBLE_VIDEO_PARAM:
-            return (char *)"MFX_ERR_INCOMPATIBLE_VIDEO_PARAM";
-        case MFX_ERR_INVALID_VIDEO_PARAM:
-            return (char *)"MFX_ERR_INVALID_VIDEO_PARAM";
-        case MFX_ERR_UNDEFINED_BEHAVIOR:
-            return (char *)"MFX_ERR_UNDEFINED_BEHAVIOR";
-        case MFX_ERR_DEVICE_FAILED:
-            return (char *)"MFX_ERR_DEVICE_FAILED";
-        case MFX_ERR_MORE_BITSTREAM:
-            return (char *)"MFX_ERR_MORE_BITSTREAM";
-        case MFX_ERR_INCOMPATIBLE_AUDIO_PARAM:
-            return (char *)"MFX_ERR_INCOMPATIBLE_AUDIO_PARAM";
-        case MFX_ERR_INVALID_AUDIO_PARAM:
-            return (char *)"MFX_ERR_INVALID_AUDIO_PARAM";
-        case MFX_ERR_GPU_HANG:
-            return (char *)"MFX_ERR_GPU_HANG";
-        case MFX_ERR_REALLOC_SURFACE:
-            return (char *)"MFX_ERR_REALLOC_SURFACE";
-        case MFX_WRN_IN_EXECUTION:
-            return (char *)"MFX_WRN_IN_EXECUTION";
-        case MFX_WRN_DEVICE_BUSY:
-            return (char *)"MFX_WRN_DEVICE_BUSY";
-        case MFX_WRN_VIDEO_PARAM_CHANGED:
-            return (char *)"MFX_WRN_VIDEO_PARAM_CHANGED";
-        case MFX_WRN_PARTIAL_ACCELERATION:
-            return (char *)"MFX_WRN_PARTIAL_ACCELERATION";
-        case MFX_WRN_INCOMPATIBLE_VIDEO_PARAM:
-            return (char *)"MFX_WRN_INCOMPATIBLE_VIDEO_PARAM";
-        case MFX_WRN_VALUE_NOT_CHANGED:
-            return (char *)"MFX_WRN_VALUE_NOT_CHANGED";
-        case MFX_WRN_OUT_OF_RANGE:
-            return (char *)"MFX_WRN_OUT_OF_RANGE";
-        case MFX_WRN_FILTER_SKIPPED:
-            return (char *)"MFX_WRN_FILTER_SKIPPED";
-        case MFX_WRN_INCOMPATIBLE_AUDIO_PARAM:
-            return (char *)"MFX_WRN_INCOMPATIBLE_AUDIO_PARAM";
-        default:
-            return (char *)"unknown status";
+    case MFX_ERR_NONE:
+        return (char *)"MFX_ERR_NONE";
+    case MFX_ERR_UNKNOWN:
+        return (char *)"MFX_ERR_UNKNOWN";
+    case MFX_ERR_NULL_PTR:
+        return (char *)"MFX_ERR_NULL_PTR";
+    case MFX_ERR_UNSUPPORTED:
+        return (char *)"MFX_ERR_UNSUPPORTED";
+    case MFX_ERR_MEMORY_ALLOC:
+        return (char *)"MFX_ERR_MEMORY_ALLOC";
+    case MFX_ERR_NOT_ENOUGH_BUFFER:
+        return (char *)"MFX_ERR_NOT_ENOUGH_BUFFER";
+    case MFX_ERR_INVALID_HANDLE:
+        return (char *)"MFX_ERR_INVALID_HANDLE";
+    case MFX_ERR_LOCK_MEMORY:
+        return (char *)"MFX_ERR_LOCK_MEMORY";
+    case MFX_ERR_NOT_INITIALIZED:
+        return (char *)"MFX_ERR_NOT_INITIALIZED";
+    case MFX_ERR_NOT_FOUND:
+        return (char *)"MFX_ERR_NOT_FOUND";
+    case MFX_ERR_MORE_DATA:
+        return (char *)"MFX_ERR_MORE_DATA";
+    case MFX_ERR_MORE_SURFACE:
+        return (char *)"MFX_ERR_MORE_SURFACE";
+    case MFX_ERR_ABORTED:
+        return (char *)"MFX_ERR_ABORTED";
+    case MFX_ERR_DEVICE_LOST:
+        return (char *)"MFX_ERR_DEVICE_LOST";
+    case MFX_ERR_INCOMPATIBLE_VIDEO_PARAM:
+        return (char *)"MFX_ERR_INCOMPATIBLE_VIDEO_PARAM";
+    case MFX_ERR_INVALID_VIDEO_PARAM:
+        return (char *)"MFX_ERR_INVALID_VIDEO_PARAM";
+    case MFX_ERR_UNDEFINED_BEHAVIOR:
+        return (char *)"MFX_ERR_UNDEFINED_BEHAVIOR";
+    case MFX_ERR_DEVICE_FAILED:
+        return (char *)"MFX_ERR_DEVICE_FAILED";
+    case MFX_ERR_MORE_BITSTREAM:
+        return (char *)"MFX_ERR_MORE_BITSTREAM";
+    case MFX_ERR_INCOMPATIBLE_AUDIO_PARAM:
+        return (char *)"MFX_ERR_INCOMPATIBLE_AUDIO_PARAM";
+    case MFX_ERR_INVALID_AUDIO_PARAM:
+        return (char *)"MFX_ERR_INVALID_AUDIO_PARAM";
+    case MFX_ERR_GPU_HANG:
+        return (char *)"MFX_ERR_GPU_HANG";
+    case MFX_ERR_REALLOC_SURFACE:
+        return (char *)"MFX_ERR_REALLOC_SURFACE";
+    case MFX_WRN_IN_EXECUTION:
+        return (char *)"MFX_WRN_IN_EXECUTION";
+    case MFX_WRN_DEVICE_BUSY:
+        return (char *)"MFX_WRN_DEVICE_BUSY";
+    case MFX_WRN_VIDEO_PARAM_CHANGED:
+        return (char *)"MFX_WRN_VIDEO_PARAM_CHANGED";
+    case MFX_WRN_PARTIAL_ACCELERATION:
+        return (char *)"MFX_WRN_PARTIAL_ACCELERATION";
+    case MFX_WRN_INCOMPATIBLE_VIDEO_PARAM:
+        return (char *)"MFX_WRN_INCOMPATIBLE_VIDEO_PARAM";
+    case MFX_WRN_VALUE_NOT_CHANGED:
+        return (char *)"MFX_WRN_VALUE_NOT_CHANGED";
+    case MFX_WRN_OUT_OF_RANGE:
+        return (char *)"MFX_WRN_OUT_OF_RANGE";
+    case MFX_WRN_FILTER_SKIPPED:
+        return (char *)"MFX_WRN_FILTER_SKIPPED";
+    case MFX_WRN_INCOMPATIBLE_AUDIO_PARAM:
+        return (char *)"MFX_WRN_INCOMPATIBLE_AUDIO_PARAM";
+    default:
+        return (char *)"unknown status";
     }
 }
 
-char * virtio_video_stream_statu_to_string(virtio_video_stream_state statu){
+char *virtio_video_stream_statu_to_string(virtio_video_stream_state statu)
+{
     switch (statu) {
-        case STREAM_STATE_INIT:
-            return (char *)"STREAM_STATE_INIT";
-        case STREAM_STATE_RUNNING:
-            return (char *)"STREAM_STATE_RUNNING";
-        case STREAM_STATE_DRAIN:
-            return (char *)"STREAM_STATE_DRAIN";
-        case STREAM_STATE_INPUT_PAUSED:
-            return (char *)"STREAM_STATE_INPUT_PAUSED";
-        case STREAM_STATE_TERMINATE:
-            return (char *)"STREAM_STATE_TERMINATE";
-        default:
-            return (char *)"unknown status";
+    case STREAM_STATE_INIT:
+        return (char *)"STREAM_STATE_INIT";
+    case STREAM_STATE_RUNNING:
+        return (char *)"STREAM_STATE_RUNNING";
+    case STREAM_STATE_DRAIN:
+        return (char *)"STREAM_STATE_DRAIN";
+    case STREAM_STATE_INPUT_PAUSED:
+        return (char *)"STREAM_STATE_INPUT_PAUSED";
+    case STREAM_STATE_TERMINATE:
+        return (char *)"STREAM_STATE_TERMINATE";
+    default:
+        return (char *)"unknown status";
     }
 }

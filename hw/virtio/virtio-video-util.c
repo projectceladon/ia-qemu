@@ -27,6 +27,12 @@
 #include "sysemu/dma.h"
 #include "virtio-video-util.h"
 
+//#define VIRTIO_VIDEO_UTIL_DEBUG 1
+#ifndef VIRTIO_VIDEO_UTIL_DEBUG
+#undef DPRINTF
+#define DPRINTF(fmt, ...) do { } while (0)
+#endif
+
 struct virtio_video_cmd_bh_arg {
     VirtIOVideo *v;
     VirtIOVideoCmd cmd;
@@ -537,7 +543,7 @@ int virtio_video_memcpy(VirtIOVideoResource *res, uint32_t idx, void *src,
     }
 }
 
-#ifdef DEBUG_VIRTIO_VIDEO
+#if defined DEBUG_VIRTIO_VIDEO && defined VIRTIO_VIDEO_UTIL_DEBUG
 static const char *virtio_video_event_name(uint32_t event)
 {
     switch (event) {

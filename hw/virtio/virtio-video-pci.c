@@ -25,6 +25,12 @@
 #include "hw/virtio/virtio-video.h"
 #include "virtio-pci.h"
 
+//#define VIRTIO_VIDEO_PCI_DEBUG 1
+#ifndef VIRTIO_VIDEO_PCI_DEBUG
+#undef DPRINTF
+#define DPRINTF(fmt, ...) do { } while (0)
+#endif
+
 typedef struct VirtIOVideoPCI VirtIOVideoPCI;
 
 #define TYPE_VIRTIO_VIDEO_PCI "virtio-video-pci-base"
@@ -47,7 +53,6 @@ static void virtio_video_pci_realize(VirtIOPCIProxy *vpci_dev, Error **errp)
 {
     VirtIOVideoPCI *dev = VIRTIO_VIDEO_PCI(vpci_dev);
     DeviceState *vdev = DEVICE(&dev->vdev);
-    DPRINTF("%s\n", __func__);
 
     qdev_realize(vdev, BUS(&vpci_dev->bus), errp);
 }
@@ -57,8 +62,6 @@ static void virtio_video_pci_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     VirtioPCIClass *k = VIRTIO_PCI_CLASS(klass);
     PCIDeviceClass *pcidev_k = PCI_DEVICE_CLASS(klass);
-
-    DPRINTF("%s\n", __func__);
 
     set_bit(DEVICE_CATEGORY_MISC, dc->categories);
     device_class_set_props(dc, virtio_video_pci_properties);
@@ -72,8 +75,6 @@ static void virtio_video_pci_class_init(ObjectClass *klass, void *data)
 static void virtio_video_pci_instance_init(Object *obj)
 {
     VirtIOVideoPCI *dev = VIRTIO_VIDEO_PCI(obj);
-
-    DPRINTF("%s\n", __func__);
 
     virtio_instance_init_common(obj, &dev->vdev, sizeof(dev->vdev),
                                 TYPE_VIRTIO_VIDEO);
@@ -91,7 +92,6 @@ static const VirtioPCIDeviceTypeInfo virtio_video_pci_info = {
 
 static void virtio_video_pci_register(void)
 {
-    DPRINTF("%s\n", __func__);
     virtio_pci_types_register(&virtio_video_pci_info);
 }
 

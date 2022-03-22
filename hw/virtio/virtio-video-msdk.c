@@ -26,6 +26,12 @@
 #include "virtio-video-msdk-enc.h"
 #include "virtio-video-msdk-dec.h"
 
+//#define VIRTIO_VIDEO_MSDK_DEBUG 1
+#ifndef VIRTIO_VIDEO_MSDK_DEBUG
+#undef DPRINTF
+#define DPRINTF(fmt, ...) do { } while (0)
+#endif
+
 size_t virtio_video_msdk_cmd_stream_create(VirtIOVideo *v,
     virtio_video_stream_create *req, virtio_video_cmd_hdr *resp)
 {

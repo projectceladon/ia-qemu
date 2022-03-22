@@ -31,6 +31,12 @@
 #include "mfx/mfxvideo.h"
 #include "va/va.h"
 
+//#define VIRTIO_VIDEO_VA_ALLOC_DEBUG 1
+#ifndef VIRTIO_VIDEO_VA_ALLOC_DEBUG
+#undef DPRINTF
+#define DPRINTF(fmt, ...) do { } while (0)
+#endif
+
 static mfxStatus va_to_mfx_status(VAStatus va_res)
 {
     mfxStatus mfxRes = MFX_ERR_NONE;
