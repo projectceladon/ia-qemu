@@ -33,7 +33,7 @@
 
 #define VIRTIO_VIDEO_DRM_DEVICE "/dev/dri/by-path/pci-0000:00:02.0-render"
 
-//#define VIRTIO_VIDEO_MSDK_DEC_DEBUG 1
+#define VIRTIO_VIDEO_MSDK_DEC_DEBUG 1
 //#define DUMP_SURFACE
 //#define DUMP_SURFACE_END
 //#define DUMP_SURFACE_BEFORE
@@ -157,7 +157,7 @@ error_vpp:
 }
 
 static mfxStatus virtio_video_decode_one_frame(VirtIOVideoWork *work,
-    MsdkFrame *m_frame)
+    MsdkFrame *m_frame, bool eos)
 {
     VirtIOVideoStream *stream = work->parent;
     MsdkSession *m_session = stream->opaque;
@@ -167,7 +167,12 @@ static mfxStatus virtio_video_decode_one_frame(VirtIOVideoWork *work,
     mfxBitstream *bitstream = &m_session->bitstream;
     mfxFrameSurface1 *out_surface = NULL;
 
-    QLIST_FOREACH(work_surface, &m_session->surface_pool, next) {
+    bitstream->TimeStamp = work->timestamp;
+    if (eos)
+        bitstream = NULL;
+
+    QLIST_FOREACH(work_surface, &m_session->surface_pool, next)
+    {
         if (!work_surface->used && !work_surface->surface.Data.Locked) {
             break;
         }
@@ -180,7 +185,7 @@ static mfxStatus virtio_video_decode_one_frame(VirtIOVideoWork *work,
         }
         return MFX_ERR_NOT_ENOUGH_BUFFER;
     }
-    bitstream->TimeStamp = work->timestamp;
+ 
 
     if (stream->out.params.format != VIRTIO_VIDEO_FORMAT_NV12) {
         QLIST_FOREACH(vpp_work_surface, &m_session->vpp_surface_pool, next) {
@@ -199,13 +204,11 @@ static mfxStatus virtio_video_decode_one_frame(VirtIOVideoWork *work,
 
     do {
         DPRINTF("bs:%p, input surface:%p \n", bitstream, work_surface);
-        if (bitstream && !bitstream->DataLength)
-            bitstream = NULL; // Drain
         status = MFXVideoDECODE_DecodeFrameAsync(m_session->session, bitstream,
                                                  &work_surface->surface,
                                                  &out_surface, &m_frame->sync);
-        DPRINTF("MFXVideoDECODE_DecodeFrameAsync return %s\n",
-                virtio_video_status_to_string(status));
+        DPRINTF("MFXVideoDECODE_DecodeFrameAsync return %s, out_surface:%p\n",
+                virtio_video_status_to_string(status), out_surface);
         switch (status) {
         case MFX_WRN_DEVICE_BUSY:
             usleep(1000);
@@ -222,6 +225,7 @@ static mfxStatus virtio_video_decode_one_frame(VirtIOVideoWork *work,
             // logic.
             break;
         case MFX_ERR_MORE_SURFACE:
+            return status;
         case MFX_ERR_INCOMPATIBLE_VIDEO_PARAM:
             /* these are not treated as error */
             return status;
@@ -241,20 +245,21 @@ static mfxStatus virtio_video_decode_one_frame(VirtIOVideoWork *work,
             break;
         }
     }
-    if (work_surface == NULL) {
+    if (work_surface == NULL && out_surface != NULL) {
         error_report("virtio-video: Warning: stream %d decode output surface "
-                      "not in surface pool", stream->id);
+                     "not in surface pool",
+                     stream->id);
 
         DPRINTF("out_surface %p\n", out_surface);
         DPRINTF("bitstream %p\n", bitstream);
         DPRINTF("status %d\n", status);
-        QLIST_FOREACH(work_surface, &m_session->surface_pool, next) {
+        QLIST_FOREACH(work_surface, &m_session->surface_pool, next)
+        {
             DPRINTF("surface in surface_pool %p\n", &work_surface->surface);
         }
         return status;
     }
 
-    DPRINTF(" return status:%s \n", virtio_video_status_to_string(status));
     if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12)
         return status;
 
@@ -351,11 +356,12 @@ static mfxStatus virtio_video_decode_submit_one_work(VirtIOVideoWork *work,
             break;
         }
     }
-    if (frame != NULL) {
+    if (frame != NULL && frame->timestamp != 0) {
         DPRINTF("CMD_RESOURCE_QUEUE: stream %d input resource %d with "
                 "timestamp=%ldns, but a frame with timestamp=%ldns is "
-                "already being decoded\n", stream->id, work->resource->id,
-                work->timestamp, work->timestamp);
+                "already being decoded\n",
+                stream->id, work->resource->id, work->timestamp,
+                work->timestamp);
         return MFX_ERR_UNDEFINED_BEHAVIOR;
     }
     DPRINTF("decode input bs timestamp:%llu\n", (unsigned long long)work->timestamp);
@@ -366,20 +372,29 @@ static mfxStatus virtio_video_decode_submit_one_work(VirtIOVideoWork *work,
 
     /* the frontend uses an empty buffer to drain the stream */
     bitstream->DataFlag = (input->DataLength == 0 || eos) ?
-                          MFX_BITSTREAM_COMPLETE_FRAME | MFX_BITSTREAM_EOS : 0;
+                              MFX_BITSTREAM_COMPLETE_FRAME | MFX_BITSTREAM_EOS : 0;
+    eos = (input->DataLength == 0 || eos) ? true : false;
 
     while (true) {
         m_frame = g_new0(MsdkFrame, 1);
-        status = virtio_video_decode_one_frame(work, m_frame);
+        status = virtio_video_decode_one_frame(work, m_frame, eos);
 
         if (status != MFX_ERR_NONE && status != MFX_ERR_MORE_SURFACE) {
+            if (m_frame->surface) {
+                error_report("%s status:%d with valid surface:%p\n", __func__,
+                             status, m_frame->surface);
+            } else {
+                g_free(m_frame);
+                break;
+            }
+        }
+        // MFX_ERR_MORE_SURFACE, incase there is valid output surface need
+        // handle.
+        DPRINTF("m_frame->surface:%p\n", m_frame->surface);
+        if (!m_frame->surface) {
             g_free(m_frame);
             break;
         }
-        //MFX_ERR_MORE_SURFACE, incase there is valid output surface need handle.
-        DPRINTF("m_frame->surface:%p\n", m_frame->surface);
-        if (!m_frame->surface)
-            break;
 
         QTAILQ_FOREACH(frame, &stream->pending_frames, next) {
             if (frame->opaque == NULL) {
@@ -393,34 +408,10 @@ static mfxStatus virtio_video_decode_submit_one_work(VirtIOVideoWork *work,
                             stream->id);
             }
             frame = g_new0(VirtIOVideoFrame, 1);
-            frame->timestamp = work->timestamp;
-            DPRINTF("frame->timestamp = work->timestamp(ID) = %lu \n",
-                    frame->timestamp / 1000000000);
             QTAILQ_INSERT_TAIL(&stream->pending_frames, frame, next);
             inserted = true;
         }
         frame->opaque = m_frame;
-    }
-
-    /* MFX_ERR_MORE_DATA means that we exit by hitting the end of bitstream */
-    // if the input is sps/pps, it will also return MFX_ERR_MORE_DATA, but it's
-    // not supposed to return back output timestamp,
-    //  in this case, the "frame->timestamp = work->timestamp;"" should remove,
-    //  and no frame supposed to have
-    if (!inserted && status == MFX_ERR_MORE_DATA) {
-        if (stream->csd_received_after_clear >= 2) {
-            DPRINTF("normal MFX_ERR_MORE_DATA, alloc output surface for it \n");
-            frame = g_new0(VirtIOVideoFrame, 1);
-            frame->timestamp = work->timestamp;
-            DPRINTF("frame->timestamp = work->timestamp = %lu \n",
-                    frame->timestamp / 1000000000);
-            QTAILQ_INSERT_TAIL(&stream->pending_frames, frame, next);
-        } else {
-            stream->csd_received_after_clear++;
-            DPRINTF("normal MFX_ERR_MORE_DATA, no output surface for CSD, csd "
-                    "received:%d, dta_len:%d\n",
-                    stream->csd_received_after_clear, input->DataLength);
-        }
     }
 
     bitstream->DataFlag = 0;
@@ -951,7 +942,6 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     stream = g_new0(VirtIOVideoStream, 1);
     stream->opaque = m_session;
     stream->parent = v;
-    stream->csd_received_after_clear = 2;
 
     stream->id = req->hdr.stream_id;
     stream->in.mem_type = req->in_mem_type;
@@ -1562,7 +1552,6 @@ static size_t virtio_video_msdk_dec_resource_clear(VirtIOVideoStream *stream,
             // frontend will send new PPS and SPS and Iframe, after clear
             // command.
             printf("%d\n", status);
-            stream->csd_received_after_clear = 0;
             stream->state = STREAM_STATE_INPUT_PAUSED;
 
         succeed:
