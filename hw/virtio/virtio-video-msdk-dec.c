@@ -102,7 +102,12 @@ static mfxStatus virtio_video_decode_parse_header(VirtIOVideoWork *work)
         return status;
     }
 
-    param.AsyncDepth = 1;
+    if (0 == param.mfx.FrameInfo.FrameRateExtN || 0 == param.mfx.FrameInfo.FrameRateExtD) {
+        DPRINTF("No FrameRate in header, using default FrameRate 30\n");
+        param.mfx.FrameInfo.FrameRateExtN = 30;
+        param.mfx.FrameInfo.FrameRateExtD = 1;
+    }
+
     status = MFXVideoDECODE_Init(m_session->session, &param);
     if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
         error_report("virtio-video-decode/%d MFXVideoDECODE_Init "
@@ -110,6 +115,7 @@ static mfxStatus virtio_video_decode_parse_header(VirtIOVideoWork *work)
         return status;
     }
 
+    param.AsyncDepth = 1;
     printf_mfxVideoParam(&param);
 
     if (stream->out.params.format == VIRTIO_VIDEO_FORMAT_NV12)
