@@ -366,6 +366,61 @@ static int virtio_video_memcpy_singlebuffer(VirtIOVideoResource *res,
     return 0;
 }
 
+int virtio_video_memcpy_NV12_byline(VirtIOVideoResource *res, void *Y, void *UV,
+               uint32_t width, uint32_t height, uint32_t pitch)
+{
+    VirtIOVideoResourceSlice *slice;
+    uint32_t begin = res->plane_offsets[0];
+    uint32_t base = 0, diff, len, size, margin = 0;
+    void *src;
+    int i, page = 0;
+
+    src = Y;
+    size = width * height * 3 / 2;
+    slice = &res->slices[0][0];
+    diff = begin - base;
+    len = slice->page.len - diff;
+
+    for(i = 0; i < (height * 3 / 2) && page < res->num_entries[0]; i++) {
+	if (i == height) {
+            src = UV;
+	}
+        if (width <= len) {
+            memcpy(slice->page.base + diff, src, width);
+            src += pitch;
+            diff += width;
+            size -= width;
+            len -= width;
+            begin += width;
+        } else {
+            memcpy(slice->page.base + diff, src, len);
+            size -= len;
+            margin = width - len;
+            src += len;
+
+            //copy to next slice
+            page++;
+            slice = &res->slices[0][page];
+            len = slice->page.len;
+            memcpy(slice->page.base, src, margin);
+            begin = margin;
+            diff = margin;
+            len -= margin;
+            src += (pitch - width + margin);
+	    size -= margin;
+            margin = 0;
+        }
+    }
+
+    if (size > 0) {
+        error_report("CMD_RESOURCE_QUEUE: output buffer insufficient "
+                     "to contain the frame");
+        return -1;
+    }
+
+    return 0;
+}
+
 /*
  * For NV12, the target data will be Y+UV in one plane(contigeous), but the
  * source maybe Y + Blank block + UV（non-contigeous), so need copy seperately

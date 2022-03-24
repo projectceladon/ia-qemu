@@ -432,7 +432,7 @@ int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
                                      VirtIOVideoResource *resource)
 {
     mfxFrameSurface1 *frame = &surface->surface;
-    uint32_t width, height;
+    uint32_t width, height, pitch;
     int ret = 0;
     vaapiMemId vaapi_mid;
 #ifdef DUMP_SURFACE_END
@@ -461,8 +461,10 @@ int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
         if (resource->num_planes != 2)
             goto error;
 
-        ret += virtio_video_memcpy_NV12(resource, frame->Data.Y, width * height,
-                                        frame->Data.U, width * height / 2);
+        DPRINTF("PitchHight: %d, PitchLow: %d\n", frame->Data.PitchHigh, frame->Data.PitchLow);
+        pitch = frame->Data.PitchLow;
+        ret += virtio_video_memcpy_NV12_byline(resource, frame->Data.Y, frame->Data.U,
+		       width, height, pitch);
 
         if (session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY &&
             session->frame_allocator) {
