@@ -39,8 +39,8 @@ uint32_t virtio_video_msdk_to_profile(uint32_t msdk);
 uint32_t virtio_video_msdk_to_level(uint32_t msdk);
 
 int virtio_video_msdk_init_param(mfxVideoParam *param, uint32_t format);
-int virtio_video_msdk_init_param_dec(mfxVideoParam *param,
-    VirtIOVideoStream *stream);
+int virtio_video_msdk_init_param_dec(MsdkSession *session, mfxVideoParam *param,
+                                     VirtIOVideoStream *stream);
 int virtio_video_msdk_init_vpp_param_dec(mfxVideoParam *param,
     mfxVideoParam *vpp_param, VirtIOVideoStream *stream);
 void virtio_video_msdk_init_surface_pool(MsdkSession *session,

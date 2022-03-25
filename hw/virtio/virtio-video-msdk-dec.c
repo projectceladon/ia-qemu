@@ -76,7 +76,7 @@ static mfxStatus virtio_video_decode_parse_header(VirtIOVideoWork *work)
 
     virtio_video_msdk_load_plugin(m_session->session, stream->in.params.format,
                                   false);
-    if (virtio_video_msdk_init_param_dec(&param, stream) < 0)
+    if (virtio_video_msdk_init_param_dec(m_session, &param, stream) < 0)
         return MFX_ERR_UNSUPPORTED;
 
     virtio_video_msdk_bitstream_append(bitstream, input);
@@ -102,7 +102,8 @@ static mfxStatus virtio_video_decode_parse_header(VirtIOVideoWork *work)
         return status;
     }
 
-    if (0 == param.mfx.FrameInfo.FrameRateExtN || 0 == param.mfx.FrameInfo.FrameRateExtD) {
+    if (0 == param.mfx.FrameInfo.FrameRateExtN ||
+        0 == param.mfx.FrameInfo.FrameRateExtD) {
         DPRINTF("No FrameRate in header, using default FrameRate 30\n");
         param.mfx.FrameInfo.FrameRateExtN = 30;
         param.mfx.FrameInfo.FrameRateExtD = 1;
@@ -111,7 +112,8 @@ static mfxStatus virtio_video_decode_parse_header(VirtIOVideoWork *work)
     status = MFXVideoDECODE_Init(m_session->session, &param);
     if (status != MFX_ERR_NONE && status != MFX_WRN_PARTIAL_ACCELERATION) {
         error_report("virtio-video-decode/%d MFXVideoDECODE_Init "
-                      "failed: %d", stream->id, status);
+                     "failed: %d",
+                     stream->id, status);
         return status;
     }
 
@@ -858,6 +860,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
         .Implementation = MFX_IMPL_AUTO_ANY,
         .Version.Major = VIRTIO_VIDEO_MSDK_VERSION_MAJOR,
         .Version.Minor = VIRTIO_VIDEO_MSDK_VERSION_MINOR,
+        .GPUCopy = MFX_GPUCOPY_ON,
     };
 
     resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
@@ -917,11 +920,8 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
         return len;
     }
 
-    // the IOPattern = MFX_IOPATTERN_OUT_VIDEO_MEMORY; should be mfxVideoParam
-    // para it's not good idea to put it here since there isn't have
-    // mfxVideoParam yet.
-    // but where the MFXVideoCORE_SetFrameAllocator() should be called?
-    m_session->IOPattern = MFX_IOPATTERN_OUT_VIDEO_MEMORY;
+    //m_session->IOPattern = MFX_IOPATTERN_OUT_VIDEO_MEMORY;
+    m_session->IOPattern = MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
     if (m_session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY) {
         m_session->frame_allocator = g_new0(mfxFrameAllocator, 1);
         m_session->frame_allocator->pthis = m_session;

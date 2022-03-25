@@ -196,8 +196,8 @@ int virtio_video_msdk_init_param(mfxVideoParam *param, uint32_t format)
     return 0;
 }
 
-int virtio_video_msdk_init_param_dec(mfxVideoParam *param,
-    VirtIOVideoStream *stream)
+int virtio_video_msdk_init_param_dec(MsdkSession *session, mfxVideoParam *param,
+                                     VirtIOVideoStream *stream)
 {
 
     if (virtio_video_msdk_init_param(param, stream->in.params.format) < 0)
@@ -215,8 +215,7 @@ int virtio_video_msdk_init_param_dec(mfxVideoParam *param,
     }
     switch (stream->out.mem_type) {
     case VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES:
-        //param->IOPattern |= MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
-        param->IOPattern = MFX_IOPATTERN_OUT_VIDEO_MEMORY;
+        param->IOPattern = session->IOPattern;
         break;
     case VIRTIO_VIDEO_MEM_TYPE_VIRTIO_OBJECT:
         param->IOPattern |= MFX_IOPATTERN_OUT_VIDEO_MEMORY;
