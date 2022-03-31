@@ -381,8 +381,9 @@ void *virtio_video_msdk_inc_pool_size(MsdkSession *session, uint32_t inc_num, bo
 
     pSampleSurf = QLIST_FIRST(&session->surface_pool);
     pInfo = &pSampleSurf->surface.Info;
-    width = MSDK_ALIGN32(pInfo->Width);
-    height = MSDK_ALIGN32(pInfo->Height);
+    width = pInfo->Width;
+    height = pInfo->Height;
+
     switch (pInfo->FourCC) {
         case MFX_FOURCC_RGB4:
         size = width * height * 4;
@@ -413,7 +414,8 @@ void *virtio_video_msdk_inc_pool_size(MsdkSession *session, uint32_t inc_num, bo
             break;
         case MFX_FOURCC_NV12:
             pSurf->surface.Data.Y = pSurfBuf;
-            pSurf->surface.Data.UV = pSurf->surface.Data.Y + width * height;
+            pSurf->surface.Data.U = pSurf->surface.Data.Y + width * height;
+            pSurf->surface.Data.V = pSurf->surface.Data.U + 1;
             pSurf->surface.Data.PitchLow = width;
             pSurf->surface.Data.PitchHigh = 0;
             break;
@@ -455,8 +457,9 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     uint32_t width, height, size;
     int i, surface_num;
 
-    width = MSDK_ALIGN32(alloc_req->Info.Width);
-    height = MSDK_ALIGN32(alloc_req->Info.Height);
+    width = alloc_req->Info.Width;
+    height = alloc_req->Info.Height;
+
     switch (info->FourCC) {
     case MFX_FOURCC_RGB4:
         size = width * height * 4;
@@ -489,7 +492,8 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
             break;
         case MFX_FOURCC_NV12:
             surface->surface.Data.Y = surface_buf;
-            surface->surface.Data.UV = surface->surface.Data.Y + width * height;
+            surface->surface.Data.U = surface->surface.Data.Y + width * height;
+            surface->surface.Data.V = surface->surface.Data.U + 1;
             surface->surface.Data.PitchLow = width;
             surface->surface.Data.PitchHigh = 0;
             break;
@@ -633,7 +637,7 @@ int virtio_video_msdk_input_surface(MsdkSurface *surface,
             VirtIOVideoResourceSlice *pSlice = NULL;
             for (j = 0; j < resource->num_entries[0]; j++) {
                 pSlice = &resource->slices[0][j];
-                cur_len = size <= pSlice->page.len ? size : pSlice->page.len;
+                cur_len = (size <= pSlice->page.len) ? size : pSlice->page.len;
                 memcpy(pSurf->Data.Y + pos, pSlice->page.base, cur_len);
                 pos += cur_len;
                 size -= cur_len;
