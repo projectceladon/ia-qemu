@@ -145,7 +145,7 @@ static void *virtio_video_enc_input_thread(void *arg)
                 pWork = QTAILQ_FIRST(&pStream->input_work);
                 bDrain = pStream->state == STREAM_STATE_DRAIN && pWork == QTAILQ_LAST(&pStream->input_work);
                 // DPRINTF("Prepare to process input resource : %d\n", pWork->resource->id);
-                sts = virtio_video_encode_submit_one_frame(pStream, pWork->resource, pWork->timestamp, false);
+                sts = virtio_video_encode_submit_one_frame(pStream, pWork->resource, pWork->timestamp, bDrain);
                 QTAILQ_REMOVE(&pStream->input_work, pWork, next);
                 if (sts != MFX_ERR_NONE && sts != MFX_ERR_MORE_DATA) {
                     pWork->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR;
@@ -228,7 +228,6 @@ static void *virtio_video_enc_output_thread(void *arg)
                     QTAILQ_REMOVE(&pStream->pending_frames, pPendingFrame, next);
                     QTAILQ_REMOVE(&pStream->output_work, pOutWork, next);
 
-                    // DPRINTF("Prepare to fill output resource : %d\n", pOutWork->resource->id);
                     virtio_video_encode_retrieve_one_frame(pPendingFrame, pOutWork);
                 }
                 break;
@@ -241,8 +240,6 @@ static void *virtio_video_enc_output_thread(void *arg)
         }
         qemu_mutex_unlock(&pStream->mutex_out);
     }
-
-    // if (pTmpFile) fclose(pTmpFile);
     DPRINTF("thread virtio-video-enc-output/%d exited\n", stream_id);
     return NULL;
 }
@@ -466,6 +463,7 @@ size_t virtio_video_msdk_enc_resource_queue(VirtIOVideo *v,
     uint8_t queue_type = VIRTIO_VIDEO_QUEUE_INPUT;
     bool bQueued = false;
     bool bQueueSuccess = false;
+    static uint32_t input_cnt = 0;
 
     resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_OPERATION;
     resp->hdr.stream_id = req->hdr.stream_id;
@@ -537,6 +535,7 @@ size_t virtio_video_msdk_enc_resource_queue(VirtIOVideo *v,
             return len;
         }
 
+        DPRINTF("The Input Cnt is %d.\n", input_cnt++);
         switch (pStream->state) {
         case STREAM_STATE_INIT :
         case STREAM_STATE_RUNNING : // Only INIT and RUNNING can accept new input work
@@ -548,7 +547,6 @@ size_t virtio_video_msdk_enc_resource_queue(VirtIOVideo *v,
             pWork->resource = pRes;
             pWork->queue_type = req->queue_type;
             pWork->timestamp = req->timestamp;
-            // pWork->opaque = pFrame;
 
             QTAILQ_INSERT_TAIL(&pStream->input_work, pWork, next);
             qemu_event_set(&pSession->input_notifier);
@@ -1547,6 +1545,14 @@ int virtio_video_msdk_init_encoder_stream(VirtIOVideoStream *pStream)
          return MFX_ERR_UNSUPPORTED;
     }
 
+    DPRINTF("Set CodecProfile = %d, CodecLevel = %d\n", enc_param->mfx.CodecProfile, enc_param->mfx.CodecLevel);
+    DPRINTF("Set BufferSizeInKB = %d\n", enc_param->mfx.BufferSizeInKB);
+    DPRINTF("Set AysncDepth = %d\n", enc_param->AsyncDepth);
+    DPRINTF("Set GopRefDist = %d\n", enc_param->mfx.GopRefDist);
+    DPRINTF("Set GopPicSize = %d\n", enc_param->mfx.GopPicSize);
+    DPRINTF("Set FrameRateD = %d\n", enc_param->mfx.FrameInfo.FrameRateExtD);
+    DPRINTF("Set FrameRateN = %d\n", enc_param->mfx.FrameInfo.FrameRateExtN);
+
     sts = MFXVideoENCODE_Init(pSession->session, enc_param);
     if (sts != MFX_ERR_NONE) {
         error_report("stream %d MFXVideoENCODE_Init failed : %d  in encoder\n", pStream->id, 
@@ -1558,12 +1564,14 @@ int virtio_video_msdk_init_encoder_stream(VirtIOVideoStream *pStream)
     if (sts != MFX_ERR_NONE) {
         error_report("stream %d MFXVideoENCODE_GetVideoParam failed : %d in encoder\n", pStream->id, sts);
     } else {
-        DPRINTF("CodecProfile = %d, CodecLevel = %d\n", enc_param->mfx.CodecProfile, enc_param->mfx.CodecLevel);
         pSession->bufferSizeInKB = enc_param->mfx.BufferSizeInKB;
-        DPRINTF("virtio_video_msdk_init_encoder_stream : BufferSizeInKB = %d\n", pSession->bufferSizeInKB);
-        DPRINTF("virtio_video_msdk_init_encoder_stream : AysncDepth = %d\n", enc_param->AsyncDepth);
-        DPRINTF("virtio_video_msdk_init_encoder_stream : GopRefDist = %d\n", enc_param->mfx.GopRefDist);
-        DPRINTF("virtio_video_msdk_init_encoder_stream : GopPicSize = %d\n", enc_param->mfx.GopPicSize);
+        DPRINTF("MSDK : CodecProfile = %d, CodecLevel = %d\n", enc_param->mfx.CodecProfile, enc_param->mfx.CodecLevel);
+        DPRINTF("MSDK : BufferSizeInKB = %d\n", pSession->bufferSizeInKB);
+        DPRINTF("MSDK : AysncDepth = %d\n", enc_param->AsyncDepth);
+        DPRINTF("MSDK : GopRefDist = %d\n", enc_param->mfx.GopRefDist);
+        DPRINTF("MSDK : GopPicSize = %d\n", enc_param->mfx.GopPicSize);
+        DPRINTF("MSDK : FrameRateD = %d\n", enc_param->mfx.FrameInfo.FrameRateExtD);
+        DPRINTF("MSDK : FrameRateN = %d\n", enc_param->mfx.FrameInfo.FrameRateExtN);
     }
 
     sts = MFXVideoENCODE_QueryIOSurf(pSession->session, enc_param, &enc_req);
@@ -1574,7 +1582,8 @@ int virtio_video_msdk_init_encoder_stream(VirtIOVideoStream *pStream)
 
     pSession->surface_num += enc_req.NumFrameSuggested + 2; // Use two additional surfaces for redundancy
     DPRINTF("Init surface pool, size = %d\n", pSession->surface_num);
-    virtio_video_msdk_init_surface_pool(pSession, &enc_req, &(enc_param->mfx.FrameInfo), false);
+    virtio_video_msdk_init_surface_pool(pSession, &enc_req, &(enc_param->mfx.FrameInfo), false, true);
+    virtio_video_msdk_add_pf_to_pool(pSession, enc_param->mfx.BufferSizeInKB * 1024, 10); // Default pool size is 10
 
     // pStream->in.params.min_buffers = enc_req.NumFrameMin;
     // pStream->in.params.max_buffers = enc_req.NumFrameSuggested;
@@ -1592,6 +1601,7 @@ int virtio_video_msdk_init_enc_param(mfxVideoParam *pPara, VirtIOVideoStream *pS
     DPRINTF("%s : CALL_No = %d\n", __FUNCTION__, CALL_No++);
 #endif
     virtio_video_params *pOutPara = NULL;
+    virtio_video_params *pInPara  = NULL;
     VirtIOVideoEncodeParamPreset vvepp = {0};
     // mfxExtCodingOption2 *pOpt2 = NULL;
     uint32_t frame_rate = 0;
@@ -1600,6 +1610,7 @@ int virtio_video_msdk_init_enc_param(mfxVideoParam *pPara, VirtIOVideoStream *pS
         return -2;
 
     pOutPara = &(pStream->out.params);
+    pInPara  = &(pStream->in.params);
 
     if (pOutPara->frame_width == 0 || pOutPara->frame_height == 0) {
         error_report("Init encoder param failed.\n");
@@ -1607,7 +1618,8 @@ int virtio_video_msdk_init_enc_param(mfxVideoParam *pPara, VirtIOVideoStream *pS
     }
 
     // Default frame rate is 30
-    frame_rate = pOutPara->frame_rate == 0 ? 30 : pOutPara->frame_rate;
+    frame_rate = pInPara->frame_rate == 0 ? 30 : pInPara->frame_rate;
+    DPRINTF("Front-end set frame_rate = %d.\n", frame_rate);
 
     // H.264 encode param init
     // TODO : Add support for other formats.
@@ -1628,8 +1640,8 @@ int virtio_video_msdk_init_enc_param(mfxVideoParam *pPara, VirtIOVideoStream *pS
     pPara->mfx.GopOptFlag              = 0;
     pPara->mfx.BufferSizeInKB          = vvepp.dpp.TargetKbps / 8;
     
-    // pPara->mfx.CodecProfile            = pStream->control.profile == 0 ? MFX_PROFILE_AVC_BASELINE : virtio_video_profile_to_msdk(pStream->control.profile);
-    // pPara->mfx.CodecLevel              = pStream->control.level == 0   ? MFX_LEVEL_AVC_1 : virtio_video_level_to_msdk(pStream->control.level);
+    // pPara->mfx.CodecProfile            = virtio_video_profile_to_msdk(pStream->control.profile);
+    // pPara->mfx.CodecLevel              = virtio_video_level_to_msdk(pStream->control.level);
 
     if (pPara->mfx.RateControlMethod == MFX_RATECONTROL_CQP) {
         pPara->mfx.QPI                 = 0;
@@ -1739,11 +1751,9 @@ mfxStatus virtio_video_encode_submit_one_frame(VirtIOVideoStream *pStream, VirtI
     mfxStatus sts = MFX_ERR_NONE;
     VirtIOVideoFrame *pPendingFrame = NULL;
     mfxFrameSurface1 *pInputSurface = NULL;
-    mfxSyncPoint msp;
-    bool bFreeBs = false;
 
     if (!bDrain) {
-        // Pick a free MsdkSurface from SurfacePool.
+        // Pick a free MsdkSurface from SurfacePool for input
         QLIST_FOREACH(pWorkSurf, &pSession->surface_pool, next) {
             if (pWorkSurf->used == false) {
                 break;
@@ -1751,8 +1761,7 @@ mfxStatus virtio_video_encode_submit_one_frame(VirtIOVideoStream *pStream, VirtI
         }
 
         if (pWorkSurf == NULL) {
-            // DPRINTF("Increase surface pool.\n");
-            pWorkSurf = (MsdkSurface *)virtio_video_msdk_inc_pool_size(pSession, 2, false);
+            pWorkSurf = (MsdkSurface *)virtio_video_msdk_inc_pool_size(pSession, 2, false, true);
         }
 
         // Copy input data from resource to local surface
@@ -1761,18 +1770,31 @@ mfxStatus virtio_video_encode_submit_one_frame(VirtIOVideoStream *pStream, VirtI
         pWorkSurf->surface.Data.TimeStamp = timestamp;
     }
 
-    pOutBs = g_new0(mfxBitstream, 1);
-    pOutBs->Data = g_malloc0(pSession->bufferSizeInKB * 1024);
-    pOutBs->DataLength = 0;
-    pOutBs->MaxLength = pSession->bufferSizeInKB * 1024;
+    // Pick a free VirtIOVideoFrame from pending_frames for pending
+    while (pPendingFrame == NULL) {
+        QTAILQ_FOREACH(pPendingFrame, &pSession->pending_frame_pool, next) {
+            if (pPendingFrame->used == false) {
+                pFrame = pPendingFrame->opaque;
+                pOutBs = pFrame->pBitStream;
+                DPRINTF("Found pf-%d is free.\n", pPendingFrame->id);
+                break;
+            }
+        }
+
+        if (pPendingFrame == NULL) {
+            // If no PF is currently available, increase the pool size.
+            uint32_t size = pStream->mvp->mfx.BufferSizeInKB * 1024;
+            virtio_video_msdk_add_pf_to_pool(pSession, size, 2);
+        }
+    }
     if (pWorkSurf != NULL) {
         pInputSurface = &pWorkSurf->surface;
     }
 
     do {
-        // DPRINTF("pOutBs->MaxLength = %d\n", pOutBs->MaxLength);
+        
         sts = MFXVideoENCODE_EncodeFrameAsync(pSession->session, NULL, pInputSurface, 
-                                          pOutBs, &msp);
+                                          pOutBs, &pFrame->sync);
 
         DPRINTF("EncodeFrameAsync's return is %d.\n", sts);
         switch (sts) {
@@ -1782,26 +1804,15 @@ mfxStatus virtio_video_encode_submit_one_frame(VirtIOVideoStream *pStream, VirtI
         case MFX_ERR_NONE :
             break;
         default :
-            bFreeBs = true;
             break;
         }
     } while (sts == MFX_WRN_DEVICE_BUSY);
 
     if (sts == MFX_ERR_NONE) {
-        pFrame = g_new(MsdkFrame, 1);
-        memset(pFrame, 0, sizeof(*pFrame));
-        pFrame->pBitStream = pOutBs;
-        pFrame->sync = msp;
-        pPendingFrame = g_new(VirtIOVideoFrame, 1);
-        pPendingFrame->opaque = pFrame;
-
+        DPRINTF("Change pf-%d's used to true.\n", pPendingFrame->id);
+        pPendingFrame->used = true;
         QTAILQ_INSERT_TAIL(&pStream->pending_frames, pPendingFrame, next);
         qemu_event_set(&pSession->output_notifier);
-    }
-
-    if (bFreeBs) {
-        if (pOutBs) g_free(pOutBs->Data);
-        g_free(pOutBs);
     }
 
     return sts;
@@ -1819,6 +1830,7 @@ int virtio_video_encode_retrieve_one_frame(VirtIOVideoFrame *pPendingFrame, Virt
     VirtIOVideoResource *pRes = pOutWork->resource;
     mfxBitstream *pBs = pFrame->pBitStream;
     MsdkSurface *pSurface = NULL;
+    FILE *pTmpFile = fopen("out.h264", "ab+");
 
     do {
         sts = MFXVideoCORE_SyncOperation(pSession->session, pFrame->sync, VIRTIO_VIDEO_MSDK_TIME_TO_WAIT);
@@ -1837,18 +1849,27 @@ int virtio_video_encode_retrieve_one_frame(VirtIOVideoFrame *pPendingFrame, Virt
     }
 
     virtio_video_memcpy(pRes, 0, pBs->Data, pBs->DataLength);
+    if (pTmpFile) {
+        fwrite(pBs->Data, 1, pBs->DataLength, pTmpFile);
+        fclose(pTmpFile);
+    }
     pOutWork->flags = virtio_video_get_frame_type(pBs->FrameType);
     pOutWork->size = pBs->DataLength;
     pOutWork->timestamp = pBs->TimeStamp;
 
     QLIST_FOREACH(pSurface, &pSession->surface_pool, next) {
         if (pSurface->surface.Data.TimeStamp == pBs->TimeStamp) {
+            DPRINTF("Change surface's used to false, the ts = %lld.\n", pBs->TimeStamp);
             pSurface->used = false;
             break;
         }
     }
 
-    virtio_video_msdk_uninit_frame(pPendingFrame);
+    // virtio_video_msdk_uninit_frame(pPendingFrame);
+    DPRINTF("Change pf-%d's used to false.\n", pPendingFrame->id);
+    // Reset pf
+    pPendingFrame->used = false;
+    pBs->DataLength = 0;
     DPRINTF("Send output work response(%u) timestamp(%lu), data_size(%u), frame_type(%s)\n",
             pOutWork->resource->id, pOutWork->timestamp / 1000, pOutWork->size,
             virtio_video_frame_type_name(pOutWork->flags));

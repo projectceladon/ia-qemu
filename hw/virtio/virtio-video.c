@@ -164,7 +164,7 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
                                 DMA_DIRECTION_TO_DEVICE;
     hwaddr len;
     int i, j, n;
-
+    uint32_t real_size = 0;
     for (i = 0, n = 0; i < resource->num_planes; i++) {
         resource->slices[i] = g_new0(VirtIOVideoResourceSlice,
                                      resource->num_entries[i]);
@@ -178,6 +178,9 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
             slice->page.base = dma_memory_map(resource->dma_as,
                                               entries[n].addr, &len, dir);
             slice->page.len = len;
+            real_size += len;
+
+            
             if (len < entries[n].length) {
                 dma_memory_unmap(resource->dma_as, slice->page.base,
                                  slice->page.len, dir, 0);
@@ -185,6 +188,8 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
             }
         }
     }
+
+    DPRINTF("Create resource , len = %d\n", real_size);
 
     return 0;
 

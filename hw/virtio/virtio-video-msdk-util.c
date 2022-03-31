@@ -31,6 +31,8 @@
 #include "mfx/mfxvp8.h"
 #include "va/va_drm.h"
 
+#define DUMP_TO_FILE
+
 // added by shenlin
 EncPresPara presets[PRESET_MAX_MODES][PRESET_MAX_CODECS] =
 {
@@ -367,9 +369,8 @@ int virtio_video_msdk_init_vpp_param_dec(mfxVideoParam *param,
     return 0;
 }
 
-
 // Added by Shenlin 2022.2.28
-void *virtio_video_msdk_inc_pool_size(MsdkSession *session, uint32_t inc_num, bool vpp)
+void *virtio_video_msdk_inc_pool_size(MsdkSession *session, uint32_t inc_num, bool vpp, bool encode)
 {
     assert(session != NULL);
     assert(inc_num > 0);
@@ -381,8 +382,14 @@ void *virtio_video_msdk_inc_pool_size(MsdkSession *session, uint32_t inc_num, bo
 
     pSampleSurf = QLIST_FIRST(&session->surface_pool);
     pInfo = &pSampleSurf->surface.Info;
-    width = pInfo->Width;
-    height = pInfo->Height;
+
+    if (encode) {
+        width = pInfo->Width;
+        height = pInfo->Height;
+    } else {
+        width = MSDK_ALIGN32(pInfo->Width);
+        height = MSDK_ALIGN32(pInfo->Height);
+    }
 
     switch (pInfo->FourCC) {
         case MFX_FOURCC_RGB4:
@@ -450,15 +457,20 @@ void *virtio_video_msdk_inc_pool_size(MsdkSession *session, uint32_t inc_num, bo
 }
 
 void virtio_video_msdk_init_surface_pool(MsdkSession *session,
-    mfxFrameAllocRequest *alloc_req, mfxFrameInfo *info, bool vpp)
+    mfxFrameAllocRequest *alloc_req, mfxFrameInfo *info, bool vpp, bool encode)
 {
     MsdkSurface *surface;
     mfxU8 *surface_buf;
     uint32_t width, height, size;
     int i, surface_num;
 
-    width = alloc_req->Info.Width;
-    height = alloc_req->Info.Height;
+    if (encode) {
+        width = alloc_req->Info.Width;
+        height = alloc_req->Info.Height;
+    } else {
+        width = MSDK_ALIGN32(alloc_req->Info.Width);
+        height = MSDK_ALIGN32(alloc_req->Info.Height);
+    }
 
     switch (info->FourCC) {
     case MFX_FOURCC_RGB4:
@@ -467,11 +479,13 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     case MFX_FOURCC_NV12:
     case MFX_FOURCC_IYUV:
     case MFX_FOURCC_YV12:
-        size = width * height * 12 / 8;
+        size = width * height * 3 / 2;
         break;
     default:
         return;
     }
+
+    DPRINTF("surface size = %d.\n", size);
 
     surface_num = vpp ? session->vpp_surface_num : session->surface_num;
 
@@ -612,6 +626,9 @@ int virtio_video_msdk_input_surface(MsdkSurface *surface,
     uint32_t width = 0, height = 0;
     int ret = 0;
     bool bSuccess = true;
+#ifdef DUMP_TO_FILE
+    FILE *pTmpFile = fopen("output.yuv", "ab+");
+#endif
 
     width = pSurf->Info.Width;
     height = pSurf->Info.Height;
@@ -631,14 +648,20 @@ int virtio_video_msdk_input_surface(MsdkSurface *surface,
             break;
         }
         if (resource->planes_layout == VIRTIO_VIDEO_PLANES_LAYOUT_SINGLE_BUFFER) {
-            uint32_t j = 0;
             uint32_t pos = 0, cur_len = 0;
-            uint32_t size = width * height * 3 / 2;
             VirtIOVideoResourceSlice *pSlice = NULL;
-            for (j = 0; j < resource->num_entries[0]; j++) {
-                pSlice = &resource->slices[0][j];
+            uint32_t size = width * height * 3 / 2;
+            DPRINTF("SingleBuffer copy size = %d.\n", size);
+
+            for (uint32_t x = 0; x < resource->num_entries[0]; x++) {
+                pSlice = &resource->slices[0][x];
                 cur_len = (size <= pSlice->page.len) ? size : pSlice->page.len;
                 memcpy(pSurf->Data.Y + pos, pSlice->page.base, cur_len);
+#ifdef DUMP_TO_FILE
+                if (pTmpFile) {
+                    fwrite(pSlice->page.base, 1, cur_len, pTmpFile);
+                }
+#endif
                 pos += cur_len;
                 size -= cur_len;
             }
@@ -678,6 +701,11 @@ int virtio_video_msdk_input_surface(MsdkSurface *surface,
         surface->used = false;
     }
 
+#ifdef DUMP_TO_FILE
+    if (pTmpFile) {
+        fclose(pTmpFile);
+    }
+#endif
     return ret < 0 ? -1 : 0;
 }
 
@@ -1183,7 +1211,7 @@ char *virtio_video_stream_statu_to_string(virtio_video_stream_state statu)
     }
 }
 
-// added by shenlin 2022.1.27
+// added by shenlin
 void virtio_video_msdk_get_preset_param_enc(VirtIOVideoEncodeParamPreset *pVp, uint32_t fourCC, 
             double fps, uint32_t width, uint32_t height)
 {
@@ -1450,4 +1478,29 @@ uint16_t virtio_video_msdk_fourCC_to_chroma(uint32_t fourCC)
     return MFX_CHROMAFORMAT_YUV420;
 }
 
+void virtio_video_msdk_add_pf_to_pool(MsdkSession *session, uint32_t buffer_size, uint32_t inc_num)
+{
+    assert(session != NULL);
+
+    static uint32_t id = 0;
+    MsdkFrame *mframe = NULL;
+    VirtIOVideoFrame *pending_frame = NULL;
+    mfxBitstream *bs = NULL;
+    uint8_t *data = NULL;
+
+    for (uint32_t i = 0; i < inc_num; i++) {
+        data = g_malloc0(buffer_size);
+        pending_frame = g_new0(VirtIOVideoFrame, 1);
+        mframe = g_new0(MsdkFrame, 1);
+        bs = g_new0(mfxBitstream, 1);
+        bs->Data = data;
+        bs->MaxLength = buffer_size;
+        bs->DataLength = 0;
+        mframe->pBitStream = bs;
+        pending_frame->opaque = mframe;
+        pending_frame->used = false;
+        pending_frame->id = id++;
+        QTAILQ_INSERT_HEAD(&session->pending_frame_pool, pending_frame, next);
+    }
+}
 // end

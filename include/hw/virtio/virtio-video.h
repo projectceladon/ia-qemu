@@ -150,6 +150,8 @@ typedef struct VirtIOVideoWork {
 typedef struct VirtIOVideoFrame {
     uint64_t timestamp;
     void *opaque;
+    bool used;
+    uint32_t id;
     QTAILQ_ENTRY(VirtIOVideoFrame) next;
 } VirtIOVideoFrame;
 
@@ -199,6 +201,7 @@ struct VirtIOVideoStream {
     QemuMutex mutex_out;
     uint32_t queue_clear_type;
     mfxVideoParam *mvp;
+    bool bHasOutput;
     /* added end */
 };
 

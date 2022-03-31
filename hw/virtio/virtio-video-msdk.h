@@ -88,6 +88,7 @@ typedef struct MsdkSession {
 
     QLIST_HEAD(, MsdkSurface) surface_pool;
     QLIST_HEAD(, MsdkSurface) vpp_surface_pool;
+    QTAILQ_HEAD(, VirtIOVideoFrame) pending_frame_pool;
     uint32_t bufferSizeInKB; // The maximun possible size for any compressed frames in encode.
 } MsdkSession;
 

@@ -145,14 +145,13 @@ static mfxStatus virtio_video_decode_parse_header(VirtIOVideoWork *work)
     m_session->surface_num = vpp_req[0].NumFrameSuggested;
     m_session->vpp_surface_num = vpp_req[1].NumFrameSuggested;
     virtio_video_msdk_init_surface_pool(m_session, &vpp_req[1],
-                                        &vpp_param.vpp.Out, true);
-
+                                        &vpp_param.vpp.Out, true, false);
+                                                         /* vpp?  encode? */
 done:
     m_session->surface_num += alloc_req.NumFrameSuggested;
-    if (param.IOPattern != MFX_IOPATTERN_OUT_VIDEO_MEMORY) {
-        virtio_video_msdk_init_surface_pool(m_session, &alloc_req,
-                                            &param.mfx.FrameInfo, false);
-    }
+    virtio_video_msdk_init_surface_pool(m_session, &alloc_req,
+                                        &param.mfx.FrameInfo, false, false);
+                                                           /* vpp?   encode? */
     stream->out.params.min_buffers = alloc_req.NumFrameMin;
     stream->out.params.max_buffers = alloc_req.NumFrameSuggested;
     virtio_video_msdk_stream_reset_param(stream, &param, false);
