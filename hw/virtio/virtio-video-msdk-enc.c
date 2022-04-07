@@ -1603,9 +1603,7 @@ int virtio_video_msdk_init_enc_param(mfxVideoParam *pPara, VirtIOVideoStream *pS
     virtio_video_params *pOutPara = NULL;
     virtio_video_params *pInPara  = NULL;
     VirtIOVideoEncodeParamPreset vvepp = {0};
-    // mfxExtCodingOption2 *pOpt2 = NULL;
     uint32_t frame_rate = 0;
-    // VirtIOVideoEncodeParamPreset ParamPreset = {0};
     if (pPara == NULL || pStream == NULL)
         return -2;
 
@@ -1627,44 +1625,19 @@ int virtio_video_msdk_init_enc_param(mfxVideoParam *pPara, VirtIOVideoStream *pS
     pPara->AsyncDepth                  = 1;
     pPara->mfx.CodecId                 = virtio_video_format_to_msdk(pOutPara->format);
     virtio_video_msdk_get_preset_param_enc(&vvepp, pPara->mfx.CodecId, frame_rate, pOutPara->frame_width, pOutPara->frame_height);
-    pPara->mfx.TargetUsage             = vvepp.epp.TargetUsage;
-    pPara->mfx.RateControlMethod       = vvepp.epp.RateControlMethod; // Default is CBR(constant bit rate)
-    pPara->mfx.GopRefDist              = vvepp.epp.GopRefDist;
-    pPara->mfx.GopPicSize              = vvepp.dpp.GopPicSize;
-    pPara->mfx.NumRefFrame             = 0;
-    pPara->mfx.IdrInterval             = 0;
-    pPara->mfx.CodecProfile            = 0;
-    pPara->mfx.CodecLevel              = 0;
-    pPara->mfx.MaxKbps                 = vvepp.dpp.MaxKbps;
-    pPara->mfx.InitialDelayInKB        = 0;
-    pPara->mfx.GopOptFlag              = 0;
-    pPara->mfx.BufferSizeInKB          = vvepp.dpp.TargetKbps / 8;
-    
-    // pPara->mfx.CodecProfile            = virtio_video_profile_to_msdk(pStream->control.profile);
-    // pPara->mfx.CodecLevel              = virtio_video_level_to_msdk(pStream->control.level);
-
-    if (pPara->mfx.RateControlMethod == MFX_RATECONTROL_CQP) {
-        pPara->mfx.QPI                 = 0;
-        pPara->mfx.QPB                 = 0;
-        pPara->mfx.QPP                 = 0;
-    } else if (pPara->mfx.RateControlMethod == MFX_RATECONTROL_ICQ || 
-        pPara->mfx.RateControlMethod == MFX_RATECONTROL_LA_ICQ) {
-        pPara->mfx.ICQQuality          = 0;
-    } else if (pPara->mfx.RateControlMethod == MFX_RATECONTROL_AVBR) {
-
-    } else {
-        pPara->mfx.TargetKbps = vvepp.dpp.TargetKbps; // Default bitrate
-    }
+    pPara->mfx.CodecProfile            = MFX_PROFILE_AVC_BASELINE;
+    pPara->mfx.CodecLevel              = MFX_LEVEL_AVC_41;
 
     if (pStream->control.bitrate != 0) {  // If frontend sets bitrate
-        pPara->mfx.TargetKbps = pStream->control.bitrate / 1024;
+        pPara->mfx.TargetKbps = pStream->control.bitrate / 1000;
+    } else {
+        pPara->mfx.TargetKbps = vvepp.dpp.TargetKbps;
     }
-
-    pPara->mfx.NumSlice                = 0;
 
     virtio_video_msdk_convert_frame_rate(frame_rate, &(pPara->mfx.FrameInfo.FrameRateExtN), 
                     &(pPara->mfx.FrameInfo.FrameRateExtD));
 
+    pPara->mfx.NumSlice                = 0;
     pPara->mfx.EncodedOrder            = 0;
     pPara->IOPattern                   = MFX_IOPATTERN_IN_SYSTEM_MEMORY;
     pPara->mfx.FrameInfo.FourCC        = MFX_FOURCC_NV12;
@@ -1679,26 +1652,6 @@ int virtio_video_msdk_init_enc_param(mfxVideoParam *pPara, VirtIOVideoStream *pS
     pPara->mfx.FrameInfo.CropW         = pOutPara->frame_width;
     pPara->mfx.FrameInfo.CropH         = pOutPara->frame_height;
     pPara->NumExtParam                 = 0;
-
-    // if (pPara->mfx.CodecId == MFX_CODEC_AVC) {
-    //     pPara->ExtParam = g_malloc0(sizeof(mfxExtBuffer *));
-    //     pOpt2 = g_new0(mfxExtCodingOption2, 1);
-    //     pOpt2->LookAheadDepth          = 0;
-    //     pOpt2->MaxSliceSize            = 0;
-    //     pOpt2->MaxFrameSize            = 0;
-    //     pOpt2->BRefType                = vvepp.epp.BRefType;
-    //     pOpt2->BitrateLimit            = MFX_CODINGOPTION_OFF;
-    //     pOpt2->ExtBRC                  = 0;
-    //     pOpt2->IntRefType              = vvepp.epp.IntRefType;
-    //     pOpt2->IntRefCycleSize         = vvepp.epp.IntRefCycleSize;
-    //     pOpt2->IntRefQPDelta           = vvepp.epp.IntRefQPDelta;
-    //     pOpt2->AdaptiveI               = 0;
-    //     pOpt2->AdaptiveB               = 0;
-    //     pOpt2->Header.BufferId         = MFX_EXTBUFF_CODING_OPTION2;
-    //     pOpt2->Header.BufferSz         = sizeof(*pOpt2);
-    //     pPara->ExtParam[0]             = (mfxExtBuffer *)pOpt2;
-    //     pPara->NumExtParam             += 1;
-    // }
 
     return 0;
 }
