@@ -1706,7 +1706,7 @@ static size_t virtio_video_msdk_dec_resource_clear(VirtIOVideoStream *stream,
             work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR; // no indicator in spec
             QTAILQ_REMOVE(&stream->output_work, work, next);
             bitstream = work->opaque;
-            if (bitstream->Data)
+            if (bitstream && bitstream->Data)
                 g_free(bitstream->Data);
             if (work->opaque == NULL) {
                 virtio_video_work_done(work);
