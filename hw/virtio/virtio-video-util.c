@@ -442,24 +442,46 @@ static int virtio_video_memcpy_singlebuffer(VirtIOVideoResource *res,
     return 0;
 }
 
+
 int virtio_video_memcpy_NV12_byline(VirtIOVideoResource *res, void *Y, void *UV,
                uint32_t width, uint32_t height, uint32_t pitch)
 {
+    uint32_t cp_size = width * height * 3 / 2;
+    uint32_t cp_height = height * 3 / 2;
+
+    return virtio_video_memcpy_byline(res, 0, Y, UV, width, height, pitch, cp_size,
+		   cp_height);
+}
+
+int virtio_video_memcpy_ARGB_byline(VirtIOVideoResource *res, void *src, uint32_t width,
+	       uint32_t height, uint32_t pitch)
+{
+    uint32_t cp_size = width * height * 4;
+    uint32_t cp_height = height;
+
+    return virtio_video_memcpy_byline(res, 0, src, src, width * 4, height, pitch, cp_size,
+                   cp_height);
+}
+
+int virtio_video_memcpy_byline(VirtIOVideoResource *res, uint32_t idx, void *src_begin,
+	       void *src_uv, uint32_t width, uint32_t height, uint32_t pitch,
+	       uint32_t cp_size, uint32_t cp_height)
+{
     VirtIOVideoResourceSlice *slice;
-    uint32_t begin = res->plane_offsets[0];
+    uint32_t begin = res->plane_offsets[idx];
     uint32_t base = 0, diff, len, size, margin = 0;
     void *src;
     int i, page = 0;
 
-    src = Y;
-    size = width * height * 3 / 2;
-    slice = &res->slices[0][0];
+    src = src_begin;
+    size = cp_size;
+    slice = &res->slices[idx][0];
     diff = begin - base;
     len = slice->page.len - diff;
 
-    for(i = 0; i < (height * 3 / 2) && page < res->num_entries[0]; i++) {
+    for(i = 0; i < cp_height && page < res->num_entries[0]; i++) {
 	if (i == height) {
-            src = UV;
+            src = src_uv;
 	}
         if (width <= len) {
             memcpy(slice->page.base + diff, src, width);
@@ -476,7 +498,7 @@ int virtio_video_memcpy_NV12_byline(VirtIOVideoResource *res, void *Y, void *UV,
 
             //copy to next slice
             page++;
-            slice = &res->slices[0][page];
+            slice = &res->slices[idx][page];
             len = slice->page.len;
             memcpy(slice->page.base, src, margin);
             begin = margin;

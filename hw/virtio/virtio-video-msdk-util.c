@@ -729,9 +729,10 @@ int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
     case MFX_FOURCC_RGB4:
         if (resource->num_planes != 1)
             goto error;
-
+        DPRINTF("PitchHight: %d, PitchLow: %d\n", frame->Data.PitchHigh, frame->Data.PitchLow);
+        pitch = frame->Data.PitchLow;
         ret +=
-            virtio_video_memcpy(resource, 0, frame->Data.B, width * height * 4);
+            virtio_video_memcpy_ARGB_byline(resource, frame->Data.B, width, height, pitch);
         break;
     case MFX_FOURCC_NV12:
         if (session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY &&
