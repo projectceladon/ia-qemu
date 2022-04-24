@@ -731,8 +731,13 @@ int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
             goto error;
         DPRINTF("PitchHight: %d, PitchLow: %d\n", frame->Data.PitchHigh, frame->Data.PitchLow);
         pitch = frame->Data.PitchLow;
-        ret +=
-            virtio_video_memcpy_ARGB_byline(resource, frame->Data.B, width, height, pitch);
+
+        if (pitch == (width * 4))
+            ret +=
+	        virtio_video_memcpy(resource, 0, frame->Data.B, width * height * 4);
+        else
+            ret +=
+		virtio_video_memcpy_ARGB_byline(resource, frame->Data.B, width, height, pitch);
         break;
     case MFX_FOURCC_NV12:
         if (session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY &&
@@ -745,8 +750,12 @@ int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
 
         DPRINTF("PitchHight: %d, PitchLow: %d\n", frame->Data.PitchHigh, frame->Data.PitchLow);
         pitch = frame->Data.PitchLow;
-        ret += virtio_video_memcpy_NV12_byline(resource, frame->Data.Y, frame->Data.U,
-		       width, height, pitch);
+        if (pitch == width)
+                ret += virtio_video_memcpy_NV12(resource, frame->Data.Y, width * height,
+                                         frame->Data.U, width * height / 2);
+        else
+                ret += virtio_video_memcpy_NV12_byline(resource, frame->Data.Y, frame->Data.U,
+		                         width, height, pitch);
 
         if (session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY &&
             session->frame_allocator) {

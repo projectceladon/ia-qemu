@@ -33,7 +33,7 @@
 
 #define VIRTIO_VIDEO_DRM_DEVICE "/dev/dri/by-path/pci-0000:00:02.0-render"
 
-#define VIRTIO_VIDEO_MSDK_DEC_DEBUG 1
+//#define VIRTIO_VIDEO_MSDK_DEC_DEBUG 1
 //#define DUMP_SURFACE
 //#define DUMP_SURFACE_END
 //#define DUMP_SURFACE_BEFORE

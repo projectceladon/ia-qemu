@@ -489,24 +489,33 @@ int virtio_video_memcpy_byline(VirtIOVideoResource *res, uint32_t idx, void *src
             diff += width;
             size -= width;
             len -= width;
-            begin += width;
         } else {
             memcpy(slice->page.base + diff, src, len);
             size -= len;
             margin = width - len;
             src += len;
+            diff += len;
 
             //copy to next slice
-            page++;
-            slice = &res->slices[idx][page];
-            len = slice->page.len;
-            memcpy(slice->page.base, src, margin);
-            begin = margin;
-            diff = margin;
-            len -= margin;
-            src += (pitch - width + margin);
-	    size -= margin;
-            margin = 0;
+            while (margin > 0 && page < res->num_entries[0]) {
+                page++;
+                slice = &res->slices[idx][page];
+                len = slice->page.len;
+                if (margin <= len) {
+                    memcpy(slice->page.base, src, margin);
+                    diff = margin;
+                    len -= margin;
+                    src += (pitch - width + margin);
+                    size -= margin;
+                    margin = 0;
+                } else {
+                    memcpy(slice->page.base, src, len);
+		    src += len;
+		    size -= len;
+		    diff = 0;
+		    margin -= len;
+		}
+	    }
         }
     }
 
