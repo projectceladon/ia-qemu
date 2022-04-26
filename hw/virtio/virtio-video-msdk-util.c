@@ -464,13 +464,8 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     uint32_t width, height, size;
     int i, surface_num;
 
-    if (encode) {
-        width = alloc_req->Info.Width;
-        height = alloc_req->Info.Height;
-    } else {
-        width = MSDK_ALIGN32(alloc_req->Info.Width);
-        height = MSDK_ALIGN32(alloc_req->Info.Height);
-    }
+    width = alloc_req->Info.Width;
+    height = alloc_req->Info.Height;
 
     switch (info->FourCC) {
     case MFX_FOURCC_RGB4:
@@ -731,7 +726,7 @@ int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
             goto error;
         DPRINTF("PitchHight: %d, PitchLow: %d\n", frame->Data.PitchHigh, frame->Data.PitchLow);
         pitch = frame->Data.PitchLow;
-
+        DPRINTF("surface widthx4: %d,  pitch: %d\n", width * 4, pitch);
         if (pitch == (width * 4))
             ret +=
 	        virtio_video_memcpy(resource, 0, frame->Data.B, width * height * 4);
