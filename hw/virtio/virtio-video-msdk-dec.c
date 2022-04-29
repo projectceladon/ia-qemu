@@ -145,7 +145,13 @@ static mfxStatus virtio_video_decode_parse_header(VirtIOVideoWork *work)
     }
 
     m_session->surface_num = vpp_req[0].NumFrameSuggested;
-    m_session->vpp_surface_num = vpp_req[1].NumFrameSuggested;
+    int vpp_pool_size = (vpp_req[1].NumFrameSuggested + alloc_req.NumFrameSuggested) * 2;
+    if (vpp_pool_size > 30)
+        m_session->vpp_surface_num = 30;
+    else if (vpp_pool_size < 16)
+        m_session->vpp_surface_num = 16;
+    else
+        m_session->vpp_surface_num = vpp_pool_size;
     virtio_video_msdk_init_surface_pool(m_session, &vpp_req[1],
                                         &vpp_param.vpp.Out, true, false);
                                                          /* vpp?  encode? */
