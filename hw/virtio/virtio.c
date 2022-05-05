@@ -1439,8 +1439,9 @@ static void *virtqueue_split_pop(VirtQueue *vq, size_t sz)
 
     max = vq->vring.num;
 
-    if (vq->inuse >= vq->vring.num) {
-        virtio_error(vdev, "Virtqueue size exceeded");
+    if (vq->inuse >= vq->vring.num)
+    {
+        virtio_error(vdev, "Virtqueue size exceeded %s:%d, %d/%d\n", __func__, __LINE__, vq->inuse, vq->vring.num);
         goto done;
     }
 
@@ -1575,7 +1576,7 @@ static void *virtqueue_packed_pop(VirtQueue *vq, size_t sz)
     max = vq->vring.num;
 
     if (vq->inuse >= vq->vring.num) {
-        virtio_error(vdev, "Virtqueue size exceeded");
+        virtio_error(vdev, "Virtqueue size exceeded %s:%d,%d/%d\n", __func__, __LINE__,vq->inuse,vq->vring.num );
         goto done;
     }
 
