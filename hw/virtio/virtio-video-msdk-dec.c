@@ -755,12 +755,45 @@ static void *virtio_video_decode_thread(void *arg)
             }
 
             work = QTAILQ_FIRST(&stream->output_work);
-            work->timestamp = 0;
-            work->flags = VIRTIO_VIDEO_BUFFER_FLAG_EOS;
-            QTAILQ_REMOVE(&stream->output_work, work, next);
-            DPRINTF("send VIRTIO_VIDEO_BUFFER_FLAG_EOS buffer back\n");
-            virtio_video_work_done(work);
+            if (work)
+            {
+                work->timestamp = 0;
+                work->flags = VIRTIO_VIDEO_BUFFER_FLAG_EOS;
+                QTAILQ_REMOVE(&stream->output_work, work, next);
+                DPRINTF("send VIRTIO_VIDEO_BUFFER_FLAG_EOS buffer back\n");
+                virtio_video_work_done(work);
+            }
             virtio_video_inflight_cmd_done(stream);
+            if (stream->state == STREAM_STATE_DRAIN_PLUS_CLEAR || stream->state == STREAM_STATE_DRAIN_PLUS_CLEAR_DISTROY)
+            {
+                QTAILQ_FOREACH_SAFE(work, &stream->output_work, next, tmp_work)
+                {
+                    DPRINTF("flags: %d", VIRTIO_VIDEO_BUFFER_FLAG_ERR);
+                    work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR; // no indicator in spec
+                    QTAILQ_REMOVE(&stream->output_work, work, next);
+                    if (work->opaque == NULL)
+                    {
+                        virtio_video_work_done(work);
+                    }
+                }
+
+                QTAILQ_FOREACH(work, &stream->output_work, next)
+                {
+                    DPRINTF("work(%p) in flying, cannot clear\n", work);
+                }
+                if (stream->state == STREAM_STATE_DRAIN_PLUS_CLEAR_DISTROY)
+                {
+                    virtio_video_destroy_resource_list(stream, false);
+                    DPRINTF("CMD_RESOURCE_DESTROY_ALL: stream %d output resources "
+                            "destroyed\n",
+                            stream->id);
+                }
+                else
+                {
+                    DPRINTF("CMD_QUEUE_CLEAR: stream %d output queue cleared\n",
+                            stream->id);
+                }
+            }
 
             /*
              * If the guest starts decoding another bitstream, we can detect
@@ -1704,31 +1737,45 @@ static size_t virtio_video_msdk_dec_resource_clear(VirtIOVideoStream *stream,
                     stream->id);
             break;
         }
-
-        /* release the work currently being processed on decode thread */
-        QTAILQ_FOREACH_SAFE(work, &stream->output_work, next, tmp_work)
+        if (stream->state == STREAM_STATE_DRAIN)
         {
-            DPRINTF("flags: %d", VIRTIO_VIDEO_BUFFER_FLAG_ERR);
-            work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR; // no indicator in spec
-            QTAILQ_REMOVE(&stream->output_work, work, next);
-            if (work->opaque == NULL) {
-                virtio_video_work_done(work);
+            if (destroy)
+                stream->state = STREAM_STATE_DRAIN_PLUS_CLEAR_DISTROY;
+            else
+                stream->state = STREAM_STATE_DRAIN_PLUS_CLEAR;
+        }
+        else
+        {
+            /* release the work currently being processed on decode thread */
+            QTAILQ_FOREACH_SAFE(work, &stream->output_work, next, tmp_work)
+            {
+                DPRINTF("flags: %d", VIRTIO_VIDEO_BUFFER_FLAG_ERR);
+                work->flags = VIRTIO_VIDEO_BUFFER_FLAG_ERR; // no indicator in spec
+                QTAILQ_REMOVE(&stream->output_work, work, next);
+                if (work->opaque == NULL)
+                {
+                    virtio_video_work_done(work);
+                }
+            }
+
+            QTAILQ_FOREACH(work, &stream->output_work, next)
+            {
+                DPRINTF("work(%p) in flying, cannot clear\n", work);
+            }
+            if (destroy)
+            {
+                virtio_video_destroy_resource_list(stream, false);
+                DPRINTF("CMD_RESOURCE_DESTROY_ALL: stream %d output resources "
+                        "destroyed\n",
+                        stream->id);
+            }
+            else
+            {
+                DPRINTF("CMD_QUEUE_CLEAR: stream %d output queue cleared\n",
+                        stream->id);
             }
         }
-        QTAILQ_FOREACH(work, &stream->output_work, next)
-        {
-            DPRINTF("work(%p) in flying, cannot clear\n", work);
-        }
 
-        if (destroy) {
-            virtio_video_destroy_resource_list(stream, false);
-            DPRINTF("CMD_RESOURCE_DESTROY_ALL: stream %d output resources "
-                    "destroyed\n",
-                    stream->id);
-        } else {
-            DPRINTF("CMD_QUEUE_CLEAR: stream %d output queue cleared\n",
-                    stream->id);
-        }
         break;
     default:
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;

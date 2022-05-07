@@ -93,6 +93,8 @@ typedef enum virtio_video_stream_state {
     STREAM_STATE_DRAIN,
     STREAM_STATE_INPUT_PAUSED,
     STREAM_STATE_TERMINATE,
+    STREAM_STATE_DRAIN_PLUS_CLEAR,
+    STREAM_STATE_DRAIN_PLUS_CLEAR_DISTROY,
 } virtio_video_stream_state;
 
 typedef union VirtIOVideoResourceSlice {
