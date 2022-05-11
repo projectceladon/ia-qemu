@@ -27,7 +27,7 @@
 #include "virtio-video-msdk-dec.h"
 
 //#define VIRTIO_VIDEO_MSDK_DEBUG 1
-#ifndef VIRTIO_VIDEO_MSDK_DEBUG
+#if !defined VIRTIO_VIDEO_MSDK_DEBUG && !defined DEBUG_VIRTIO_VIDEO_ALL
 #undef DPRINTF
 #define DPRINTF(fmt, ...) do { } while (0)
 #endif

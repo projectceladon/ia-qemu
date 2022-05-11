@@ -37,7 +37,7 @@
 //#define DUMP_SURFACE
 //#define DUMP_SURFACE_END
 //#define DUMP_SURFACE_BEFORE
-#ifndef VIRTIO_VIDEO_MSDK_DEC_DEBUG
+#if !defined VIRTIO_VIDEO_MSDK_DEC_DEBUG && !defined DEBUG_VIRTIO_VIDEO_ALL
 #undef DPRINTF
 #define DPRINTF(fmt, ...) do { } while (0)
 #endif
@@ -397,7 +397,7 @@ static mfxStatus virtio_video_decode_submit_one_work(VirtIOVideoWork *work,
         m_frame = g_new0(MsdkFrame, 1);
         status = virtio_video_decode_one_frame(work, m_frame, eos);
 
-        if (status != MFX_ERR_NONE && status != MFX_ERR_MORE_SURFACE) {
+        if (status != MFX_ERR_NONE && status != MFX_ERR_MORE_SURFACE && !eos) {
             if (m_frame->surface) {
                 error_report("%s status:%d with valid surface:%p\n", __func__,
                              status, m_frame->surface);
@@ -409,7 +409,7 @@ static mfxStatus virtio_video_decode_submit_one_work(VirtIOVideoWork *work,
         // MFX_ERR_MORE_SURFACE, incase there is valid output surface need
         // handle.
         DPRINTF("m_frame->surface:%p\n", m_frame->surface);
-        if (!m_frame->surface) {
+        if (!m_frame->surface && !eos) {
             g_free(m_frame);
             break;
         }
@@ -429,7 +429,10 @@ static mfxStatus virtio_video_decode_submit_one_work(VirtIOVideoWork *work,
             QTAILQ_INSERT_TAIL(&stream->pending_frames, frame, next);
             inserted = true;
         }
+        frame->timestamp = eos ? 0 : (work->timestamp ? work->timestamp : 1);
         frame->opaque = m_frame;
+        if (eos)
+            break;
     }
 
     bitstream->DataFlag = 0;
@@ -612,16 +615,21 @@ done:
     return NULL;
 }
 
-static int virtio_video_decode_valid_surfaces(VirtIOVideoStream *stream){
+#if defined VIRTIO_VIDEO_MSDK_DEC_DEBUG || defined DEBUG_VIRTIO_VIDEO_ALL
+static int virtio_video_decode_valid_surfaces(VirtIOVideoStream *stream)
+{
     VirtIOVideoFrame *frame;
     int i = 0;
 
-    QTAILQ_FOREACH(frame, &stream->pending_frames, next) {
-        if (frame->opaque != NULL) i++;
+    QTAILQ_FOREACH(frame, &stream->pending_frames, next)
+    {
+        if (frame->opaque != NULL)
+            i++;
     }
 
     return i;
 }
+#endif
 
 static void *virtio_video_decode_thread(void *arg)
 {
@@ -634,6 +642,7 @@ static void *virtio_video_decode_thread(void *arg)
     mfxStatus status;
     uint32_t stream_id = stream->id;
     mfxBitstream *bitstream;
+    bool eos;
 
     DPRINTF("virtio-video-dec-output/%d started\n", stream_id);
     object_ref(OBJECT(v));
@@ -729,30 +738,23 @@ static void *virtio_video_decode_thread(void *arg)
 
             frame = QTAILQ_FIRST(&stream->pending_frames);
             work = QTAILQ_FIRST(&stream->output_work);
-            virtio_video_decode_retrieve_one_frame(frame, work);
+            eos = !frame->timestamp;
+            if (!eos)
+                virtio_video_decode_retrieve_one_frame(frame, work);
 
-            if (stream->state != STREAM_STATE_DRAIN) {
+            DPRINTF("stream->state:%d, eos:%d\n", stream->state, eos);
+            if ((stream->state != STREAM_STATE_DRAIN && stream->state != STREAM_STATE_DRAIN_PLUS_CLEAR 
+                    && stream->state != STREAM_STATE_DRAIN_PLUS_CLEAR_DISTROY) || !eos)
+            {
                 break;
             }
-            assert(cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN);
+            DPRINTF("stream->state:%d, eos:%d\n", stream->state, eos);
+            //assert(cmd->cmd_type == VIRTIO_VIDEO_CMD_STREAM_DRAIN);
             DPRINTF("virtio_video_decode_valid_surfaces:%d\n",
                     virtio_video_decode_valid_surfaces(stream));
-            if (!QTAILQ_EMPTY(&stream->input_work) ||
-                virtio_video_decode_valid_surfaces(stream)) {
-                break;
-            }
 
-            /* STREAM_DRAIN is done, output the EOS buffer, which is a
-             * standalone empty buffer according to frontend code. */
-            if (QTAILQ_EMPTY(&stream->output_work)) {
-                qemu_mutex_unlock(&stream->mutex);
-                qemu_event_wait(&m_session->output_notifier);
-                qemu_event_reset(&m_session->output_notifier);
-                qemu_mutex_lock(&stream->mutex);
-                if (stream->state != STREAM_STATE_DRAIN) {
-                    break;
-                }
-            }
+            QTAILQ_REMOVE(&stream->pending_frames, frame, next);
+            virtio_video_msdk_uninit_frame(frame);
 
             work = QTAILQ_FIRST(&stream->output_work);
             if (work)
@@ -763,6 +765,8 @@ static void *virtio_video_decode_thread(void *arg)
                 DPRINTF("send VIRTIO_VIDEO_BUFFER_FLAG_EOS buffer back\n");
                 virtio_video_work_done(work);
             }
+            else
+                DPRINTF("\n");
             virtio_video_inflight_cmd_done(stream);
             if (stream->state == STREAM_STATE_DRAIN_PLUS_CLEAR || stream->state == STREAM_STATE_DRAIN_PLUS_CLEAR_DISTROY)
             {

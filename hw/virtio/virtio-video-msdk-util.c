@@ -31,7 +31,16 @@
 #include "mfx/mfxvp8.h"
 #include "va/va_drm.h"
 
-#define DUMP_TO_FILE
+//#define DUMP_TO_FILE
+
+//#define VIRTIO_VIDEO_MSDK_UTIL_DEBUG 1
+//#define DUMP_SURFACE
+//#define DUMP_SURFACE_END
+//#define DUMP_SURFACE_BEFORE
+#if !defined VIRTIO_VIDEO_MSDK_UTIL_DEBUG && !defined DEBUG_VIRTIO_VIDEO_ALL
+#undef DPRINTF
+#define DPRINTF(fmt, ...) do { } while (0)
+#endif
 
 // added by shenlin
 EncPresPara presets[PRESET_MAX_MODES][PRESET_MAX_CODECS] =
@@ -81,14 +90,6 @@ double CaculateBitrate_At(PartiallyLinearFNC *pFnc, double x);
 
 #define VIRTIO_VIDEO_DRM_DEVICE "/dev/dri/by-path/pci-0000:00:02.0-render"
 
-//#define VIRTIO_VIDEO_MSDK_UTIL_DEBUG 1
-//#define DUMP_SURFACE
-//#define DUMP_SURFACE_END
-//#define DUMP_SURFACE_BEFORE
-#ifndef VIRTIO_VIDEO_MSDK_UTIL_DEBUG
-#undef DPRINTF
-#define DPRINTF(fmt, ...) do { } while (0)
-#endif
 struct virtio_video_convert_table {
     uint32_t virtio_value;
     uint32_t msdk_value;
