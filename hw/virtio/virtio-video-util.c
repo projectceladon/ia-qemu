@@ -369,7 +369,7 @@ static int virtio_video_memcpy_singlebuffer_r(VirtIOVideoResource *pRes,
         }
         diff = begin - pos;
         cur_len = size > pSlice->page.len - diff ? pSlice->page.len - diff : size;
-        memcpy(pDst, pSlice->page.base + diff, cur_len);
+        MEMCPY_S(pDst, pSlice->page.base + diff, cur_len, cur_len);
 
         pDst += cur_len;
         size -= cur_len;
@@ -391,7 +391,7 @@ static int virtio_video_memcpy_perplane_r(VirtIOVideoResource *res,
         slice = &res->slices[idx][i];
         cur_len = size >= slice->page.len ? slice->page.len : size;
         
-        memcpy(dst + dst_pos, slice->page.base, cur_len);
+        MEMCPY_S(dst + dst_pos, slice->page.base, cur_len, cur_len);
         size -= cur_len;
         dst_pos += cur_len;
     }
@@ -423,10 +423,10 @@ static int virtio_video_memcpy_singlebuffer(VirtIOVideoResource *res,
         diff = begin - base;
         len = slice->page.len - diff;
         if (end <= base + slice->page.len) {
-            memcpy(slice->page.base + diff, src, size);
+            MEMCPY_S(slice->page.base + diff, src, size, size);
             return 0;
         } else {
-            memcpy(slice->page.base + diff, src, len);
+            MEMCPY_S(slice->page.base + diff, src, len, len);
             begin += len;
             size -= len;
             src += len;
@@ -484,13 +484,13 @@ int virtio_video_memcpy_byline(VirtIOVideoResource *res, uint32_t idx, void *src
             src = src_uv;
 	}
         if (width <= len) {
-            memcpy(slice->page.base + diff, src, width);
+            MEMCPY_S(slice->page.base + diff, src, width, width);
             src += pitch;
             diff += width;
             size -= width;
             len -= width;
         } else {
-            memcpy(slice->page.base + diff, src, len);
+            MEMCPY_S(slice->page.base + diff, src, len, len);
             size -= len;
             margin = width - len;
             src += len;
@@ -502,14 +502,14 @@ int virtio_video_memcpy_byline(VirtIOVideoResource *res, uint32_t idx, void *src
                 slice = &res->slices[idx][page];
                 len = slice->page.len;
                 if (margin <= len) {
-                    memcpy(slice->page.base, src, margin);
+                    MEMCPY_S(slice->page.base, src, margin, margin);
                     diff = margin;
                     len -= margin;
                     src += (pitch - width + margin);
                     size -= margin;
                     margin = 0;
                 } else {
-                    memcpy(slice->page.base, src, len);
+                    MEMCPY_S(slice->page.base, src, len, len);
 		    src += len;
 		    size -= len;
 		    diff = 0;
@@ -551,17 +551,17 @@ int virtio_video_memcpy_NV12(VirtIOVideoResource *res, void *Y, uint32_t size_Y,
         diff = begin - base;
         len = slice->page.len - diff;
         if (end <= base + slice->page.len) {
-            memcpy(slice->page.base + diff, src, size);
+            MEMCPY_S(slice->page.base + diff, src, size, size);
             return 0;
         } else {
             if (size >= len) {
-                memcpy(slice->page.base + diff, src, len);
+                MEMCPY_S(slice->page.base + diff, src, len, len);
                 begin += len;
                 size -= len;
                 src += len;
                 len = 0;
             } else {
-                memcpy(slice->page.base + diff, src, size);
+                MEMCPY_S(slice->page.base + diff, src, size, size);
                 begin += size;
                 src += size;
                 len -= size;
@@ -571,7 +571,7 @@ int virtio_video_memcpy_NV12(VirtIOVideoResource *res, void *Y, uint32_t size_Y,
             if (size == 0 && src <= UV) {
                 src = UV;
                 size = size_UV;
-                memcpy(slice->page.base + diff, src, len);
+                MEMCPY_S(slice->page.base + diff, src, len, len);
                 begin += len;
                 size -= len;
                 src += len;
@@ -605,10 +605,10 @@ static int virtio_video_memdump_singlebuffer(VirtIOVideoResource *res,
         diff = begin - base;
         len = slice->page.len - diff;
         if (end <= base + slice->page.len) {
-            memcpy(dst, slice->page.base + diff, size);
+            MEMCPY_S(dst, slice->page.base + diff, size, size);
             return 0;
         } else {
-            memcpy(dst, slice->page.base + diff, len);
+            MEMCPY_S(dst, slice->page.base + diff, len, len);
             begin += len;
             size -= len;
             dst += len;
@@ -633,10 +633,10 @@ static int virtio_video_memcpy_perplane(VirtIOVideoResource *res, uint32_t idx,
     for (i = 0; i < res->num_entries[idx]; i++) {
         slice = &res->slices[idx][i];
         if (size <= slice->page.len) {
-            memcpy(slice->page.base, src, size);
+            MEMCPY_S(slice->page.base, src, size, size);
             return 0;
         } else {
-            memcpy(slice->page.base, src, slice->page.len);
+            MEMCPY_S(slice->page.base, src, slice->page.len, slice->page.len);
             size -= slice->page.len;
             src += slice->page.len;
         }
@@ -661,10 +661,10 @@ static int virtio_video_memdump_perplane(VirtIOVideoResource *res, uint32_t idx,
     for (i = 0; i < res->num_entries[idx]; i++) {
         slice = &res->slices[idx][i];
         if (size <= slice->page.len) {
-            memcpy(dst, slice->page.base, size);
+            MEMCPY_S(dst, slice->page.base, size, size);
             return 0;
         } else {
-            memcpy(dst, slice->page.base, slice->page.len);
+            MEMCPY_S(dst, slice->page.base, slice->page.len, slice->page.len);
             size -= slice->page.len;
             dst += slice->page.len;
         }
