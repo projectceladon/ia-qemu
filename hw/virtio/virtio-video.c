@@ -99,14 +99,15 @@ static size_t virtio_video_process_cmd_query_capability(VirtIODevice *vdev,
 
     buf = (char *)(*resp) + sizeof(virtio_video_query_capability_resp);
     QLIST_FOREACH(fmt, &v->format_list[dir], next) {
-        memcpy(buf, &fmt->desc, sizeof(fmt->desc));
+        MEMCPY_S(buf, &fmt->desc, sizeof(fmt->desc), sizeof(fmt->desc));
         buf += sizeof(fmt->desc);
         QLIST_FOREACH(fmt_frame, &fmt->frames, next) {
-            memcpy(buf, &fmt_frame->frame, sizeof(fmt_frame->frame));
+            MEMCPY_S(buf, &fmt_frame->frame, sizeof(fmt_frame->frame), sizeof(fmt_frame->frame));
             buf += sizeof(fmt_frame->frame);
             for (i = 0; i < fmt_frame->frame.num_rates; i++) {
-                memcpy(buf, &fmt_frame->frame_rates[i],
-                       sizeof(virtio_video_format_range));
+                MEMCPY_S(buf, &fmt_frame->frame_rates[i],
+                       sizeof(virtio_video_format_range),
+		       sizeof(virtio_video_format_range));
                 buf += sizeof(virtio_video_format_range);
             }
         }
@@ -315,8 +316,8 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     resource->id = req->resource_id;
     resource->planes_layout = req->planes_layout;
     resource->num_planes = req->num_planes;
-    memcpy(&resource->plane_offsets, &req->plane_offsets,
-           sizeof(resource->plane_offsets));
+    MEMCPY_S(&resource->plane_offsets, &req->plane_offsets,
+           sizeof(resource->plane_offsets), sizeof(resource->plane_offsets));
    // memcpy(&resource->num_entries, &req->num_entries,
      //      sizeof(resource->num_entries));
 
@@ -943,13 +944,13 @@ static void virtio_video_device_unrealize(DeviceState *dev)
 static void virtio_video_get_config(VirtIODevice *vdev, uint8_t *config)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-    memcpy(config, &v->config, sizeof(v->config));
+    MEMCPY_S(config, &v->config, sizeof(v->config), sizeof(v->config));
 }
 
 static void virtio_video_set_config(VirtIODevice *vdev, const uint8_t *config)
 {
     VirtIOVideo *v = VIRTIO_VIDEO(vdev);
-    memcpy(&v->config, config, sizeof(v->config));
+    MEMCPY_S(&v->config, config, sizeof(v->config), sizeof(v->config));
 }
 
 static uint64_t virtio_video_get_features(VirtIODevice *vdev, uint64_t features,

@@ -55,8 +55,8 @@ static void virtio_video_msdk_bitstream_append(mfxBitstream *this,
         this->MaxLength = this->DataLength + other->DataLength;
         this->Data = g_realloc(this->Data, this->MaxLength);
     }
-    memcpy(this->Data + this->DataLength, other->Data + other->DataOffset,
-           other->DataLength);
+    MEMCPY_S(this->Data + this->DataLength, other->Data + other->DataOffset,
+           other->DataLength, other->DataLength);
     this->DataLength += other->DataLength;
 }
 
@@ -1070,7 +1070,8 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     stream->id = req->hdr.stream_id;
     stream->in.mem_type = req->in_mem_type;
     stream->out.mem_type = req->out_mem_type;
-    memcpy(stream->tag, req->tag, strlen((char *)req->tag));
+    MEMCPY_S(stream->tag, req->tag, strlen((char *)req->tag),
+             strlen((char *)req->tag));
 
     /*
      * The input of decode device is a bitstream. Frame rate, frame size, plane
@@ -1362,10 +1363,10 @@ static int virtio_video_memcpy_input_buffer(VirtIOVideoResource *res,
         diff = begin - base;
         len = slice->page.len - diff;
         if (end <= base + slice->page.len) {
-            memcpy(dest, slice->page.base + diff, size);
+            MEMCPY_S(dest, slice->page.base + diff, size, size);
             return 0;
         } else {
-            memcpy(dest, slice->page.base + diff, len);
+            MEMCPY_S(dest, slice->page.base + diff, len, len);
             begin += len;
             size -= len;
             dest += len;
@@ -1869,11 +1870,13 @@ size_t virtio_video_msdk_dec_get_params(VirtIOVideo *v,
     resp->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_PARAMS;
     switch (req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT:
-        memcpy(&resp->params, &stream->in.params, sizeof(resp->params));
+        MEMCPY_S(&resp->params, &stream->in.params, sizeof(resp->params),
+                 sizeof(resp->params));
         DPRINTF("CMD_GET_PARAMS: reported input params\n");
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT:
-        memcpy(&resp->params, &stream->out.params, sizeof(resp->params));
+        MEMCPY_S(&resp->params, &stream->out.params, sizeof(resp->params),
+                 sizeof(resp->params));
         DPRINTF("CMD_GET_PARAMS: reported output params\n");
         break;
     default:
@@ -2047,8 +2050,9 @@ virtio_video_msdk_dec_query_control(VirtIOVideo *v,
         resp_profile = resp_buf = (char *)(*resp) + sizeof(**resp);
         resp_profile->num = fmt->profile.num;
         resp_buf += sizeof(*resp_profile);
-        memcpy(resp_buf, fmt->profile.values,
-               sizeof(uint32_t) * fmt->profile.num);
+        MEMCPY_S(resp_buf, fmt->profile.values,
+               sizeof(uint32_t) * fmt->profile.num,
+	       sizeof(uint32_t) * fmt->profile.num);
 
         DPRINTF("CMD_QUERY_CONTROL: format %s reported %d supported profiles\n",
                 virtio_video_format_name(query->format), fmt->profile.num);
@@ -2082,7 +2086,8 @@ virtio_video_msdk_dec_query_control(VirtIOVideo *v,
         resp_level = resp_buf = (char *)(*resp) + sizeof(**resp);
         resp_level->num = fmt->level.num;
         resp_buf += sizeof(*resp_level);
-        memcpy(resp_buf, fmt->level.values, sizeof(uint32_t) * fmt->level.num);
+        MEMCPY_S(resp_buf, fmt->level.values, sizeof(uint32_t) * fmt->level.num,
+                 sizeof(uint32_t) * fmt->level.num);
 
         DPRINTF("CMD_QUERY_CONTROL: format %s reported %d supported levels\n",
                 virtio_video_format_name(query->format), fmt->level.num);
@@ -2404,12 +2409,13 @@ int virtio_video_init_msdk_dec(VirtIOVideo *v)
         virtio_video_init_format(out_fmt, out_format[i]);
 
         out_fmt_frame = g_new0(VirtIOVideoFormatFrame, 1);
-        memcpy(&out_fmt_frame->frame, &in_fmt_frame->frame,
-               sizeof(virtio_video_format_frame));
+        MEMCPY_S(&out_fmt_frame->frame, &in_fmt_frame->frame,
+               sizeof(virtio_video_format_frame),
+	       sizeof(virtio_video_format_frame));
 
         len = sizeof(virtio_video_format_range) * in_fmt_frame->frame.num_rates;
         out_fmt_frame->frame_rates = g_malloc0(len);
-        memcpy(out_fmt_frame->frame_rates, in_fmt_frame->frame_rates, len);
+        MEMCPY_S(out_fmt_frame->frame_rates, in_fmt_frame->frame_rates, len, len);
 
         out_fmt->desc.num_frames++;
         QLIST_INSERT_HEAD(&out_fmt->frames, out_fmt_frame, next);

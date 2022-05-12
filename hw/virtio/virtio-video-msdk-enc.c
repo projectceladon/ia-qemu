@@ -323,7 +323,7 @@ size_t virtio_video_msdk_enc_stream_create(VirtIOVideo *v,
     pStream->out.mem_type = req->out_mem_type;
     pStream->in.setted = false;
     pStream->out.setted = false;
-    memcpy(pStream->tag, req->tag, strlen((char *)req->tag));
+    MEMCPY_S(pStream->tag, req->tag, strlen((char *)req->tag), strlen((char *)req->tag));
 
     virtio_video_msdk_enc_set_param_default(pStream, req->coded_format);
 
@@ -747,11 +747,13 @@ size_t virtio_video_msdk_enc_get_params(VirtIOVideo *v,
     resp->hdr.type = VIRTIO_VIDEO_RESP_OK_GET_PARAMS;
     switch (req->queue_type) {
     case VIRTIO_VIDEO_QUEUE_TYPE_INPUT :
-        memcpy(&resp->params, &pStream->in.params, sizeof(resp->params));
+        MEMCPY_S(&resp->params, &pStream->in.params, sizeof(resp->params),
+                 sizeof(resp->params));
         // DPRINTF("CMD_GET_PARAMS : reported input params\n");
         break;
     case VIRTIO_VIDEO_QUEUE_TYPE_OUTPUT :
-        memcpy(&resp->params, &pStream->out.params, sizeof(resp->params));
+        MEMCPY_S(&resp->params, &pStream->out.params, sizeof(resp->params),
+                 sizeof(resp->params));
         // DPRINTF("CMD_GET_PARAMS : reported output params\n");
         break;
     default :
@@ -911,7 +913,8 @@ size_t virtio_video_msdk_enc_query_control(VirtIOVideo *v,
         pRespProfile = pRespBuf = (char *)(*resp) + sizeof(**resp);
         pRespProfile->num = pFmt->profile.num;
         pRespBuf += sizeof(*pRespProfile);
-        memcpy(pRespBuf, pFmt->profile.values,
+        MEMCPY_S(pRespBuf, pFmt->profile.values,
+               sizeof(uint32_t) * pFmt->profile.num,
                sizeof(uint32_t) * pFmt->profile.num);
 
         DPRINTF("CMD_QUERY_CONTROL: format %s reported %d supported profiles in encoder \n",
@@ -947,7 +950,8 @@ size_t virtio_video_msdk_enc_query_control(VirtIOVideo *v,
         pRespLevel = pRespBuf = (char *)(*resp) + sizeof(**resp);
         pRespLevel->num = pFmt->level.num;
         pRespBuf += sizeof(*pRespLevel);
-        memcpy(pRespBuf, pFmt->level.values, sizeof(uint32_t) * pFmt->level.num);
+        MEMCPY_S(pRespBuf, pFmt->level.values, sizeof(uint32_t) * pFmt->level.num,
+                 sizeof(uint32_t) * pFmt->level.num);
 
         DPRINTF("CMD_QUERY_CONTROL: format %s reported %d supported levels in encoder\n",
                 virtio_video_format_name(pQuery->format), pFmt->level.num);
@@ -1342,11 +1346,12 @@ int virtio_video_init_msdk_enc(VirtIOVideo *v)
         virtio_video_init_format(in_fmt, in_format[i]);
 
         in_fmt_frame = g_new0(VirtIOVideoFormatFrame, 1);
-        memcpy(&in_fmt_frame->frame, &out_fmt_frame->frame, sizeof(virtio_video_format_frame));
+        MEMCPY_S(&in_fmt_frame->frame, &out_fmt_frame->frame, sizeof(virtio_video_format_frame),
+                 sizeof(virtio_video_format_frame));
 
         len = sizeof(virtio_video_format_range) * out_fmt_frame->frame.num_rates;
         in_fmt_frame->frame_rates = g_malloc0(len);
-        memcpy(in_fmt_frame->frame_rates, out_fmt_frame->frame_rates, len);
+        MEMCPY_S(in_fmt_frame->frame_rates, out_fmt_frame->frame_rates, len, len);
 
         in_fmt->desc.num_frames++;
         QLIST_INSERT_HEAD(&in_fmt->frames, in_fmt_frame, next);

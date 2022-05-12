@@ -26,8 +26,6 @@
 
 #include "hw/virtio/virtio-video.h"
 
-#define MEMCPY_S(dest, src, destsz, srcsz)     memcpy(dest, src, srcsz)
-
 const char *virtio_video_cmd_name(uint32_t cmd);
 const char *virtio_video_format_name(uint32_t format);
 const char *virtio_video_frame_type_name(uint32_t frame_type);

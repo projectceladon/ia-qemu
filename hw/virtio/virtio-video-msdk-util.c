@@ -652,7 +652,7 @@ int virtio_video_msdk_input_surface(MsdkSurface *surface,
             for (uint32_t x = 0; x < resource->num_entries[0]; x++) {
                 pSlice = &resource->slices[0][x];
                 cur_len = (size <= pSlice->page.len) ? size : pSlice->page.len;
-                memcpy(pSurf->Data.Y + pos, pSlice->page.base, cur_len);
+                MEMCPY_S(pSurf->Data.Y + pos, pSlice->page.base, cur_len, cur_len);
 #ifdef DUMP_TO_FILE
                 if (pTmpFile) {
                     fwrite(pSlice->page.base, 1, cur_len, pTmpFile);
@@ -1347,13 +1347,15 @@ void CaculateBItrate_AddPairs(PartiallyLinearFNC *pFnc, double x, double y)
         double * pnew = NULL;
         pnew = g_malloc0(sizeof(double) * pFnc->m_nAllocated);
         //memcpy_s(pnew, sizeof(mfxF64)*m_nAllocated, m_pX, sizeof(mfxF64) * m_nPoints);
-        memcpy(pnew, pFnc->m_pX, sizeof(double) * pFnc->m_nPoints);
+        MEMCPY_S(pnew, pFnc->m_pX, sizeof(double) * pFnc->m_nPoints,
+                 sizeof(double) * pFnc->m_nPoints);
         g_free(pFnc->m_pX);
         pFnc->m_pX = pnew;
 
         pnew = g_malloc0(sizeof(double) * pFnc->m_nAllocated);
         //memcpy_s(pnew, sizeof(mfxF64)*m_nAllocated, m_pY, sizeof(mfxF64) * m_nPoints);
-        memcpy(pnew, pFnc->m_pY, sizeof(double) * pFnc->m_nPoints);
+        MEMCPY_S(pnew, pFnc->m_pY, sizeof(double) * pFnc->m_nPoints,
+                 sizeof(double) * pFnc->m_nPoints);
         g_free(pFnc->m_pY);
         pFnc->m_pY = pnew;
     }
