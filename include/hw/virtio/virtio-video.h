@@ -31,8 +31,8 @@
 #include "sysemu/iothread.h"
 #include "block/aio.h"
 
-#define DEBUG_VIRTIO_VIDEO
-//#define DEBUG_VIRTIO_VIDEO_ALL
+#define DEBUG_VIRTIO_VIDEO       //mask to disable all log
+//#define DEBUG_VIRTIO_VIDEO_ALL //enable all log
 //#define DEBUG_VIRTIO_VIDEO_IOV
 #define DEBUG_VIRTIO_VIDEO_EVENT
 

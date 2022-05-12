@@ -369,19 +369,7 @@ static mfxStatus virtio_video_decode_submit_one_work(VirtIOVideoWork *work,
      * Now, we explicitly prohibit the share of timestamp, so that we can make
      * sure the frontend follows the spec and everything has defined semantics.
      */
-    QTAILQ_FOREACH(frame, &stream->pending_frames, next) {
-        if (frame->timestamp == work->timestamp) {
-            break;
-        }
-    }
-    if (frame != NULL && frame->timestamp != 0) {
-        DPRINTF("CMD_RESOURCE_QUEUE: stream %d input resource %d with "
-                "timestamp=%ldns, but a frame with timestamp=%ldns is "
-                "already being decoded\n",
-                stream->id, work->resource->id, work->timestamp,
-                work->timestamp);
-        return MFX_ERR_UNDEFINED_BEHAVIOR;
-    }
+
     DPRINTF("decode input bs timestamp:%llu\n", (unsigned long long)work->timestamp);
 
     if (!m_session->input_accepted) {
