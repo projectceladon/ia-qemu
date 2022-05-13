@@ -76,6 +76,8 @@
 #define VIRTIO_VIDEO(obj) \
         OBJECT_CHECK(VirtIOVideo, (obj), TYPE_VIRTIO_VIDEO)
 
+#define MEMCPY_S(dest, src, destsz, srcsz)     memcpy(dest, src, MIN(destsz,srcsz))
+
 typedef enum virtio_video_device_model {
     VIRTIO_VIDEO_DEVICE_V4L2_ENC = 1,
     VIRTIO_VIDEO_DEVICE_V4L2_DEC,
