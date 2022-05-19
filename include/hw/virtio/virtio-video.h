@@ -41,7 +41,8 @@
     do { \
         struct timespec ts;    \
         clock_gettime(CLOCK_MONOTONIC, &ts); \
-        fprintf(stderr, "[%ld.%03ld |%s:%d] " fmt, \
+        fprintf(stderr, "%d""[%ld.%03ld |%s:%d] " fmt, \
+        gettid(), \
         ts.tv_sec, ts.tv_nsec / 1000000, __FUNCTION__, __LINE__, ##__VA_ARGS__); } while (0)
     // do { fprintf(stderr, "virtio-video: " fmt, ## __VA_ARGS__); } while (0)
 #else
