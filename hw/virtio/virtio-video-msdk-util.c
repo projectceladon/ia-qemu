@@ -356,7 +356,7 @@ int virtio_video_msdk_init_vpp_param_dec(mfxVideoParam *param,
 
     switch(stream->out.mem_type) {
     case VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES:
-        vpp_param->IOPattern |= MFX_IOPATTERN_IN_SYSTEM_MEMORY |
+        vpp_param->IOPattern |= /*MFX_IOPATTERN_IN_SYSTEM_MEMORY*/MFX_IOPATTERN_IN_VIDEO_MEMORY |
                                 MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
         break;
     case VIRTIO_VIDEO_MEM_TYPE_VIRTIO_OBJECT:

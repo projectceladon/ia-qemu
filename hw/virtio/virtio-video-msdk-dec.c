@@ -157,9 +157,9 @@ static mfxStatus virtio_video_decode_parse_header(VirtIOVideoWork *work)
                                                          /* vpp?  encode? */
 done:
     m_session->surface_num += alloc_req.NumFrameSuggested;
-    virtio_video_msdk_init_surface_pool(m_session, &alloc_req,
-                                        &param.mfx.FrameInfo, false, false);
-                                                           /* vpp?   encode? */
+    if (param.IOPattern != MFX_IOPATTERN_OUT_VIDEO_MEMORY)
+        virtio_video_msdk_init_surface_pool(m_session, &alloc_req,
+                                            &param.mfx.FrameInfo, false, false);
     stream->out.params.min_buffers = alloc_req.NumFrameMin;
     stream->out.params.max_buffers = alloc_req.NumFrameSuggested;
     virtio_video_msdk_stream_reset_param(stream, &param, false);
@@ -309,6 +309,7 @@ static mfxStatus virtio_video_decode_one_frame(VirtIOVideoWork *work,
     } while (status == MFX_WRN_DEVICE_BUSY);
 
     work_surface->used = false;
+    DPRINTF("dyang23 work_surface->used:%d, surface.Data.Locked:%d", work_surface->used, work_surface->surface.Data.Locked);
     vpp_work_surface->used = true;
     m_frame->vpp_surface = vpp_work_surface;
     return MFX_ERR_NONE;
@@ -520,6 +521,7 @@ static void virtio_video_decode_retrieve_one_frame(VirtIOVideoFrame *frame,
     } else {
         work->timestamp = m_frame->vpp_surface->surface.Data.TimeStamp;
     }
+
     virtio_video_msdk_uninit_frame(frame);
     virtio_video_work_done(work);
     qemu_event_set(&m_session->input_notifier);
@@ -1026,8 +1028,8 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
         return len;
     }
 
-    //m_session->IOPattern = MFX_IOPATTERN_OUT_VIDEO_MEMORY;
-    m_session->IOPattern = MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
+    m_session->IOPattern = MFX_IOPATTERN_OUT_VIDEO_MEMORY;
+    //m_session->IOPattern = MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
     if (m_session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY) {
         m_session->frame_allocator = g_new0(mfxFrameAllocator, 1);
         m_session->frame_allocator->pthis = m_session;
