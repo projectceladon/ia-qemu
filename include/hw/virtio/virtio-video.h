@@ -35,6 +35,7 @@
 //#define DEBUG_VIRTIO_VIDEO_ALL //enable all log
 //#define DEBUG_VIRTIO_VIDEO_IOV
 #define DEBUG_VIRTIO_VIDEO_EVENT
+//#define ENABLE_MEMORY_REMAP
 
 #ifdef DEBUG_VIRTIO_VIDEO
 #define DPRINTF(fmt, ...) \
@@ -104,6 +105,7 @@ typedef enum virtio_video_stream_state {
 typedef union VirtIOVideoResourceSlice {
     struct {
         void *base;
+        void *remapped_addr;
         hwaddr len;
     } page;
     struct {
@@ -120,6 +122,8 @@ typedef struct VirtIOVideoResource {
     uint32_t plane_offsets[VIRTIO_VIDEO_MAX_PLANES];
     uint32_t num_entries[VIRTIO_VIDEO_MAX_PLANES];
     VirtIOVideoResourceSlice *slices[VIRTIO_VIDEO_MAX_PLANES];
+    void *remapped_base;
+    uint32_t remapped_size;
     QLIST_ENTRY(VirtIOVideoResource) next;
 } VirtIOVideoResource;
 

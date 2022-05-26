@@ -26,6 +26,7 @@
 #include "qemu/error-report.h"
 #include "qapi/error.h"
 #include "sysemu/dma.h"
+#include "exec/ram_addr.h"
 #include "hw/virtio/virtio-video.h"
 #include "virtio-video-util.h"
 #include "virtio-video-msdk.h"
@@ -157,6 +158,31 @@ static size_t virtio_video_process_cmd_stream_drain(VirtIODevice *vdev,
     }
 }
 
+static int virtio_video_get_ramblock_fd(AddressSpace *as,
+                                        hwaddr addr,
+                                        hwaddr *plen,
+                                        bool is_write)
+{
+    hwaddr len = *plen;
+    hwaddr l, xlat;
+    MemoryRegion *mr;
+    struct RAMBlock *rb;
+    FlatView *fv;
+    if (len == 0)
+    {
+        return -1;
+    }
+
+    l = len;
+    RCU_READ_LOCK_GUARD();
+    fv = address_space_to_flatview(as);
+    mr = flatview_translate(fv, addr, &xlat, &l, is_write, MEMTXATTRS_UNSPECIFIED);
+    rb = mr->ram_block;
+
+    DPRINTF("as:%p, addr:%p, mr:%p, ramblock:%p, file:%d\n", as, (void *)addr, mr, mr->ram_block, rb->fd);
+    return rb->fd;
+}
+
 static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
     virtio_video_mem_entry *entries, bool output)
 {
@@ -166,26 +192,76 @@ static int virtio_video_resource_create_page(VirtIOVideoResource *resource,
     hwaddr len;
     int i, j, n;
     uint32_t real_size = 0;
-    for (i = 0, n = 0; i < resource->num_planes; i++) {
+    char *remap_p, *remaped_p;
+    int fd;
+
+    for (i = 0, n = 0; i < resource->num_planes; i++)
+    {
         resource->slices[i] = g_new0(VirtIOVideoResourceSlice,
                                      resource->num_entries[i]);
-        DPRINTF_IOV("%s, plane:%d, entry:%d\n", __func__, i, resource->num_entries[i]);
-        for (j = 0; j < resource->num_entries[i]; j++, n++) {
+        DPRINTF("plane:%d, entry:%d\n", i, resource->num_entries[i]);
+        for (j = 0; j < resource->num_entries[i]; j++, n++)
+        {
             len = entries[n].length;
             slice = &resource->slices[i][j];
-
-            DPRINTF_IOV("%s, slice[%d][%d] = %d\n", __func__, i,j, entries[n].length);
 
             slice->page.base = dma_memory_map(resource->dma_as,
                                               entries[n].addr, &len, dir);
             slice->page.len = len;
             real_size += len;
 
-            
-            if (len < entries[n].length) {
+            if (len < entries[n].length)
+            {
                 dma_memory_unmap(resource->dma_as, slice->page.base,
                                  slice->page.len, dir, 0);
                 goto error;
+            }
+        }
+    }
+
+    if (output)
+    {
+        #ifdef ENABLE_MEMORY_REMAP
+        resource->remapped_base = mmap(NULL, real_size, PROT_READ | PROT_WRITE,
+                                       MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+        #else
+        resource->remapped_base = MAP_FAILED;
+        #endif
+
+        if (resource->remapped_base == MAP_FAILED)
+        {
+            DPRINTF("remap failed, will use slice\n");
+            resource->remapped_base = NULL;
+        }
+        else
+        {
+            resource->remapped_size = real_size;
+            remap_p = resource->remapped_base;
+            for (i = 0, n = 0; i < resource->num_planes; i++)
+            {
+                for (j = 0; j < resource->num_entries[i]; j++, n++)
+                {
+                    len = entries[n].length;
+                    slice = &resource->slices[i][j];
+
+                    fd = virtio_video_get_ramblock_fd(resource->dma_as, entries[n].addr, &len, dir);
+                    if (fd == -1)
+                    {
+                        DPRINTF("remap failed,fd = %d\n", fd);
+                        resource->remapped_base = NULL;
+                        break;
+                    }
+                    remaped_p = (char *)mmap(remap_p, entries[n].length, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, fd, entries[n].addr);
+                    if (remaped_p == MAP_FAILED || remaped_p != remap_p)
+                    {
+                        DPRINTF("remap failed, will use slice\n");
+                        resource->remapped_base = NULL;
+                        break;
+                    }
+                    slice->page.remapped_addr = remaped_p;
+                    DPRINTF("entries[n].addr:%p, len:%d, to %p, hint:%p\n", (int *)entries[n].addr, (int)entries[n].length, remaped_p, (char *)remap_p);
+                    remap_p = remaped_p + entries[n].length;
+                }
             }
         }
     }
@@ -316,6 +392,7 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
     resource->id = req->resource_id;
     resource->planes_layout = req->planes_layout;
     resource->num_planes = req->num_planes;
+    resource->remapped_base = NULL;
     MEMCPY_S(&resource->plane_offsets, &req->plane_offsets,
            sizeof(resource->plane_offsets), sizeof(resource->plane_offsets));
    // memcpy(&resource->num_entries, &req->num_entries,

@@ -316,11 +316,20 @@ void virtio_video_destroy_resource(VirtIOVideoResource *resource,
     DMADirection dir = in ? DMA_DIRECTION_TO_DEVICE : DMA_DIRECTION_FROM_DEVICE;
     int i, j;
 
+    if (resource->remapped_base)
+    {
+        munmap(resource->remapped_base, resource->remapped_size);
+        resource->remapped_base = NULL;
+        resource->remapped_size = 0;
+    }
     QLIST_REMOVE(resource, next);
-    for (i = 0; i < resource->num_planes; i++) {
-        for (j = 0; j < resource->num_entries[i]; j++) {
+    for (i = 0; i < resource->num_planes; i++)
+    {
+        for (j = 0; j < resource->num_entries[i]; j++)
+        {
             slice = &resource->slices[i][j];
-            if (mem_type == VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES) {
+            if (mem_type == VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES)
+            {
                 dma_memory_unmap(resource->dma_as, slice->page.base,
                                  slice->page.len, dir, slice->page.len);
             } /* TODO: support object memory type */
@@ -415,24 +424,35 @@ static int virtio_video_memcpy_singlebuffer(VirtIOVideoResource *res,
     int i;
     DPRINTF("src:%p, size:%d\n", src, (int)size);
 
-    for (i = 0; i < res->num_entries[0]; i++, base += slice->page.len) {
-        slice = &res->slices[0][i];
-        if (begin >= base + slice->page.len)
-            continue;
-        /* begin >= base is always true */
-        diff = begin - base;
-        len = slice->page.len - diff;
-        if (end <= base + slice->page.len) {
-            MEMCPY_S(slice->page.base + diff, src, size, size);
-            return 0;
-        } else {
-            MEMCPY_S(slice->page.base + diff, src, len, len);
-            begin += len;
-            size -= len;
-            src += len;
+    if (res->remapped_base)
+    {
+        memcpy(res->remapped_base, src, size);
+        size=0;
+    }
+    else
+    {
+        for (i = 0; i < res->num_entries[0]; i++, base += slice->page.len)
+        {
+            slice = &res->slices[0][i];
+            if (begin >= base + slice->page.len)
+                continue;
+            /* begin >= base is always true */
+            diff = begin - base;
+            len = slice->page.len - diff;
+            if (end <= base + slice->page.len)
+            {
+                MEMCPY_S(slice->page.base + diff, src, size, size);
+                return 0;
+            }
+            else
+            {
+                MEMCPY_S(slice->page.base + diff, src, len, len);
+                begin += len;
+                size -= len;
+                src += len;
+            }
         }
     }
-
     if (size > 0) {
         error_report("CMD_RESOURCE_QUEUE: output buffer insufficient "
                      "to contain the frame");
