@@ -487,7 +487,6 @@ static void virtio_video_decode_retrieve_one_frame(VirtIOVideoFrame *frame,
                     stream->id, frame->timestamp, ret);
         }
     }
-    // printf_mfxFrameSurface1(m_frame->surface->surface);
 
     /* It's better to output something, even if it's corrupted. */
     if (ret != 0) {
@@ -1503,6 +1502,8 @@ size_t virtio_video_msdk_dec_resource_queue(VirtIOVideo *v,
             qemu_mutex_unlock(&stream->mutex);
             return len;
         default:
+            g_free(work->opaque);
+            g_free(work);
             break;
         }
 

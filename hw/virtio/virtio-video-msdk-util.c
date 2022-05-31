@@ -1085,9 +1085,9 @@ void printf_mfxFrameData(mfxFrameData *mfxData){
     printf("mfxFrameData->PitchLow = %d\n", mfxData->PitchLow);
     printf("mfxFrameData->PitchHigh = %d\n", mfxData->PitchHigh);
 }
-void printf_mfxFrameSurface1(mfxFrameSurface1 surface){
-    printf_mfxFrameInfo(&surface.Info);
-    printf_mfxFrameData(&surface.Data);
+void printf_mfxFrameSurface1(mfxFrameSurface1 *surface){
+    printf_mfxFrameInfo(&surface->Info);
+    printf_mfxFrameData(&surface->Data);
 }
 
 void printf_mfxBitstream(mfxBitstream *bs)

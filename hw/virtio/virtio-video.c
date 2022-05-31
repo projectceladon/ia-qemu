@@ -91,7 +91,7 @@ static size_t virtio_video_process_cmd_query_capability(VirtIODevice *vdev,
                    sizeof(virtio_video_format_range);
         }
     }
-
+    
     *resp = g_malloc0(len);
     (*resp)->hdr.type = VIRTIO_VIDEO_RESP_OK_QUERY_CAPABILITY;
     (*resp)->hdr.stream_id = req->hdr.stream_id;
@@ -360,10 +360,12 @@ static size_t virtio_video_process_cmd_resource_create(VirtIODevice *vdev,
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
         error_report("CMD_RESOURCE_CREATE: stream %d unsupported "
                      "memory type (object)", stream->id);
+        g_free(resource);
         goto out;
     }
     default:
         resp->type = VIRTIO_VIDEO_RESP_ERR_INVALID_PARAMETER;
+        g_free(resource);
         goto out;
     }
 

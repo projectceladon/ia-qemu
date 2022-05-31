@@ -113,6 +113,7 @@ mfxStatus virtio_video_frame_alloc(mfxHDL pthis, mfxFrameAllocRequest *request, 
         if (err != VA_STATUS_SUCCESS)
         {
             fprintf(stderr, "Error allocating VA surfaces\n");
+            g_free(vv_surface);
             goto fail;
         }
         m_session->surface_ids[i] = &m_session->surfaces[i];

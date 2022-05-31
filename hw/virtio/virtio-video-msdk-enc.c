@@ -101,15 +101,15 @@ static void *virtio_video_enc_overdue_stream_thread(void *arg)
         while (!QTAILQ_EMPTY(&stream->input_work)) {
             work = QTAILQ_FIRST(&stream->input_work);
             work->timestamp = 0;
-            virtio_video_work_done(work);
             QTAILQ_REMOVE(&stream->input_work, work, next);
+            virtio_video_work_done(work);
         }
 
         while (!QTAILQ_EMPTY(&stream->output_work)) {
             work = QTAILQ_FIRST(&stream->output_work);
             work->timestamp = 0;
-            virtio_video_work_done(work);
             QTAILQ_REMOVE(&stream->output_work, work, next);
+            virtio_video_work_done(work);
         }
 
         // Check whether the pending frame list is empty
@@ -621,7 +621,7 @@ size_t virtio_video_msdk_enc_resource_queue(VirtIOVideo *v,
 
     if (pStream == NULL) {
         resp->hdr.type = VIRTIO_VIDEO_RESP_ERR_INVALID_STREAM_ID;
-        error_report("CMD_RESOURCE_QUEUE: stream %d not found.\n", pStream->id);
+        error_report("CMD_RESOURCE_QUEUE: stream %d not found.\n", req->hdr.stream_id);
         return len;
     }
 
@@ -883,7 +883,7 @@ size_t virtio_video_msdk_enc_get_params(VirtIOVideo *v,
         }
     }
     if (pStream == NULL) {
-        error_report("CMD_GET_PARAMS : stream %d not found in encoder\n", pStream->id);
+        error_report("CMD_GET_PARAMS : stream %d not found in encoder\n", req->hdr.stream_id);
         return len;
     }
 
@@ -1942,7 +1942,6 @@ int virtio_video_encode_retrieve_one_frame(VirtIOVideoFrame *pframe, VirtIOVideo
     VirtIOVideoResource *res = work->resource;
     mfxBitstream *bs = NULL;
     MsdkSurface *msurface = NULL;
-    FILE *pTmpFile = fopen("out.h264", "ab+");
 
     if (pframe) {
         frame = pframe->opaque;
@@ -1964,6 +1963,7 @@ int virtio_video_encode_retrieve_one_frame(VirtIOVideoFrame *pframe, VirtIOVideo
         }
 
         virtio_video_memcpy(res, 0, bs->Data, bs->DataLength);
+        FILE *pTmpFile = fopen("out.h264", "ab+");
         if (pTmpFile) {
             fwrite(bs->Data, 1, bs->DataLength, pTmpFile);
             fclose(pTmpFile);
