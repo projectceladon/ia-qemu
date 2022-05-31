@@ -58,7 +58,7 @@ typedef struct MsdkSurface {
 typedef struct MsdkFrame {
     MsdkSurface *surface;
     MsdkSurface *vpp_surface;
-    void *pBitStream; // added by Shenlin 2022.1.14
+    void *bitstream; // added by Shenlin 2022.1.14
     mfxSyncPoint sync;
     mfxSyncPoint vpp_sync;
 } MsdkFrame;
@@ -73,6 +73,9 @@ typedef struct MsdkSession {
     QemuThread output_thread;
     QemuEvent input_notifier;
     QemuEvent output_notifier;
+    bool input_thread_exited;
+    bool output_thread_exited;
+    QemuEvent inout_thread_exited;
     mfxSession session;
     VADisplay va_dpy;
     mfxFrameAllocator *frame_allocator;

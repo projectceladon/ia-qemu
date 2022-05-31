@@ -465,8 +465,14 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     uint32_t width, height, size;
     int i, surface_num;
 
-    width = alloc_req->Info.Width;
-    height = alloc_req->Info.Height;
+    if (encode) {
+        width = alloc_req->Info.Width;
+        height = alloc_req->Info.Height;
+    } else {
+        width = MSDK_ALIGN32(alloc_req->Info.Width);
+        height = MSDK_ALIGN32(alloc_req->Info.Height);
+    }
+
 
     switch (info->FourCC) {
     case MFX_FOURCC_RGB4:
@@ -578,8 +584,8 @@ void virtio_video_msdk_uninit_frame(VirtIOVideoFrame *frame)
         if (m_frame->vpp_surface)
             m_frame->vpp_surface->used = false;
         
-        if (m_frame->pBitStream)
-            g_free(m_frame->pBitStream);
+        if (m_frame->bitstream)
+            g_free(m_frame->bitstream);
         
         g_free(m_frame);
     }
@@ -1491,24 +1497,24 @@ void virtio_video_msdk_add_pf_to_pool(MsdkSession *session, uint32_t buffer_size
     assert(session != NULL);
 
     static uint32_t id = 0;
-    MsdkFrame *mframe = NULL;
-    VirtIOVideoFrame *pending_frame = NULL;
+    MsdkFrame *frame = NULL;
+    VirtIOVideoFrame *pframe = NULL;
     mfxBitstream *bs = NULL;
     uint8_t *data = NULL;
 
     for (uint32_t i = 0; i < inc_num; i++) {
         data = g_malloc0(buffer_size);
-        pending_frame = g_new0(VirtIOVideoFrame, 1);
-        mframe = g_new0(MsdkFrame, 1);
+        pframe = g_new0(VirtIOVideoFrame, 1);
+        frame = g_new0(MsdkFrame, 1);
         bs = g_new0(mfxBitstream, 1);
         bs->Data = data;
         bs->MaxLength = buffer_size;
         bs->DataLength = 0;
-        mframe->pBitStream = bs;
-        pending_frame->opaque = mframe;
-        pending_frame->used = false;
-        pending_frame->id = id++;
-        QTAILQ_INSERT_HEAD(&session->pending_frame_pool, pending_frame, next);
+        frame->bitstream = bs;
+        pframe->opaque = frame;
+        pframe->used = false;
+        pframe->id = id++;
+        QTAILQ_INSERT_HEAD(&session->pending_frame_pool, pframe, next);
     }
 }
 // end

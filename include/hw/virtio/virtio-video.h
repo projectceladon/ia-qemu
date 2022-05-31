@@ -25,7 +25,7 @@
 
 
 #include <time.h>
-#include "mfxvideo.h"
+#include "mfx/mfxvideo.h"
 #include "standard-headers/linux/virtio_video.h"
 #include "hw/virtio/virtio.h"
 #include "sysemu/iothread.h"
@@ -257,6 +257,13 @@ struct VirtIOVideo {
     void *opaque;
     QemuMutex mutex;
     AioContext *ctx;
+
+    // added by shenlin
+    QLIST_HEAD(, VirtIOVideoStream) overdue_stream_list;
+    QemuThread overdue_thread;
+    QemuMutex overdue_mutex;
+    bool overdue_run;
+    QemuEvent overdue_event;
 };
 
 /* added by shenlin 2022.1.25 */
