@@ -3314,13 +3314,13 @@ CWD="`realpath \"$0\"`"
 CWD="`dirname \"${CWD}\"`"
 export PKG_CONFIG_PATH="${CWD}/media/output/lib/pkgconfig":${PKG_CONFIG_PATH}
 if test "$mfx" != "no" ; then
-    if $pkg_config --exact-version=1.35 mfx; then
+    if $pkg_config --atleast-version=1.35 mfx; then
         mfx="yes"
         mfx_cflags=$($pkg_config --cflags mfx)
         mfx_libs=$($pkg_config --libs mfx)
     else
         if test "$mfx" = "yes"; then
-            feature_not_found "mfx" "Update MediaSDK submodule to 1.35"
+            feature_not_found "mfx" "Update MediaSDK to 1.35"
         fi
         mfx="no"
     fi
@@ -3332,13 +3332,13 @@ CWD="`realpath \"$0\"`"
 CWD="`dirname \"${CWD}\"`"
 export PKG_CONFIG_PATH="${CWD}/media/output/lib/pkgconfig":${PKG_CONFIG_PATH}
 if test "$vaapi" != "no" ; then
-    if $pkg_config --exact-version=1.12.0 libva; then
+    if $pkg_config --atleast-version=1.12.0 libva; then
         vaapi="yes"
         vaapi_cflags=$($pkg_config --cflags libva-drm)
         vaapi_libs=$($pkg_config --libs libva-drm)
     else
         if test "$vaapi" = "yes"; then
-            feature_not_found "libva" "Update MediaSDK submodule to 1.12.0"
+            feature_not_found "libva" "Update Libva to 1.12.0"
         fi
         vaapi="no"
     fi
