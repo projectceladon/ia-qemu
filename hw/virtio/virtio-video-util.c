@@ -719,7 +719,7 @@ int virtio_video_memcpy_r(VirtIOVideoResource *res, uint32_t idx, void *dst,
 }
 
 #if defined DEBUG_VIRTIO_VIDEO || defined VIRTIO_VIDEO_UTIL_DEBUG || defined DEBUG_VIRTIO_VIDEO_ALL
-static const char *virtio_video_event_name(uint32_t event)
+const char *virtio_video_event_name(uint32_t event)
 {
     switch (event) {
     case VIRTIO_VIDEO_EVENT_ERROR:
