@@ -203,7 +203,7 @@ struct VirtIOVideoStream {
     QTAILQ_HEAD(, VirtIOVideoWork) input_work;
     QTAILQ_HEAD(, VirtIOVideoWork) output_work;
     QLIST_ENTRY(VirtIOVideoStream) next;
-    /* added by Shenlin 2022.1.4 */
+
     bool bTdRun;
     bool bVpp;
     bool bPreenc;
@@ -212,7 +212,6 @@ struct VirtIOVideoStream {
     uint32_t queue_clear_type;
     mfxVideoParam *mvp;
     bool bHasOutput;
-    /* added end */
 };
 
 typedef struct VirtIOVideoControl {
@@ -262,7 +261,6 @@ struct VirtIOVideo {
     QemuMutex mutex;
     AioContext *ctx;
 
-    // added by shenlin
     QLIST_HEAD(, VirtIOVideoStream) overdue_stream_list;
     QemuThread overdue_thread;
     QemuMutex overdue_mutex;
@@ -270,7 +268,6 @@ struct VirtIOVideo {
     QemuEvent overdue_event;
 };
 
-/* added by shenlin 2022.1.25 */
 typedef struct EncodePresetParameters {
     uint16_t GopRefDist;
 

@@ -54,7 +54,7 @@ int virtio_video_memcpy_NV12_byline(VirtIOVideoResource *res, void *Y, void *UV,
                         uint32_t width, uint32_t height, uint32_t pitch);
 int virtio_video_memcpy_NV12(VirtIOVideoResource *res, void *Y, uint32_t size_Y,
                              void *UV, uint32_t size_UV);
-int virtio_video_memcpy_r(VirtIOVideoResource *pRes, uint32_t idx, void *pDst,  // Added by Shenlin 2022.2.28
+int virtio_video_memcpy_r(VirtIOVideoResource *pRes, uint32_t idx, void *pDst,
                         uint32_t size); // resource -> surface
 
 int virtio_video_event_complete(VirtIODevice *vdev, VirtIOVideoEvent *event);

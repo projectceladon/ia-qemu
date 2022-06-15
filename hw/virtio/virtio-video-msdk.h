@@ -58,7 +58,7 @@ typedef struct MsdkSurface {
 typedef struct MsdkFrame {
     MsdkSurface *surface;
     MsdkSurface *vpp_surface;
-    void *bitstream; // added by Shenlin 2022.1.14
+    void *bitstream;
     mfxSyncPoint sync;
     mfxSyncPoint vpp_sync;
 } MsdkFrame;
@@ -87,7 +87,11 @@ typedef struct MsdkSession {
     VASurfaceID *surfaces; //for video memory
     mfxMemId    *surface_ids;
 
+    VASurfaceID *vpp_surfaces; //for video memory
+    mfxMemId    *vpp_surface_ids;
+
     mfxU16  IOPattern;
+    mfxU16  vpp_IOPattern;
 
     QLIST_HEAD(, MsdkSurface) surface_pool;
     QLIST_HEAD(, MsdkSurface) vpp_surface_pool;

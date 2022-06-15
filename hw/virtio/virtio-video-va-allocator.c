@@ -127,7 +127,7 @@ mfxStatus virtio_video_frame_alloc(mfxHDL pthis, mfxFrameAllocRequest *request, 
         vv_surface->surface.Info.CropW = request->Info.Width;
         vv_surface->surface.Info.CropH = request->Info.Height;
         vv_surface->surface.Info.CropX = 0;
-        vv_surface->surface.Info.CropW = 0;
+        vv_surface->surface.Info.CropY = 0;
         vv_surface->surface.Info.FourCC = request->Info.FourCC;
 
         DPRINTF("%s insert surface_pool:%p\n", __func__, vv_surface);
@@ -149,18 +149,24 @@ mfxStatus virtio_video_frame_free(mfxHDL pthis, mfxFrameAllocResponse *response)
     MsdkSession *m_session = pthis;
     DPRINTF("\n");
 
-    //m_session = pthis;
-    if (m_session && m_session->surfaces) {
+    if (m_session && m_session->surfaces)
+    {
+        vaDestroySurfaces(m_session->va_dpy, m_session->surfaces, response->NumFrameActual);
         g_free(m_session->surfaces);
         m_session->surfaces = NULL;
         DPRINTF("free m_session->surfaces\n");
     }
 
-    if (m_session && m_session->surface_ids) {
+    if (m_session && m_session->surface_ids)
+    {
         g_free(m_session->surface_ids);
         m_session->surface_ids = NULL;
         DPRINTF("free m_session->surface_ids\n");
     }
+
+    if (response->mids)
+        response->mids = NULL;
+    response->NumFrameActual = 0;
 
     return MFX_ERR_NONE;
 }
@@ -432,7 +438,7 @@ mfxStatus virtio_video_frame_unlock(mfxHDL pthis, mfxMemId mid,
 
 mfxStatus virtio_video_frame_get_handle(mfxHDL pthis, mfxMemId mid, mfxHDL *handle)
 {
-    DPRINTF("\n");
+    DPRINTF("handle:%p\n",mid);
     *handle = mid;
     return MFX_ERR_NONE;
 }

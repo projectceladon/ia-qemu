@@ -152,9 +152,12 @@ static mfxStatus virtio_video_decode_parse_header(VirtIOVideoWork *work)
         m_session->vpp_surface_num = 16;
     else
         m_session->vpp_surface_num = vpp_pool_size;
-    virtio_video_msdk_init_surface_pool(m_session, &vpp_req[1],
-                                        &vpp_param.vpp.Out, true, false);
-                                                         /* vpp?  encode? */
+    if (vpp_param.IOPattern & MFX_IOPATTERN_OUT_VIDEO_MEMORY)
+        virtio_video_msdk_init_vpp_video_surface_pool(m_session, &vpp_req[1],
+                                                      &vpp_param.vpp.Out);
+    else
+        virtio_video_msdk_init_surface_pool(m_session, &vpp_req[1],
+                                            &vpp_param.vpp.Out, true, false);
 done:
     m_session->surface_num += alloc_req.NumFrameSuggested;
     if (param.IOPattern != MFX_IOPATTERN_OUT_VIDEO_MEMORY)
@@ -1028,7 +1031,7 @@ size_t virtio_video_msdk_dec_stream_create(VirtIOVideo *v,
     }
 
     m_session->IOPattern = MFX_IOPATTERN_OUT_VIDEO_MEMORY;
-    //m_session->IOPattern = MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
+    m_session->vpp_IOPattern = MFX_IOPATTERN_OUT_VIDEO_MEMORY;
     if (m_session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY) {
         m_session->frame_allocator = g_new0(mfxFrameAllocator, 1);
         m_session->frame_allocator->pthis = m_session;

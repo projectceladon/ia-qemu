@@ -42,7 +42,6 @@
 #define DPRINTF(fmt, ...) do { } while (0)
 #endif
 
-// added by shenlin
 EncPresPara presets[PRESET_MAX_MODES][PRESET_MAX_CODECS] =
 {
     // Default
@@ -86,7 +85,6 @@ void GetDependentPreset(DepPresPara *pDpp, EPresetModes mode, uint32_t fourCC, d
 uint16_t CalculateDefaultBitrate(uint32_t fourCC, uint32_t targetUsage, uint32_t width, uint32_t height, double framerate);
 void CaculateBItrate_AddPairs(PartiallyLinearFNC *pFnc, double x, double y);
 double CaculateBitrate_At(PartiallyLinearFNC *pFnc, double x);
-// end
 
 #define VIRTIO_VIDEO_DRM_DEVICE "/dev/dri/by-path/pci-0000:00:02.0-render"
 
@@ -356,8 +354,7 @@ int virtio_video_msdk_init_vpp_param_dec(mfxVideoParam *param,
 
     switch(stream->out.mem_type) {
     case VIRTIO_VIDEO_MEM_TYPE_GUEST_PAGES:
-        vpp_param->IOPattern |= /*MFX_IOPATTERN_IN_SYSTEM_MEMORY*/MFX_IOPATTERN_IN_VIDEO_MEMORY |
-                                MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
+        vpp_param->IOPattern |= MFX_IOPATTERN_IN_VIDEO_MEMORY | MFX_IOPATTERN_OUT_VIDEO_MEMORY;
         break;
     case VIRTIO_VIDEO_MEM_TYPE_VIRTIO_OBJECT:
         vpp_param->IOPattern |= MFX_IOPATTERN_IN_VIDEO_MEMORY |
@@ -370,7 +367,6 @@ int virtio_video_msdk_init_vpp_param_dec(mfxVideoParam *param,
     return 0;
 }
 
-// Added by Shenlin 2022.2.28
 void *virtio_video_msdk_inc_pool_size(MsdkSession *session, uint32_t inc_num, bool vpp, bool encode)
 {
     assert(session != NULL);
@@ -457,6 +453,58 @@ void *virtio_video_msdk_inc_pool_size(MsdkSession *session, uint32_t inc_num, bo
     return pSurf;
 }
 
+void virtio_video_msdk_init_vpp_video_surface_pool(MsdkSession *session,
+                                         mfxFrameAllocRequest *request, mfxFrameInfo *info)
+{
+    MsdkSurface *vv_surface;
+    int i, err;
+
+    session->vpp_surfaces = g_new0(VASurfaceID, request->NumFrameSuggested);
+    session->vpp_surface_ids = g_new0(mfxMemId, request->NumFrameSuggested);
+    session->vpp_surface_num = request->NumFrameSuggested;
+    DPRINTF("request->Type:0x%x\n",request->Type);
+
+    for (i = 0; i < request->NumFrameSuggested; i++)
+    {
+        vv_surface = g_new0(MsdkSurface, 1);
+
+        vv_surface->used = false;
+
+        err = vaCreateSurfaces(session->va_dpy, VA_RT_FORMAT_RGB32,
+                               request->Info.Width, request->Info.Height,
+                               &session->vpp_surfaces[i], 1,
+                               NULL, 0);
+        if (err != VA_STATUS_SUCCESS)
+        {
+            fprintf(stderr, "Error allocating VA surfaces\n");
+            g_free(vv_surface);
+            goto fail;
+        }
+        session->vpp_surface_ids[i] = &session->vpp_surfaces[i];
+        // vv_surface->surface.Data.MemType = MFX_MEMTYPE_EXTERNAL_FRAME;
+        vv_surface->surface.Data.MemId = &session->vpp_surfaces[i];
+
+        vv_surface->surface.Data.TimeStamp = 0;
+        vv_surface->surface.Data.FrameOrder = 0;
+
+        vv_surface->surface.Info = request->Info;
+        vv_surface->surface.Info.CropW = request->Info.Width;
+        vv_surface->surface.Info.CropH = request->Info.Height;
+        vv_surface->surface.Info.CropX = 0;
+        vv_surface->surface.Info.CropY = 0;
+        vv_surface->surface.Info.FourCC = request->Info.FourCC;
+
+        DPRINTF("%s insert surface_pool:%p\n", __func__, vv_surface);
+        QLIST_INSERT_HEAD(&session->vpp_surface_pool, vv_surface, next);
+    }
+
+    return ;
+fail:
+    g_free(session->vpp_surfaces);
+    g_free(session->vpp_surface_ids);
+    return ;
+}
+
 void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     mfxFrameAllocRequest *alloc_req, mfxFrameInfo *info, bool vpp, bool encode)
 {
@@ -540,16 +588,18 @@ void virtio_video_msdk_init_surface_pool(MsdkSession *session,
     }
 }
 
-static void virtio_video_msdk_uninit_surface(MsdkSurface *surface)
+static void virtio_video_msdk_uninit_surface(MsdkSession *session, MsdkSurface *surface)
 {
     switch (surface->surface.Info.FourCC) {
     case MFX_FOURCC_RGB4:
-        g_free(surface->surface.Data.B);
+        if (session->vpp_IOPattern & MFX_IOPATTERN_OUT_SYSTEM_MEMORY)
+            g_free(surface->surface.Data.B);
         break;
     case MFX_FOURCC_NV12:
     case MFX_FOURCC_IYUV:
     case MFX_FOURCC_YV12:
-        g_free(surface->surface.Data.Y);
+        if (session->IOPattern & MFX_IOPATTERN_OUT_SYSTEM_MEMORY)
+            g_free(surface->surface.Data.Y);
         break;
     default:
         break;
@@ -561,13 +611,44 @@ void virtio_video_msdk_uninit_surface_pools(MsdkSession *session)
 {
     MsdkSurface *surface, *tmp_surface;
 
+    // Decode surface pool
     QLIST_FOREACH_SAFE(surface, &session->surface_pool, next, tmp_surface) {
         QLIST_REMOVE(surface, next);
-        virtio_video_msdk_uninit_surface(surface);
+        virtio_video_msdk_uninit_surface(session, surface);
     }
+    if (session->IOPattern & MFX_IOPATTERN_OUT_VIDEO_MEMORY)
+    {
+        // suppose the decode output buffer will be freed by MSDK.
+        if (session->surfaces)
+        {
+            g_free(session->surfaces);
+            session->surfaces = NULL;
+        }
+        if (session->surface_ids)
+        {
+            g_free(session->surface_ids);
+            session->surface_ids = NULL;
+        }
+    }
+
+    // VPP surface pool
     QLIST_FOREACH_SAFE(surface, &session->vpp_surface_pool, next, tmp_surface) {
         QLIST_REMOVE(surface, next);
-        virtio_video_msdk_uninit_surface(surface);
+        virtio_video_msdk_uninit_surface(session, surface);
+    }
+    if (session->vpp_IOPattern & MFX_IOPATTERN_OUT_VIDEO_MEMORY)
+    {
+        vaDestroySurfaces(session->va_dpy, session->vpp_surfaces, session->vpp_surface_num);
+        if (session->vpp_surfaces)
+        {
+            g_free(session->vpp_surfaces);
+            session->vpp_surfaces = NULL;
+        }
+        if (session->vpp_surface_ids)
+        {
+            g_free(session->vpp_surface_ids);
+            session->vpp_surface_ids = NULL;
+        }
     }
 }
 
@@ -617,7 +698,6 @@ void virtio_video_msdk_dump_surface(char * src, int len) {
 #endif
 }
 
-// Added by Shenlin 2022.2.25
 // Copy data from resource to surface
 int virtio_video_msdk_input_surface(MsdkSurface *surface, 
     VirtIOVideoResource *resource)
@@ -731,18 +811,20 @@ int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
     case MFX_FOURCC_RGB4:
         if (resource->num_planes != 1)
             goto error;
+
+        if (session->vpp_IOPattern & MFX_IOPATTERN_OUT_VIDEO_MEMORY && session->frame_allocator)
+            session->frame_allocator->Lock(session, &vaapi_mid, &frame->Data);
+
         DPRINTF("PitchHight: %d, PitchLow: %d\n", frame->Data.PitchHigh, frame->Data.PitchLow);
         pitch = frame->Data.PitchLow;
-        DPRINTF("surface widthx4: %d,  pitch: %d\n", width * 4, pitch);
-        if (pitch == (width * 4))
-            ret +=
-	        virtio_video_memcpy(resource, 0, frame->Data.B, width * height * 4);
-        else
-            ret +=
-		virtio_video_memcpy_ARGB_byline(resource, frame->Data.B, width, height, pitch);
+
+        ret += virtio_video_memcpy(resource, 0, frame->Data.B, width * height * 4);
+
+        if (session->vpp_IOPattern & MFX_IOPATTERN_OUT_VIDEO_MEMORY && session->frame_allocator)
+            session->frame_allocator->Unlock(session, &vaapi_mid, &frame->Data);
         break;
     case MFX_FOURCC_NV12:
-        if (session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY &&
+        if (session->IOPattern & MFX_IOPATTERN_OUT_VIDEO_MEMORY &&
             session->frame_allocator) {
             session->frame_allocator->Lock(session, &vaapi_mid, &frame->Data);
         }
@@ -759,9 +841,8 @@ int virtio_video_msdk_output_surface(MsdkSession *session, MsdkSurface *surface,
                 ret += virtio_video_memcpy_NV12_byline(resource, frame->Data.Y, frame->Data.U,
 		                         width, height, pitch);
 
-        if (session->IOPattern == MFX_IOPATTERN_OUT_VIDEO_MEMORY &&
+        if (session->IOPattern & MFX_IOPATTERN_OUT_VIDEO_MEMORY &&
             session->frame_allocator) {
-            // virtio_video_unmap_surface(session, &img);
             session->frame_allocator->Unlock(session, &vaapi_mid, &frame->Data);
         }
 
@@ -1223,7 +1304,6 @@ char *virtio_video_stream_statu_to_string(virtio_video_stream_state statu)
     }
 }
 
-// added by shenlin
 void virtio_video_msdk_get_preset_param_enc(VirtIOVideoEncodeParamPreset *pVp, uint32_t fourCC, 
             double fps, uint32_t width, uint32_t height)
 {
@@ -1517,4 +1597,3 @@ void virtio_video_msdk_add_pf_to_pool(MsdkSession *session, uint32_t buffer_size
         QTAILQ_INSERT_HEAD(&session->pending_frame_pool, pframe, next);
     }
 }
-// end
