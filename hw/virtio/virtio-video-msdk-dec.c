@@ -178,7 +178,7 @@ static mfxStatus virtio_video_decode_one_frame(VirtIOVideoWork *work,
 {
     VirtIOVideoStream *stream = work->parent;
     MsdkSession *m_session = stream->opaque;
-    MsdkSurface *work_surface, *vpp_work_surface;
+    MsdkSurface *work_surface = NULL, *vpp_work_surface = NULL;
     mfxStatus status;
     mfxVideoParam param = {0};
     mfxBitstream *bitstream = &m_session->bitstream;
