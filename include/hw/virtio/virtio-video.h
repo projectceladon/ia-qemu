@@ -105,7 +105,6 @@ typedef enum virtio_video_stream_state {
 typedef union VirtIOVideoResourceSlice {
     struct {
         void *base;
-        void *remapped_addr;
         hwaddr len;
     } page;
     struct {
@@ -123,7 +122,7 @@ typedef struct VirtIOVideoResource {
     uint32_t num_entries[VIRTIO_VIDEO_MAX_PLANES];
     VirtIOVideoResourceSlice *slices[VIRTIO_VIDEO_MAX_PLANES];
     void *remapped_base;
-    uint32_t remapped_size;
+    hwaddr remapped_size;
     QLIST_ENTRY(VirtIOVideoResource) next;
 } VirtIOVideoResource;
 
