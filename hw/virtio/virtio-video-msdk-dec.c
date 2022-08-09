@@ -389,7 +389,9 @@ static mfxStatus virtio_video_decode_submit_one_work(VirtIOVideoWork *work,
         m_frame = g_new0(MsdkFrame, 1);
         status = virtio_video_decode_one_frame(work, m_frame, eos);
 
-        if (status == MFX_ERR_NOT_ENOUGH_BUFFER || (status != MFX_ERR_NONE && status != MFX_ERR_MORE_SURFACE && !eos)) {
+        if (status == MFX_ERR_NOT_ENOUGH_BUFFER ||
+               (status != MFX_ERR_NONE && status != MFX_ERR_MORE_SURFACE &&
+                               status != MFX_WRN_VIDEO_PARAM_CHANGED && !eos)) {
             if (m_frame->surface) {
                 error_report("%s status:%d with valid surface:%p\n", __func__,
                              status, m_frame->surface);
@@ -398,6 +400,12 @@ static mfxStatus virtio_video_decode_submit_one_work(VirtIOVideoWork *work,
                 break;
             }
         }
+
+	if (status == MFX_WRN_VIDEO_PARAM_CHANGED) {
+            DPRINTF("free frame when MFX_WRN_VIDEO_PARAM_CHANGED\n");
+            g_free(m_frame);
+            continue;
+	}
         // MFX_ERR_MORE_SURFACE, incase there is valid output surface need
         // handle.
         DPRINTF("m_frame->surface:%p\n", m_frame->surface);
